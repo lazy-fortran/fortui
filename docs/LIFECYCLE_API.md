@@ -35,7 +35,7 @@ Initialize the UI system with specified backend and window parameters.
 
 ```fortran
 subroutine ui_init(backend, width, height, title, target_fps, vsync)
-  character(*), intent(in) :: backend        ! "tui" | "gui"
+  character(*), intent(in) :: backend        ! "tui" | "gui" | "auto"
   integer,      intent(in) :: width, height  ! grid units (gu)  
   character(*), intent(in) :: title
   integer,      intent(in), optional :: target_fps   ! gui: default 60; tui: ignored
@@ -43,7 +43,10 @@ subroutine ui_init(backend, width, height, title, target_fps, vsync)
 ```
 
 **Parameters:**
-- `backend`: Backend selection - `"tui"` for terminal UI, `"gui"` for graphical window
+- `backend`: Backend selection with automatic detection support
+  - `"tui"`: Force terminal UI backend
+  - `"gui"`: Force graphical window backend (falls back to TUI if not available)
+  - `"auto"`: Automatically select best available backend based on environment
 - `width`, `height`: Window dimensions in grid units (gu)
   - **TUI**: 1 gu = 1 terminal cell
   - **GUI**: 1 gu = 1 monospace character width/height
@@ -54,7 +57,10 @@ subroutine ui_init(backend, width, height, title, target_fps, vsync)
 **Usage Examples:**
 
 ```fortran
-! Terminal UI - basic
+! Automatic backend selection (recommended)
+call ui_init(backend="auto", width=80, height=25, title="Smart App")
+
+! Terminal UI - explicit
 call ui_init(backend="tui", width=80, height=25, title="My TUI App")
 
 ! Terminal UI - larger
@@ -72,13 +78,34 @@ call ui_init(backend="gui", width=80, height=25, title="Power Efficient", &
              target_fps=30, vsync=.true.)
 ```
 
-**Grid Units Explained:**
+**Backend Selection Logic:**
 ```fortran
+! Automatic selection based on environment
+call ui_init("auto", 80, 25, "Smart App")  ! Chooses GUI if available, TUI otherwise
+
 ! TUI mode: direct terminal mapping
 call ui_init("tui", 80, 25, "Standard Terminal")  ! 80 columns × 25 rows
 
 ! GUI mode: monospace-equivalent mapping  
 call ui_init("gui", 80, 25, "GUI Window")         ! 80 chars wide × 25 chars tall
+```
+
+**Environment Variable Overrides:**
+```bash
+# Force specific backend regardless of code
+export FORTUI_BACKEND=tui
+./my_app  # Uses TUI even if code specifies "auto" or "gui"
+
+export FORTUI_BACKEND=gui  
+./my_app  # Uses GUI if available, TUI fallback otherwise
+
+# Force headless mode (useful for CI/testing)
+export FORTUI_HEADLESS=1
+./my_app  # Forces TUI backend
+
+# Disable GUI completely
+export DISABLE_GUI=1
+./my_app  # Forces TUI backend even if GUI compiled in
 ```
 
 ### ui_set_idle_policy (GUI Only)
@@ -288,13 +315,11 @@ program complete_lifecycle_example
   logical :: running
   integer :: frame_count = 0
   
-  ! 1. Initialize backend
-  call ui_init(backend="tui", width=80, height=25, title="Lifecycle Demo")
+  ! 1. Initialize with automatic backend selection
+  call ui_init(backend="auto", width=80, height=25, title="Lifecycle Demo")
   
-  ! 2. Optional: Configure for GUI efficiency
-#ifdef ENABLE_GUI
+  ! 2. Optional: Configure for GUI efficiency (ignored in TUI mode)
   call ui_set_idle_policy("adaptive", idle_fps=12)
-#endif
   
   ! 3. Main application loop
   running = .true.
@@ -302,8 +327,10 @@ program complete_lifecycle_example
     ! Begin frame with appropriate timeout
     call ui_frame_begin(timeout_ms=200)
     
-    ! Build UI tree here
-    ! ui_root = build_my_interface(frame_count)
+    ! Build UI tree here (using fortui_widgets when available)
+    ! ui_root = column(children=[ &
+    !   text("counter", "Frame: " // int_to_string(frame_count)), &
+    !   button("quit", "Exit") ])
     frame_count = frame_count + 1
     
     ! Present to backend
@@ -322,6 +349,15 @@ end program
 
 ## Backend-Specific Behavior
 
+### Auto Mode Behavior
+```fortran
+call ui_init("auto", 80, 25, "Smart App")
+! - Detects best available backend automatically
+! - GUI preferred if available and not in headless environment
+! - Falls back to TUI in headless environments (SSH, CI, no display)
+! - Respects FORTUI_BACKEND environment variable override
+```
+
 ### TUI Mode Behavior
 ```fortran
 call ui_init("tui", 80, 25, "TUI App")
@@ -338,6 +374,7 @@ call ui_init("gui", 100, 30, "GUI App", target_fps=60, vsync=.true.)
 ! - vsync enables smooth display synchronization
 ! - ui_set_idle_policy() enables power saving
 ! - ui_frame_begin(timeout_ms) ignored (uses target_fps instead)
+! - Falls back to TUI if GUI not available
 ```
 
 ## Error Handling
@@ -345,15 +382,21 @@ call ui_init("gui", 100, 30, "GUI App", target_fps=60, vsync=.true.)
 Lifecycle procedures are designed for robust operation:
 
 ```fortran
-! Safe to call multiple times
+! Safe to call multiple times - automatic cleanup and reinit
 call ui_init("tui", 80, 25, "App")
-call ui_init("gui", 100, 30, "App")  ! Replaces previous init
+call ui_init("gui", 100, 30, "App")  ! Automatically shuts down TUI, starts GUI
 
 ! Safe to call without initialization
 call ui_shutdown()  ! No-op if not initialized
 
-! Safe backend selection
-call ui_init("invalid", 80, 25, "App")  ! Falls back to safe default
+! Safe backend selection with automatic fallbacks
+call ui_init("invalid", 80, 25, "App")    ! Falls back to TUI with warning
+call ui_init("gui", 80, 25, "App")        ! Falls back to TUI if GUI unavailable
+call ui_init("auto", 80, 25, "App")       ! Intelligent selection based on environment
+
+! Parameter validation with sensible defaults
+call ui_init("tui", 0, 0, "App")          ! Uses minimum 1x1 with warning
+call ui_init("tui", -10, -5, "App")       ! Converts to positive values
 ```
 
 ## Performance Guidelines

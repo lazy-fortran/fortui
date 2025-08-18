@@ -13,8 +13,21 @@ Your application code remains identical - only compilation and initialization ch
 ## Quick Start
 
 ```fortran
-! Same code works for both backends
-program universal_app
+! Recommended: Let fortui choose the best backend automatically
+program smart_app
+  use fortui_core
+  implicit none
+  
+  call ui_init(backend="auto", width=80, height=25, title="My App")
+  
+  ! ... rest of application is identical ...
+  call ui_shutdown()
+end program
+```
+
+```fortran
+! Alternative: Explicit backend selection
+program explicit_app
   use fortui_core
   implicit none
   
@@ -66,7 +79,27 @@ fpm test --flag "-DENABLE_GUI"
 
 ## Runtime Backend Selection
 
-When compiled with GUI support, choose backend at runtime:
+### Automatic Selection (Recommended)
+
+```fortran
+program smart_app
+  use fortui_core
+  implicit none
+  
+  ! Let fortui choose the best backend automatically
+  call ui_init("auto", 80, 25, "Smart App")
+  
+  ! fortui automatically:
+  ! - Uses GUI if available and not in headless environment
+  ! - Falls back to TUI in SSH sessions, CI, or when no display
+  ! - Respects FORTUI_BACKEND environment variable override
+  
+  ! ... application logic identical for any backend ...
+  call ui_shutdown()
+end program
+```
+
+### Manual Selection
 
 ```fortran
 program flexible_app
@@ -83,8 +116,10 @@ program flexible_app
     call ui_init("tui", 80, 25, "Terminal Mode")
   case ("gui", "window") 
     call ui_init("gui", 100, 30, "Window Mode")
+  case ("auto", "")
+    call ui_init("auto", 80, 25, "Automatic Mode")  ! Intelligent selection
   case default
-    call ui_init("tui", 80, 25, "Default Mode")  ! Safe fallback
+    call ui_init("auto", 80, 25, "Default Mode")   ! Safe fallback
   end select
   
   ! ... application logic identical for both backends ...
@@ -370,20 +405,55 @@ call ui_init("gui", 80, 25, "App")  ! GUI: equivalent pixel dimensions
 
 ## Environment Variables
 
-Control backend selection via environment:
+### Runtime Backend Control
 
 ```bash
-# Force TUI even when GUI available
+# Override backend selection at runtime
+export FORTUI_BACKEND=tui
+./my_app  # Forces TUI regardless of code specification
+
+export FORTUI_BACKEND=gui
+./my_app  # Forces GUI if available, TUI fallback otherwise
+
+# Force headless mode (useful for CI/automated testing)
+export FORTUI_HEADLESS=1
+./my_app  # Forces TUI backend, disables GUI detection
+
+# Disable GUI runtime detection
+export DISABLE_GUI=1
+./my_app  # Forces TUI backend even if GUI compiled in
+```
+
+### Build-Time Configuration
+
+```bash
+# Force TUI-only build even when GUI libraries available
 export DISABLE_GUI=1
 fpm build    # Builds TUI-only
 
-# Force GUI detection
+# Specify raylib location for GUI builds
 export RAYLIB_ROOT=/usr/local
 fpm build --flag "-DENABLE_GUI"
 
 # Cache directory for build dependencies
 export FORTUI_CACHE_DIR=~/.cache/fortui
 fpm build
+```
+
+### Environment Detection
+
+fortui automatically detects headless environments:
+
+```bash
+# These environments automatically select TUI:
+CI=1 ./my_app                    # CI environment
+GITHUB_ACTIONS=true ./my_app     # GitHub Actions
+SSH_CLIENT="..." ./my_app        # SSH session
+SSH_TTY=/dev/pts/1 ./my_app      # SSH terminal
+
+# No DISPLAY or WAYLAND_DISPLAY
+unset DISPLAY WAYLAND_DISPLAY
+./my_app                         # Automatically uses TUI
 ```
 
 ## Troubleshooting
@@ -407,20 +477,28 @@ DISABLE_GUI=1 fpm build
 ### Runtime Backend Issues
 
 ```fortran
-! Safe backend selection with fallback
+! Recommended: Use automatic selection for robust applications
+subroutine robust_init()
+  ! This handles all fallback scenarios automatically
+  call ui_init("auto", 80, 25, "Robust App")
+end subroutine
+
+! Alternative: Manual fallback handling
 subroutine safe_init(preferred_backend)
   character(*), intent(in) :: preferred_backend
   
   select case (trim(preferred_backend))
   case ("gui")
 #ifdef ENABLE_GUI
-    call ui_init("gui", 100, 30, "GUI App")
+    call ui_init("gui", 100, 30, "GUI App")  ! Falls back to TUI if GUI unavailable
 #else
-    print *, "GUI not available, using TUI"
+    print *, "GUI not compiled in, using TUI"
     call ui_init("tui", 80, 25, "TUI App")
 #endif
+  case ("auto")
+    call ui_init("auto", 80, 25, "Smart App")  ! Intelligent selection
   case default
-    call ui_init("tui", 80, 25, "TUI App")  ! Always available
+    call ui_init("tui", 80, 25, "TUI App")     ! Always available
   end select
 end subroutine
 ```

@@ -51,7 +51,8 @@ program hello_world
   class(node), allocatable :: ui
   logical :: running
 
-  call ui_init(backend="tui", width=50, height=20, title="Hello fortui")
+  ! Automatic backend selection - uses GUI if available, TUI otherwise
+  call ui_init(backend="auto", width=50, height=20, title="Hello fortui")
   
   running = .true.
   do while (running)
@@ -103,11 +104,12 @@ All dimensions use **grid units (gu)**:
 ### Lifecycle Management
 
 ```fortran
-! Initialize UI system
+! Initialize UI system with automatic backend selection
 call ui_init(backend, width, height, title [, target_fps, vsync])
+! backend: "auto" | "tui" | "gui" ("auto" recommended)
 
-! Optional: Configure GUI idle policy
-call ui_set_idle_policy(mode [, idle_fps])  ! GUI only
+! Optional: Configure GUI idle policy (ignored in TUI mode)
+call ui_set_idle_policy(mode [, idle_fps])  ! "adaptive" | "steady"
 
 ! Frame lifecycle
 call ui_frame_begin(timeout_ms)  ! TUI: event timeout; GUI: ignored
@@ -145,7 +147,11 @@ program core_types_demo
   logical :: running
   integer :: frame_count = 0
 
-  call ui_init(backend="tui", width=80, height=25, title="Core Types Demo")
+  ! Automatic backend selection - GUI if available, TUI otherwise
+  call ui_init(backend="auto", width=80, height=25, title="Core Types Demo")
+  
+  ! Optional: Configure power-saving for GUI mode (ignored in TUI)
+  call ui_set_idle_policy("adaptive", idle_fps=12)
 
   running = .true.
   do while (running)
@@ -175,6 +181,15 @@ end program
 
 ## Backend Selection
 
+### Automatic Selection (Recommended)
+```fortran
+call ui_init(backend="auto", width=80, height=25, title="My App")
+```
+- Intelligent backend selection based on environment
+- GUI preferred when available and not in headless mode
+- TUI fallback for SSH sessions, CI environments, or no display
+- Environment variable overrides supported (`FORTUI_BACKEND=tui`)
+
 ### Terminal UI (TUI)
 ```fortran
 call ui_init(backend="tui", width=80, height=25, title="My App")
@@ -182,6 +197,7 @@ call ui_init(backend="tui", width=80, height=25, title="My App")
 - Event-driven with smart timeouts
 - Minimal terminal writes via diffing
 - Full mouse support
+- Always available (no dependencies)
 
 ### Graphical UI (GUI)  
 ```fortran
@@ -192,6 +208,7 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 - VSync-aware rendering
 - Configurable frame rate
 - Adaptive idle policies
+- Automatic TUI fallback if GUI unavailable
 
 ## Current Implementation Status
 
@@ -209,9 +226,10 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 
 ## Documentation
 
-- **[Core Types API](docs/CORE_TYPES_API.md)**: Complete `node` and `view` type documentation
+- **[Application Integration](docs/APPLICATION_INTEGRATION.md)**: Complete examples for real applications
 - **[Lifecycle API](docs/LIFECYCLE_API.md)**: UI initialization and frame management
 - **[Backend Selection](docs/BACKEND_SELECTION.md)**: TUI vs GUI compilation guide  
+- **[Core Types API](docs/CORE_TYPES_API.md)**: Complete `node` and `view` type documentation
 - **[Developer Guide](docs/DEVELOPER_GUIDE.md)**: Integration patterns and best practices
 - **[Build Guide](BUILD_GUIDE.md)**: Dependency setup and build configuration
 
