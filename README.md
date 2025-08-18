@@ -6,9 +6,10 @@ A declarative UI library for modern Fortran with dual backends: terminal (TUI) a
 
 - **One codebase, two backends**: Write once, run in terminal or GUI window
 - **Immediate-mode API**: Simple, declarative widget calls with automatic state management
+- **Cross-backend units system**: Consistent sizing with dp, em, sp, px, cw, ch units
 - **Monospace-first design**: Exact visual parity between TUI and GUI
 - **Performance optimized**: Event-driven TUI with diffed output, VSync-aware GUI
-- **Clean API**: Two modules, stable interface, minimal dependencies
+- **Clean API**: Three modules, stable interface, minimal dependencies
 
 ## Installation
 
@@ -46,6 +47,7 @@ fpm test
 program hello_world
   use fortui_core
   use fortui_widgets
+  use fortui_units
   implicit none
 
   class(node), allocatable :: ui
@@ -94,10 +96,27 @@ type :: view
 end type view
 ```
 
-### Grid Units
-All dimensions use **grid units (gu)**:
-- **TUI**: 1 gu = 1 terminal cell
-- **GUI**: 1 gu = 1 monospace character width/height
+### Units System
+fortui provides a comprehensive units system for cross-backend consistency:
+
+```fortran
+use fortui_units
+
+! Unit constructor functions
+width = dp(40.0)      ! density-independent pixels
+gap = em(2.5)         ! relative to font size  
+text_size = sp(14.0)  ! scaled pixels (accessibility)
+border = px(2.0)      ! physical pixels
+cols = cw(10.0)       ! cell widths (TUI-friendly)
+rows = ch(3.0)        ! cell heights (TUI-friendly)
+
+! Bare real values default to dp
+width = 40.0          ! equivalent to dp(40.0)
+```
+
+**Cross-backend behavior:**
+- **TUI**: Units snap to cell boundaries for perfect terminal alignment
+- **GUI**: Subpixel precision maintained for smooth graphics
 
 ## API Reference
 
@@ -213,6 +232,7 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 ## Current Implementation Status
 
 ✅ **fortui_core module**: Complete with `node` and `view` types, lifecycle management  
+✅ **fortui_units module**: Complete with comprehensive cross-backend units system
 🚧 **fortui_widgets module**: In development (layout and interactive widgets)  
 ✅ **Backend selection**: TUI/GUI conditional compilation working  
 ✅ **Build system**: Automatic dependency detection and configuration  
@@ -220,12 +240,14 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 ## Architecture
 
 - **fortui_core**: ✅ Lifecycle management, core types, frame handling  
+- **fortui_units**: ✅ Cross-backend units system with dp, em, sp, px, cw, ch support
 - **fortui_widgets**: 🚧 Layout containers and interactive controls (coming soon)
 - **Dual backends**: ✅ termbox2 (TUI) and raylib/raygui (GUI) support
 - **Monospace baseline**: ✅ Ensures pixel-perfect TUI/GUI consistency
 
 ## Documentation
 
+- **[Units Guide](docs/UNITS_GUIDE.md)**: Complete units system documentation with examples
 - **[Application Integration](docs/APPLICATION_INTEGRATION.md)**: Complete examples for real applications
 - **[Lifecycle API](docs/LIFECYCLE_API.md)**: UI initialization and frame management
 - **[Backend Selection](docs/BACKEND_SELECTION.md)**: TUI vs GUI compilation guide  
