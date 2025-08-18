@@ -36,8 +36,16 @@ end type ui_element
 
 ! Core UI tree building block - extensible for widgets
 type, extends(ui_element) :: node
-    ! Minimal structure - will be extended by widget types
+    ! Layout metadata
+    character(len=32) :: layout_type = "none"    ! "column", "row", "none"
+    real :: gap_dp = 0.0                         ! Converted gap in dp units
+    ! Children array for tree composition
+    type(node), allocatable :: children(:)
     ! Backend-agnostic design (identical behavior regardless of compilation flags)
+contains
+    ! Assignment operator overload for proper memory management
+    procedure :: assign_node
+    generic :: assignment(=) => assign_node
 end type node
 
 ! Pan/zoom state for plot areas with default values from DESIGN.md
@@ -393,29 +401,96 @@ subroutine shutdown_gui_backend()
 #endif
 end subroutine shutdown_gui_backend
 
-! Layout constructor stubs for testing (will be moved to fortui_widgets)
+! Layout constructor implementations
 function column(gap, children) result(n)
+    use fortui_units, only: convert_to_dp, ui_get_context, ui_context
     class(*), intent(in), optional :: gap
     type(node), intent(in), optional :: children(:)
     type(node) :: n
     
-    ! Stub implementation for testing - actual implementation by sergei-perfectionist-coder
-    ! TODO: Process gap parameter via convert_to_dp()
-    ! TODO: Handle children array and build layout tree
-    ! TODO: Implement column layout logic
+    type(ui_context) :: ctx
+    real :: gap_dp_value
+    integer :: i
+    
+    ! Initialize column layout node
     n = node()
+    n%layout_type = "column"
+    
+    ! Process gap parameter with convert_to_dp()
+    if (present(gap)) then
+        call ui_get_context(ctx)
+        gap_dp_value = convert_to_dp(gap, ctx)
+        n%gap_dp = gap_dp_value
+    else
+        n%gap_dp = 0.0  ! Default gap per test specifications
+    end if
+    
+    ! Handle children array
+    if (present(children)) then
+        allocate(n%children(size(children)))
+        do i = 1, size(children)
+            n%children(i) = children(i)
+        end do
+    else
+        allocate(n%children(0))  ! Empty children array
+    end if
 end function column
 
 function row(gap, children) result(n)
+    use fortui_units, only: convert_to_dp, ui_get_context, ui_context
     class(*), intent(in), optional :: gap
     type(node), intent(in), optional :: children(:)
     type(node) :: n
     
-    ! Stub implementation for testing - actual implementation by sergei-perfectionist-coder
-    ! TODO: Process gap parameter via convert_to_dp()
-    ! TODO: Handle children array and build layout tree  
-    ! TODO: Implement row layout logic
+    type(ui_context) :: ctx
+    real :: gap_dp_value
+    integer :: i
+    
+    ! Initialize row layout node
     n = node()
+    n%layout_type = "row"
+    
+    ! Process gap parameter with convert_to_dp()
+    if (present(gap)) then
+        call ui_get_context(ctx)
+        gap_dp_value = convert_to_dp(gap, ctx)
+        n%gap_dp = gap_dp_value
+    else
+        n%gap_dp = 0.0  ! Default gap per test specifications
+    end if
+    
+    ! Handle children array
+    if (present(children)) then
+        allocate(n%children(size(children)))
+        do i = 1, size(children)
+            n%children(i) = children(i)
+        end do
+    else
+        allocate(n%children(0))  ! Empty children array
+    end if
 end function row
+
+! Assignment operator implementation for proper memory management
+subroutine assign_node(lhs, rhs)
+    class(node), intent(out) :: lhs
+    class(node), intent(in) :: rhs
+    
+    integer :: i
+    
+    ! Copy basic properties
+    lhs%layout_type = rhs%layout_type
+    lhs%gap_dp = rhs%gap_dp
+    
+    ! Deep copy children array
+    if (allocated(rhs%children)) then
+        if (allocated(lhs%children)) deallocate(lhs%children)
+        allocate(lhs%children(size(rhs%children)))
+        do i = 1, size(rhs%children)
+            lhs%children(i) = rhs%children(i)
+        end do
+    else
+        if (allocated(lhs%children)) deallocate(lhs%children)
+    end if
+end subroutine assign_node
 
 end module fortui_core
