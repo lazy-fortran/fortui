@@ -236,7 +236,7 @@ GUI_CACHE=/tmp/fortui_cache ./tools/build_fortui.sh build
 ./tools/build_fortui.sh build
 
 # During development - quick FPM builds
-fmp build           # Uses cached dependencies
+fpm build           # Uses cached dependencies
 fpm run example     # Run examples
 fpm test            # Run tests
 

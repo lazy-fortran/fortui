@@ -143,7 +143,7 @@ jobs:
       run: fpm build
       
     - name: Run tests
-      run: fmp test
+      run: fpm test
 ```
 
 ### GitLab CI
@@ -175,7 +175,7 @@ test:
   dependencies:
     - build
   script:
-    - fmp test
+    - fpm test
 ```
 
 ## Environment-Specific Builds
@@ -211,7 +211,7 @@ for config in "${configs[@]}"; do
     
     # Build and test
     fpm build --profile release
-    fmp test
+    fpm test
     
     # Archive result
     tar czf "fortui-${config// /-}.tar.gz" build/
@@ -273,7 +273,7 @@ COPY . .
 RUN ./tools/build_fortui.sh build
 
 # Build project  
-RUN fmp build
+RUN fpm build
 
 CMD ["./build/app"]
 ```
