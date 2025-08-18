@@ -1,4 +1,4 @@
-# fortui — design doc (v0.5.0)
+# fortui — design doc (v0.6.0)
 
 ## Goal
 Declarative UI for modern Fortran, one codebase, two backends:
@@ -48,17 +48,17 @@ Monospace-first for exact TUI/GUI parity. Proportional text is a future opt-in.
 **API Design Philosophy**: Prioritize client code readability and ease of use over pure type safety.
 
 ```fortran
-! Ergonomic unit functions returning class(*) for API simplicity
+! Ergonomic unit operators returning class(*) for API simplicity
 real :: width, gap, text_size, border, cols, rows
 
-width = dp(40.0)      ! density-independent pixels
-gap = em(2.5)         ! relative to base font size  
-text_size = sp(14.0)  ! scaled pixels (accessibility)
-border = px(2)        ! physical pixels
-cols = cw(10.0)       ! cell widths (TUI-friendly)
-rows = ch(3.0)        ! cell heights (TUI-friendly)
+width = 40.0 .dp.      ! density-independent pixels
+gap = 2.5 .em.         ! relative to base font size  
+text_size = 14.0 .sp.  ! scaled pixels (accessibility)
+border = 2.0 .px.      ! physical pixels
+cols = 10.0 .cw.       ! cell widths (TUI-friendly)
+rows = 3.0 .ch.        ! cell heights (TUI-friendly)
 
-! Functions return class(*) for maximum API flexibility
+! Postfix operators return class(*) for maximum API flexibility
 ! Runtime type checking handles conversion safety
 ```
 
@@ -77,13 +77,13 @@ end type
 ```
 
 **Conversion via runtime type checking**:
-- `dp()` values: direct (base unit)
-- `em()` values: `value * ctx%em_dp` 
-- `sp()` values: `value * ctx%text_scale`
-- `px()` values: `value / ctx%dpi_scale`
-- `cw()` values: `value * ctx%cell_w_dp` (TUI)
-- `ch()` values: `value * ctx%cell_h_dp` (TUI)
-- Bare real values: treated as dp(value)
+- `.dp.` values: direct (base unit)
+- `.em.` values: `value * ctx%em_dp` 
+- `.sp.` values: `value * ctx%text_scale`
+- `.px.` values: `value / ctx%dpi_scale`
+- `.cw.` values: `value * ctx%cell_w_dp` (TUI)
+- `.ch.` values: `value * ctx%cell_h_dp` (TUI)
+- Bare real values: treated as value .dp.
 
 **Internal conversion function**:
 ```fortran
@@ -98,17 +98,17 @@ end function
 
 **TUI snapping**: Final dp values snap to cell boundaries
 ```fortran
-! dp_t(42.7) with cell_w_dp=8.0 → 5.34 cells → snap to 5 cells
+! 42.7 .dp. with cell_w_dp=8.0 → 5.34 cells → snap to 5 cells
 real :: dp_value
-dp_value = unit_obj%to_dp(ctx)
+dp_value = convert_to_dp(42.7 .dp., ctx)
 cell_x = nint(dp_value / ctx%cell_w_dp)
 ```
 
 **GUI/Web precision**: Subpixel positioning maintained
 ```fortran  
-! dp_t(42.7) with dpi_scale=1.5 → 64.05 pixels (exact)
+! 42.7 .dp. with dpi_scale=1.5 → 64.05 pixels (exact)
 real :: dp_value
-dp_value = unit_obj%to_dp(ctx)
+dp_value = convert_to_dp(42.7 .dp., ctx)
 pixel_x = dp_value * ctx%dpi_scale
 ```
 
@@ -117,21 +117,21 @@ pixel_x = dp_value * ctx%dpi_scale
 All layout and widget functions accept any unit type via class(*) polymorphism:
 
 ```fortran
-ui = column(gap=ch(1.0), children=[ &
-       row(gap=cw(2.0), children=[ &
+ui = column(gap=1.0 .ch., children=[ &
+       row(gap=2.0 .cw., children=[ &
          button("btn1"), &
-         viewport("plot", cw(80.0), ch(24.0), view) ]), &
+         viewport("plot", 80.0 .cw., 24.0 .ch., view) ]), &
        text("status", "Mixed units work!") ])
 ```
 
 **Unit construction syntax**:
-- `dp(40.0)` - density-independent pixels
-- `em(2.5)` - relative to base font size  
-- `sp(14.0)` - scaled pixels (accessibility)
-- `px(320)` - physical pixels
-- `cw(10.0)` - cell widths (TUI-friendly)
-- `ch(3.0)` - cell heights (TUI-friendly)
-- `42.0` - bare real values treated as dp(42.0)
+- `40.0 .dp.` - density-independent pixels
+- `2.5 .em.` - relative to base font size  
+- `14.0 .sp.` - scaled pixels (accessibility)
+- `320.0 .px.` - physical pixels
+- `10.0 .cw.` - cell widths (TUI-friendly)
+- `3.0 .ch.` - cell heights (TUI-friendly)
+- `42.0` - bare real values treated as 42.0 .dp.
 
 ⸻
 
@@ -174,13 +174,13 @@ type :: unit_value
   character(len=2) :: unit_type  ! "dp", "em", "sp", "px", "cw", "ch"
 end type
 
-! Unit constructor functions returning class(*) for API simplicity
-interface dp; module procedure make_dp; end interface
-interface em; module procedure make_em; end interface  
-interface sp; module procedure make_sp; end interface
-interface px; module procedure make_px; end interface
-interface cw; module procedure make_cw; end interface
-interface ch; module procedure make_ch; end interface
+! Unit operator interfaces returning class(*) for API simplicity
+interface operator(.dp.); module procedure make_dp; end interface
+interface operator(.em.); module procedure make_em; end interface  
+interface operator(.sp.); module procedure make_sp; end interface
+interface operator(.px.); module procedure make_px; end interface
+interface operator(.cw.); module procedure make_cw; end interface
+interface operator(.ch.); module procedure make_ch; end interface
 ```
 
 ### lifecycle & pacing
@@ -286,13 +286,13 @@ end function
 
 **ids** are stable strings per widget (state keyed by id).
 **units**: All units normalize to dp internally via runtime conversion:
-- `dp(40.0)` - density-independent pixels (base unit)
-- `em(2.5)` - relative to base font size (em_dp * 2.5)
-- `sp(14.0)` - scaled pixels (dp * text_scale)
-- `px(320)` - physical pixels (px / dpi_scale)
-- `cw(10.0)` - cell widths (TUI: cw * cell_w_dp)
-- `ch(3.0)` - cell heights (TUI: ch * cell_h_dp)
-- `42.0` - bare real values treated as dp(42.0)
+- `40.0 .dp.` - density-independent pixels (base unit)
+- `2.5 .em.` - relative to base font size (em_dp * 2.5)
+- `14.0 .sp.` - scaled pixels (dp * text_scale)
+- `320.0 .px.` - physical pixels (px / dpi_scale)
+- `10.0 .cw.` - cell widths (TUI: cw * cell_w_dp)
+- `3.0 .ch.` - cell heights (TUI: ch * cell_h_dp)
+- `42.0` - bare real values treated as 42.0 .dp.
 
 **cross-backend placement**:
 - **TUI**: snaps to cell boundaries (integer cells)
@@ -314,20 +314,20 @@ program demo
   class(ui_element), allocatable :: ui
   logical :: running
 
-  call ui_init(backend="tui", width=cw(100.0), height=ch(35.0), title="plot demo")
+  call ui_init(backend="tui", width=100.0 .cw., height=35.0 .ch., title="plot demo")
   ! gui option: call ui_set_idle_policy("adaptive", idle_fps=12)
 
   running = .true.
   do while (running)
     call ui_frame_begin(timeout_ms=200)
 
-    ui = column(gap=ch(1.0), children=[ &
-           row(gap=cw(2.0), children=[ &
+    ui = column(gap=1.0 .ch., children=[ &
+           row(gap=2.0 .cw., children=[ &
              button("zoom_in"), &
              button("zoom_out", "-"), &
              slider("gain", 0.1, 5.0, 0.1, gain), &
              checkbox("grid", grid) ]), &
-           viewport("plot", cw(80.0), ch(24.0), v), &
+           viewport("plot", 80.0 .cw., 24.0 .ch., v), &
            text("status", status_line(gain, v, grid)) ])
 
     ! react to button returns (others already updated their state)
