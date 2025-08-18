@@ -1,11 +1,41 @@
-# fortui — design doc (v0.3.2)
+# fortui — design doc (v0.4.0)
 
 ## Goal
 Declarative UI for modern Fortran, one codebase, two backends:
-- **TUI**: termbox2 (event-driven, diffed output).
-- **GUI**: raygui/raylib (vsynced, target FPS).
+- **TUI**: termbox2 (event-driven, diffed output) - **ALWAYS AVAILABLE**
+- **GUI**: raygui/raylib (vsynced, target FPS) - **CONDITIONAL ENHANCEMENT**
 
 Monospace-first for exact TUI/GUI parity. Proportional text is a future opt-in.
+
+## Build System Architecture
+
+### Single Package Design
+- One `fortui` package (no submodules)
+- Custom build script `tools/build_fortui.sh` handles dependency management
+- FPM integration with build-script override and CPP preprocessing
+- **Never fails to build** - TUI is always available, GUI only when possible
+
+### Dependency Management
+- **GUI Backend**: Uses `lazy-fortran/fortran-raygui` (fetched on demand, not in repo)
+- **TUI Backend**: Builds `termbox2.h` from source (fetched on demand, not in repo)
+- **Auto-detection**: Probes system for raylib via pkg-config or RAYLIB_ROOT
+- **Private cache**: Dependencies built in local cache, not committed to repo
+
+### Conditional Compilation
+- **CPP flags**: `#ifdef ENABLE_GUI` for conditional GUI compilation
+- **Runtime detection**: Headless environment detection with fallback to TUI
+- **Developer controls**:
+  - `DISABLE_GUI=1` forces text-only build
+  - `RAYLIB_ROOT=/path` uses prebuilt raylib
+  - `FRG_URL`, `FRG_REF` override fortran-raygui source
+  - `GUI_CACHE=...` controls cache location
+
+### Build Process
+1. **Probe system**: Check for raylib libraries and headers
+2. **Fetch TUI deps**: Always build termbox2 for TUI backend
+3. **Conditional GUI**: Clone and build fortran-raygui only if GUI is possible
+4. **Set CPP flags**: Enable GUI compilation only when dependencies available
+5. **Compile**: Single package with backend selection at compile time
 
 ⸻
 
