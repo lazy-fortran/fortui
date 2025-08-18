@@ -1,5 +1,7 @@
 program check
 ! Test runner for fortui build system and core functionality
+use test_core_types
+use test_conditional_compilation
 implicit none
 
 ! Given: Test suite execution
@@ -15,12 +17,18 @@ contains
 
 subroutine run_fortran_tests()
     ! Given: Core Fortran functionality tests needed
-    ! When: Testing fortui modules (when implemented)
+    ! When: Testing fortui modules and core types
     ! Then: Validate core library functionality
     
     print *, "=== Fortran Unit Tests ==="
-    print *, "Core fortui tests will be added as modules are implemented"
-    print *, "Current status: Awaiting fortui_core and fortui_widgets implementation"
+    
+    ! Core types and module structure tests
+    call test_all_core_types()
+    
+    ! Conditional compilation tests  
+    call test_all_conditional_compilation()
+    
+    print *, "✓ All Fortran unit tests completed"
     print *, ""
 end subroutine run_fortran_tests
 
