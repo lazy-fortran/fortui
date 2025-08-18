@@ -47,6 +47,8 @@ Monospace-first for exact TUI/GUI parity. Proportional text is a future opt-in.
 
 **API Design Philosophy**: Prioritize client code readability and ease of use over pure type safety.
 
+**Default Unit Behavior**: Bare `real` values automatically treated as `.dp.` (density-independent pixels) for maximum convenience - no need to write `.dp.` for basic usage.
+
 ```fortran
 ! Ergonomic unit operators returning class(*) for API simplicity
 real :: width, gap, text_size, border, cols, rows
@@ -57,6 +59,11 @@ text_size = 14.0 .sp.  ! scaled pixels (accessibility)
 border = 2.0 .px.      ! physical pixels
 cols = 10.0 .cw.       ! cell widths (TUI-friendly)
 rows = 3.0 .ch.        ! cell heights (TUI-friendly)
+
+! Bare real values automatically default to .dp. for convenience
+width = 40.0           ! equivalent to 40.0 .dp.
+gap = 2.5 .em.         ! explicit unit overrides default
+border = 320.0         ! equivalent to 320.0 .dp.
 
 ! Postfix operators return class(*) for maximum API flexibility
 ! Runtime type checking handles conversion safety
@@ -292,7 +299,17 @@ end function
 - `320.0 .px.` - physical pixels (px / dpi_scale)
 - `10.0 .cw.` - cell widths (TUI: cw * cell_w_dp)
 - `3.0 .ch.` - cell heights (TUI: ch * cell_h_dp)
-- `42.0` - bare real values treated as 42.0 .dp.
+- `42.0` - bare real values treated as 42.0 .dp. (default)
+
+**Examples of equivalent widget calls**:
+```fortran
+! These are equivalent:
+button("ok", width=120.0)           ! real defaults to dp
+button("ok", width=120.0 .dp.)      ! explicit dp
+
+! Mixed usage:
+button("ok", width=120.0, height=2.5 .em.)  ! width=dp, height=em
+```
 
 **cross-backend placement**:
 - **TUI**: snaps to cell boundaries (integer cells)
