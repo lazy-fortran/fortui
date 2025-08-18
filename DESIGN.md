@@ -1,4 +1,4 @@
-# fortui — design doc (v0.4.0)
+# fortui — design doc (v0.5.0)
 
 ## Goal
 Declarative UI for modern Fortran, one codebase, two backends:
@@ -39,25 +39,148 @@ Monospace-first for exact TUI/GUI parity. Proportional text is a future opt-in.
 
 ⸻
 
-## 1) public api
+## 1) units system
+
+### unit types & ergonomic api
+
+**Core principle**: One declarative UI works on GUI, Web, and TUI with consistent behavior.
+
+**API Design Philosophy**: Prioritize client code readability and ease of use over pure type safety.
+
+```fortran
+! Ergonomic unit functions returning class(*) for API simplicity
+real :: width, gap, text_size, border, cols, rows
+
+width = dp(40.0)      ! density-independent pixels
+gap = em(2.5)         ! relative to base font size  
+text_size = sp(14.0)  ! scaled pixels (accessibility)
+border = px(2)        ! physical pixels
+cols = cw(10.0)       ! cell widths (TUI-friendly)
+rows = ch(3.0)        ! cell heights (TUI-friendly)
+
+! Functions return class(*) for maximum API flexibility
+! Runtime type checking handles conversion safety
+```
+
+### context-aware conversion
+
+All units normalize to **dp** (density-independent pixels) internally:
+
+```fortran
+type :: ui_context
+  real :: dpi_scale = 1.0    ! GUI: system DPI scale; TUI: 1.0  
+  real :: em_dp = 16.0       ! base font size in dp
+  real :: text_scale = 1.0   ! accessibility text scaling
+  real :: cell_w_dp = 8.0    ! TUI: cell width in dp
+  real :: cell_h_dp = 16.0   ! TUI: cell height in dp
+end type
+```
+
+**Conversion via runtime type checking**:
+- `dp()` values: direct (base unit)
+- `em()` values: `value * ctx%em_dp` 
+- `sp()` values: `value * ctx%text_scale`
+- `px()` values: `value / ctx%dpi_scale`
+- `cw()` values: `value * ctx%cell_w_dp` (TUI)
+- `ch()` values: `value * ctx%cell_h_dp` (TUI)
+- Bare real values: treated as dp(value)
+
+**Internal conversion function**:
+```fortran
+real function convert_to_dp(unit_value, ctx) result(dp_val)
+  class(*), intent(in) :: unit_value
+  type(ui_context), intent(in) :: ctx
+  ! Runtime type checking determines conversion method
+end function
+```
+
+### cross-backend placement strategy
+
+**TUI snapping**: Final dp values snap to cell boundaries
+```fortran
+! dp_t(42.7) with cell_w_dp=8.0 → 5.34 cells → snap to 5 cells
+real :: dp_value
+dp_value = unit_obj%to_dp(ctx)
+cell_x = nint(dp_value / ctx%cell_w_dp)
+```
+
+**GUI/Web precision**: Subpixel positioning maintained
+```fortran  
+! dp_t(42.7) with dpi_scale=1.5 → 64.05 pixels (exact)
+real :: dp_value
+dp_value = unit_obj%to_dp(ctx)
+pixel_x = dp_value * ctx%dpi_scale
+```
+
+### mixed unit arguments
+
+All layout and widget functions accept any unit type via class(*) polymorphism:
+
+```fortran
+ui = column(gap=ch(1.0), children=[ &
+       row(gap=cw(2.0), children=[ &
+         button("btn1"), &
+         viewport("plot", cw(80.0), ch(24.0), view) ]), &
+       text("status", "Mixed units work!") ])
+```
+
+**Unit construction syntax**:
+- `dp(40.0)` - density-independent pixels
+- `em(2.5)` - relative to base font size  
+- `sp(14.0)` - scaled pixels (accessibility)
+- `px(320)` - physical pixels
+- `cw(10.0)` - cell widths (TUI-friendly)
+- `ch(3.0)` - cell heights (TUI-friendly)
+- `42.0` - bare real values treated as dp(42.0)
+
+⸻
+
+## 2) public api
 
 ### modules
 
 ```fortran
-use fortui_core      ! init/shutdown, frame, present, pacing, node/view types
-use fortui_widgets   ! column/row/viewport + button/slider/checkbox/text
+use fortui_core      ! init/shutdown, frame, present, pacing, ui_element/node/view types
+use fortui_widgets   ! column/row/viewport + button/slider/checkbox/text interfaces
+use fortui_units     ! unit types (dp, em, sp, px, cw, ch) and ui_context
 ```
 
 ### types
 
 ```fortran
-type :: node
+! Abstract UI element hierarchy
+type, abstract :: ui_element
+end type
+
+type, extends(ui_element) :: node
 end type
 
 type :: view                 ! pan/zoom for plot areas
   real :: scale_x = 1.0, scale_y = 1.0
   real :: off_x   = 0.0, off_y   = 0.0
 end type
+
+type :: ui_context           ! cross-backend unit conversion
+  real :: dpi_scale = 1.0    ! GUI: system DPI scale; TUI: 1.0
+  real :: em_dp = 16.0       ! base font size in dp
+  real :: text_scale = 1.0   ! accessibility text scaling
+  real :: cell_w_dp = 8.0    ! TUI: cell width in dp
+  real :: cell_h_dp = 16.0   ! TUI: cell height in dp
+end type
+
+! Internal unit type for runtime identification (implementation detail)
+type :: unit_value
+  real :: value
+  character(len=2) :: unit_type  ! "dp", "em", "sp", "px", "cw", "ch"
+end type
+
+! Unit constructor functions returning class(*) for API simplicity
+interface dp; module procedure make_dp; end interface
+interface em; module procedure make_em; end interface  
+interface sp; module procedure make_sp; end interface
+interface px; module procedure make_px; end interface
+interface cw; module procedure make_cw; end interface
+interface ch; module procedure make_ch; end interface
 ```
 
 ### lifecycle & pacing
@@ -65,10 +188,18 @@ end type
 ```fortran
 subroutine ui_init(backend, width, height, title, target_fps, vsync)
   character(*), intent(in) :: backend        ! "tui" | "gui"
-  integer,      intent(in) :: width, height  ! grid units (gu)
+  class(*), intent(in) :: width, height      ! any unit type (dp, em, sp, px, cw, ch) or real
   character(*), intent(in) :: title
   integer,      intent(in), optional :: target_fps   ! gui: default 60; tui: ignored
   logical,      intent(in), optional :: vsync        ! gui: default .true.; tui: ignored
+end
+
+subroutine ui_get_context(ctx)
+  type(ui_context), intent(out) :: ctx
+end
+
+subroutine ui_set_context(ctx)
+  type(ui_context), intent(in) :: ctx
 end
 
 subroutine ui_set_idle_policy(mode, idle_fps)        ! gui only
@@ -81,7 +212,7 @@ subroutine ui_frame_begin(timeout_ms)
 end
 
 subroutine ui_present(tree)
-  class(node), intent(in) :: tree
+  class(ui_element), intent(in) :: tree
 end
 
 logical function ui_should_close()
@@ -94,59 +225,82 @@ end
 ### layout constructors
 
 ```fortran
+! Layout constructors with abstract UI elements and mixed unit support
 function column(gap, children) result(n)
-  integer,     intent(in), optional :: gap
-  class(node), intent(in), optional :: children(:)
+  class(*), intent(in), optional :: gap               ! any unit type or real
+  class(ui_element), intent(in), optional :: children(:)
   type(node) :: n
 end
 
 function row(gap, children) result(n)
-  integer,     intent(in), optional :: gap
-  class(node), intent(in), optional :: children(:)
+  class(*), intent(in), optional :: gap               ! any unit type or real
+  class(ui_element), intent(in), optional :: children(:)
   type(node) :: n
 end
 ```
 
 ### widgets (immediate-mode: declaration = draw = state update)
 
+**Unified Interface**: Single widget functions accept class(*) for maximum API simplicity.
+
 ```fortran
-logical function button(id, label)
-  character(*), intent(in)           :: id
-  character(*), intent(in), optional :: label   ! default: label=id
+! Button widget with unified interface
+logical function button(id, label, width, height)
+  character(*), intent(in) :: id
+  character(*), intent(in), optional :: label     ! default: label=id
+  class(*), intent(in), optional :: width, height ! any unit type or real
   ! returns .true. when clicked this frame
-end
+end function
 
-logical function slider(id, min, max, step, value)
+! Slider widget with unified interface
+logical function slider(id, min, max, step, value, width, height)
   character(*), intent(in) :: id
-  real,         intent(in) :: min, max, step
-  real,         intent(inout) :: value
+  real, intent(in) :: min, max, step
+  real, intent(inout) :: value
+  class(*), intent(in), optional :: width, height  ! any unit type or real
   ! draws slider and updates 'value' if interacted; returns .true. on change
-end
+end function
 
-subroutine checkbox(id, checked)
+! Checkbox widget with unified interface
+subroutine checkbox(id, checked, width, height)
   character(*), intent(in) :: id
-  logical,      intent(inout) :: checked
+  logical, intent(inout) :: checked
+  class(*), intent(in), optional :: width, height  ! any unit type or real
   ! toggles 'checked' in place if interacted
-end
+end subroutine
 
-subroutine text(id, value)
+! Text widget with unified interface
+subroutine text(id, value, text_size)
   character(*), intent(in) :: id, value
-end
+  class(*), intent(in), optional :: text_size  ! any unit type or real
+end subroutine
 
+! Viewport widget with unified interface
 logical function viewport(id, width, height, view)
   character(*), intent(in) :: id
-  integer,      intent(in) :: width, height         ! in gu (cells)
-  type(view),   intent(inout) :: view               ! wheel=zoom, drag=pan
+  class(*), intent(in) :: width, height            ! any unit type or real
+  type(view), intent(inout) :: view                ! wheel=zoom, drag=pan
   ! returns .true. if view changed
-end
+end function
 ```
 
 **ids** are stable strings per widget (state keyed by id).
-**units**: gu = one terminal cell (tui) = one glyph size (gui).
+**units**: All units normalize to dp internally via runtime conversion:
+- `dp(40.0)` - density-independent pixels (base unit)
+- `em(2.5)` - relative to base font size (em_dp * 2.5)
+- `sp(14.0)` - scaled pixels (dp * text_scale)
+- `px(320)` - physical pixels (px / dpi_scale)
+- `cw(10.0)` - cell widths (TUI: cw * cell_w_dp)
+- `ch(3.0)` - cell heights (TUI: ch * cell_h_dp)
+- `42.0` - bare real values treated as dp(42.0)
+
+**cross-backend placement**:
+- **TUI**: snaps to cell boundaries (integer cells)
+- **GUI/Web**: subpixel precision maintained
 
 ⸻
 
-## 2) example (single-call style)
+## 3) example (single-call style)
 
 ```fortran
 program demo
@@ -157,23 +311,23 @@ program demo
   real    :: gain = 1.0
   logical :: grid = .false.
   type(view) :: v
-  class(node), allocatable :: ui
+  class(ui_element), allocatable :: ui
   logical :: running
 
-  call ui_init(backend="tui", width=100, height=35, title="plot demo")
+  call ui_init(backend="tui", width=cw(100.0), height=ch(35.0), title="plot demo")
   ! gui option: call ui_set_idle_policy("adaptive", idle_fps=12)
 
   running = .true.
   do while (running)
     call ui_frame_begin(timeout_ms=200)
 
-    ui = column(gap=1, children=[ &
-           row(gap=1, children=[ &
+    ui = column(gap=ch(1.0), children=[ &
+           row(gap=cw(2.0), children=[ &
              button("zoom_in"), &
              button("zoom_out", "-"), &
              slider("gain", 0.1, 5.0, 0.1, gain), &
              checkbox("grid", grid) ]), &
-           viewport("plot", 80, 24, v), &
+           viewport("plot", cw(80.0), ch(24.0), v), &
            text("status", status_line(gain, v, grid)) ])
 
     ! react to button returns (others already updated their state)
@@ -205,24 +359,30 @@ end program
 - **checkbox** toggles grid.
 - **viewport** updates v.
 - Only **button** needs an if to trigger actions.
+- All units automatically convert to dp for consistent backend behavior.
 
 ⸻
 
-## 3) backend behavior
+## 4) backend behavior
 
 ### gui (raygui/raylib)
 - **vsync**=.true (default), **target_fps** (default 60; 120 ok).
 - **steady** mode (default) or **adaptive** idle via ui_set_idle_policy.
-- gu → pixels via monospace metrics.
+- **units**: dp → pixels via ui_context (dpi_scale, em_dp, text_scale)
+- **precision**: subpixel positioning and rendering
+- **context setup**: auto-detect system DPI, font metrics
 
 ### tui (termbox2)
 - **event-driven**: idle 250–1000 ms; coalesce 10–20 ms; dragging 16–33 ms.
 - front/back cell buffers; per-line hashes; run diffs; coalesced writes.
 - sgr1006 mouse; bracketed paste.
+- **units**: dp → cells via ui_context (cell_w_dp, cell_h_dp)
+- **snapping**: automatic snap to cell boundaries (integer coordinates)
+- **context setup**: measure terminal cell dimensions
 
 ⸻
 
-## 4) future work (kept open)
+## 5) future work (kept open)
 - **proportional text** (gui opt-in): ui_init(..., proportional=.true.), measure_text.
 - **2d canvas** (tui+gui): canvas2d_begin/end, line/rect/polyline/text_at/image_gray, transform hook; basis for show().
 - **3d canvas** (gui first): canvas3d_begin/end, tri_mesh/lines3d/bbox; optional ascii 3d later.
@@ -232,7 +392,7 @@ end program
 
 ⸻
 
-## 5) invariants
+## 6) invariants
 - **small, stable public api**.
 - **ids** own per-widget retained state.
 - **tui** minimizes writes; **gui** respects target fps.
