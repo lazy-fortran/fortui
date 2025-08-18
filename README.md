@@ -25,12 +25,20 @@ A declarative UI library for modern Fortran with dual backends: terminal (TUI) a
 git clone https://github.com/krystophny/fortui.git
 cd fortui
 
-# Build library (details TBD - build system not yet implemented)
-make
+# Build dependencies (termbox2 for TUI, fortran-raygui for GUI)
+./tools/build_fortui.sh build
 
-# Run examples
-make examples
+# Build fortui library
+fpm build
+
+# Run examples and tests
+fpm run --example hello_world
+fpm test
 ```
+
+**Build Documentation:**
+- [BUILD_GUIDE.md](BUILD_GUIDE.md) - Comprehensive build configuration and troubleshooting
+- [INTEGRATION_EXAMPLES.md](INTEGRATION_EXAMPLES.md) - Copy-paste examples for Makefile, CMake, CI/CD integration
 
 ## Quick Start
 
