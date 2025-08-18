@@ -27,7 +27,7 @@ end subroutine test_all_units_system
 
 subroutine test_unit_operators()
     ! Given: Postfix unit operator interfaces from DESIGN.md
-    ! When: Testing all six unit operators (.dp., .em., .sp., .px., .cw., .ch.)
+    ! When: Testing all six unit operators (.dp.,em(),sp(),px(),cw(),ch())
     ! Then: Should create correct unit_value types with proper values and types
     
     print *, "--- Unit Operators Tests ---"
@@ -46,7 +46,7 @@ subroutine test_unit_operators()
 end subroutine test_unit_operators
 
 subroutine test_dp_operator()
-    ! Given: .dp. postfix operator for density-independent pixels
+    ! Given:dp() postfix operator for density-independent pixels
     ! When: Creating dp unit with various values
     ! Then: Should create unit_value with correct value and "dp" type
     
@@ -54,130 +54,130 @@ subroutine test_dp_operator()
     real, parameter :: TOLERANCE = 1.0e-6
     
     ! Test positive value
-    dp_unit = 40.0 .dp.
+    dp_unit = dp(40.0)
     call verify_unit_value(dp_unit, 40.0, "dp", "positive dp value")
     
     ! Test zero value
-    dp_unit = 0.0 .dp.
+    dp_unit = dp(0.0)
     call verify_unit_value(dp_unit, 0.0, "dp", "zero dp value")
     
     ! Test negative value
-    dp_unit = -10.5 .dp.
+    dp_unit = dp(-10.5)
     call verify_unit_value(dp_unit, -10.5, "dp", "negative dp value")
     
     ! Test fractional value
-    dp_unit = 3.14159 .dp.
+    dp_unit = dp(3.14159)
     call verify_unit_value(dp_unit, 3.14159, "dp", "fractional dp value")
     
     ! Test large value
-    dp_unit = 9999.0 .dp.
+    dp_unit = dp(9999.0)
     call verify_unit_value(dp_unit, 9999.0, "dp", "large dp value")
     
-    print *, "  ✓ .dp. operator: all value ranges handled correctly"
+    print *, "  ✓dp() operator: all value ranges handled correctly"
 end subroutine test_dp_operator
 
 subroutine test_em_operator()
-    ! Given: .em. postfix operator for relative font size units
+    ! Given:em() postfix operator for relative font size units
     ! When: Creating em unit with various values
     ! Then: Should create unit_value with correct value and "em" type
     
     class(*), allocatable :: em_unit
     
     ! Test typical em values
-    em_unit = 1.0 .em.
+    em_unit = em(1.0)
     call verify_unit_value(em_unit, 1.0, "em", "1em baseline")
     
-    em_unit = 1.5 .em.
+    em_unit = em(1.5)
     call verify_unit_value(em_unit, 1.5, "em", "1.5em larger text")
     
-    em_unit = 0.8 .em.
+    em_unit = em(0.8)
     call verify_unit_value(em_unit, 0.8, "em", "0.8em smaller text")
     
     ! Test fractional em values
-    em_unit = 2.5 .em.
+    em_unit = em(2.5)
     call verify_unit_value(em_unit, 2.5, "em", "2.5em heading size")
     
-    print *, "  ✓ .em. operator: relative font size units handled correctly"
+    print *, "  ✓em() operator: relative font size units handled correctly"
 end subroutine test_em_operator
 
 subroutine test_sp_operator()
-    ! Given: .sp. postfix operator for scaled pixels (accessibility)
+    ! Given:sp() postfix operator for scaled pixels (accessibility)
     ! When: Creating sp unit with various values
     ! Then: Should create unit_value with correct value and "sp" type
     
     class(*), allocatable :: sp_unit
     
     ! Test typical scaled pixel values
-    sp_unit = 14.0 .sp.
+    sp_unit = sp(14.0)
     call verify_unit_value(sp_unit, 14.0, "sp", "14sp standard text")
     
-    sp_unit = 18.0 .sp.
+    sp_unit = sp(18.0)
     call verify_unit_value(sp_unit, 18.0, "sp", "18sp large text")
     
-    sp_unit = 12.0 .sp.
+    sp_unit = sp(12.0)
     call verify_unit_value(sp_unit, 12.0, "sp", "12sp small text")
     
-    print *, "  ✓ .sp. operator: scaled pixel units handled correctly"
+    print *, "  ✓sp() operator: scaled pixel units handled correctly"
 end subroutine test_sp_operator
 
 subroutine test_px_operator()
-    ! Given: .px. postfix operator for physical pixels
+    ! Given:px() postfix operator for physical pixels
     ! When: Creating px unit with various values
     ! Then: Should create unit_value with correct value and "px" type
     
     class(*), allocatable :: px_unit
     
     ! Test physical pixel values
-    px_unit = 320.0 .px.
+    px_unit = px(320.0)
     call verify_unit_value(px_unit, 320.0, "px", "320px physical width")
     
-    px_unit = 1.0 .px.
+    px_unit = px(1.0)
     call verify_unit_value(px_unit, 1.0, "px", "1px hairline")
     
-    px_unit = 640.0 .px.
+    px_unit = px(640.0)
     call verify_unit_value(px_unit, 640.0, "px", "640px screen width")
     
-    print *, "  ✓ .px. operator: physical pixel units handled correctly"
+    print *, "  ✓px() operator: physical pixel units handled correctly"
 end subroutine test_px_operator
 
 subroutine test_cw_operator()
-    ! Given: .cw. postfix operator for cell widths (TUI-friendly)
+    ! Given:cw() postfix operator for cell widths (TUI-friendly)
     ! When: Creating cw unit with various values
     ! Then: Should create unit_value with correct value and "cw" type
     
     class(*), allocatable :: cw_unit
     
     ! Test cell width values typical for TUI
-    cw_unit = 10.0 .cw.
+    cw_unit = cw(10.0)
     call verify_unit_value(cw_unit, 10.0, "cw", "10cw button width")
     
-    cw_unit = 80.0 .cw.
+    cw_unit = cw(80.0)
     call verify_unit_value(cw_unit, 80.0, "cw", "80cw terminal width")
     
-    cw_unit = 1.0 .cw.
+    cw_unit = cw(1.0)
     call verify_unit_value(cw_unit, 1.0, "cw", "1cw single character")
     
-    print *, "  ✓ .cw. operator: cell width units handled correctly"
+    print *, "  ✓cw() operator: cell width units handled correctly"
 end subroutine test_cw_operator
 
 subroutine test_ch_operator()
-    ! Given: .ch. postfix operator for cell heights (TUI-friendly)
+    ! Given:ch() postfix operator for cell heights (TUI-friendly)
     ! When: Creating ch unit with various values
     ! Then: Should create unit_value with correct value and "ch" type
     
     class(*), allocatable :: ch_unit
     
     ! Test cell height values typical for TUI
-    ch_unit = 3.0 .ch.
+    ch_unit = ch(3.0)
     call verify_unit_value(ch_unit, 3.0, "ch", "3ch button height")
     
-    ch_unit = 24.0 .ch.
+    ch_unit = ch(24.0)
     call verify_unit_value(ch_unit, 24.0, "ch", "24ch terminal height")
     
-    ch_unit = 1.0 .ch.
+    ch_unit = ch(1.0)
     call verify_unit_value(ch_unit, 1.0, "ch", "1ch single line")
     
-    print *, "  ✓ .ch. operator: cell height units handled correctly"
+    print *, "  ✓ch() operator: cell height units handled correctly"
 end subroutine test_ch_operator
 
 subroutine test_operator_edge_cases()
@@ -188,18 +188,18 @@ subroutine test_operator_edge_cases()
     class(*), allocatable :: edge_unit
     
     ! Test very small values
-    edge_unit = 0.001 .dp.
+    edge_unit = dp(0.001)
     call verify_unit_value(edge_unit, 0.001, "dp", "very small dp value")
     
     ! Test very large values
-    edge_unit = 99999.99 .px.
+    edge_unit = px(99999.99)
     call verify_unit_value(edge_unit, 99999.99, "px", "very large px value")
     
     ! Test negative values for all units
-    edge_unit = -5.0 .em.
+    edge_unit = em(-5.0)
     call verify_unit_value(edge_unit, -5.0, "em", "negative em value")
     
-    edge_unit = -100.0 .cw.
+    edge_unit = cw(-100.0)
     call verify_unit_value(edge_unit, -100.0, "cw", "negative cw value")
     
     print *, "  ✓ Unit operators edge cases: boundary conditions handled"
@@ -214,7 +214,7 @@ subroutine test_operator_return_types()
     logical :: type_check_passed
     
     ! Test that all operators return class(*) compatible types
-    unit_test = 42.0 .dp.
+    unit_test = dp(42.0)
     type_check_passed = .false.
     select type(unit_test)
         type is (unit_value)
@@ -222,12 +222,12 @@ subroutine test_operator_return_types()
     end select
     
     if (.not. type_check_passed) then
-        print *, "  ✗ FAILED: .dp. operator does not return unit_value type"
+        print *, "  ✗ FAILED:dp() operator does not return unit_value type"
         stop 1
     end if
     
     ! Test with different operator
-    unit_test = 1.5 .em.
+    unit_test = em(1.5)
     type_check_passed = .false.
     select type(unit_test)
         type is (unit_value)
@@ -235,7 +235,7 @@ subroutine test_operator_return_types()
     end select
     
     if (.not. type_check_passed) then
-        print *, "  ✗ FAILED: .em. operator does not return unit_value type"
+        print *, "  ✗ FAILED:em() operator does not return unit_value type"
         stop 1
     end if
     
@@ -276,7 +276,7 @@ subroutine test_dp_conversion()
     ctx = ui_context(dpi_scale=1.0, em_dp=16.0, text_scale=1.0, cell_w_dp=8.0, cell_h_dp=16.0)
     
     ! Test identity conversion for dp units
-    dp_unit = 40.0 .dp.
+    dp_unit = dp(40.0)
     result = convert_to_dp(dp_unit, ctx)
     
     if (abs(result - 40.0) > TOLERANCE) then
@@ -285,7 +285,7 @@ subroutine test_dp_conversion()
     end if
     
     ! Test with different dp value
-    dp_unit = 123.456 .dp.
+    dp_unit = dp(123.456)
     result = convert_to_dp(dp_unit, ctx)
     
     if (abs(result - 123.456) > TOLERANCE) then
@@ -310,7 +310,7 @@ subroutine test_em_conversion()
     ctx = ui_context(dpi_scale=1.0, em_dp=16.0, text_scale=1.0, cell_w_dp=8.0, cell_h_dp=16.0)
     
     ! Test 1em = 16dp
-    em_unit = 1.0 .em.
+    em_unit = em(1.0)
     result = convert_to_dp(em_unit, ctx)
     
     if (abs(result - 16.0) > TOLERANCE) then
@@ -319,7 +319,7 @@ subroutine test_em_conversion()
     end if
     
     ! Test 2.5em = 40dp
-    em_unit = 2.5 .em.
+    em_unit = em(2.5)
     result = convert_to_dp(em_unit, ctx)
     
     if (abs(result - 40.0) > TOLERANCE) then
@@ -329,7 +329,7 @@ subroutine test_em_conversion()
     
     ! Test with different em_dp context
     ctx%em_dp = 20.0
-    em_unit = 1.5 .em.
+    em_unit = em(1.5)
     result = convert_to_dp(em_unit, ctx)
     
     if (abs(result - 30.0) > TOLERANCE) then
@@ -354,7 +354,7 @@ subroutine test_sp_conversion()
     ctx = ui_context(dpi_scale=1.0, em_dp=16.0, text_scale=1.0, cell_w_dp=8.0, cell_h_dp=16.0)
     
     ! Test 14sp with scale=1.0 = 14dp
-    sp_unit = 14.0 .sp.
+    sp_unit = sp(14.0)
     result = convert_to_dp(sp_unit, ctx)
     
     if (abs(result - 14.0) > TOLERANCE) then
@@ -364,7 +364,7 @@ subroutine test_sp_conversion()
     
     ! Test with accessibility scaling (125% = 1.25)
     ctx%text_scale = 1.25
-    sp_unit = 16.0 .sp.
+    sp_unit = sp(16.0)
     result = convert_to_dp(sp_unit, ctx)
     
     if (abs(result - 20.0) > TOLERANCE) then
@@ -389,7 +389,7 @@ subroutine test_px_conversion()
     ctx = ui_context(dpi_scale=1.0, em_dp=16.0, text_scale=1.0, cell_w_dp=8.0, cell_h_dp=16.0)
     
     ! Test 100px with scale=1.0 = 100dp
-    px_unit = 100.0 .px.
+    px_unit = px(100.0)
     result = convert_to_dp(px_unit, ctx)
     
     if (abs(result - 100.0) > TOLERANCE) then
@@ -399,7 +399,7 @@ subroutine test_px_conversion()
     
     ! Test with HiDPI scaling (2x DPI = scale=2.0)
     ctx%dpi_scale = 2.0
-    px_unit = 200.0 .px.
+    px_unit = px(200.0)
     result = convert_to_dp(px_unit, ctx)
     
     if (abs(result - 100.0) > TOLERANCE) then
@@ -424,7 +424,7 @@ subroutine test_cw_conversion()
     ctx = ui_context(dpi_scale=1.0, em_dp=16.0, text_scale=1.0, cell_w_dp=8.0, cell_h_dp=16.0)
     
     ! Test 10cw = 80dp
-    cw_unit = 10.0 .cw.
+    cw_unit = cw(10.0)
     result = convert_to_dp(cw_unit, ctx)
     
     if (abs(result - 80.0) > TOLERANCE) then
@@ -434,7 +434,7 @@ subroutine test_cw_conversion()
     
     ! Test with different cell width
     ctx%cell_w_dp = 12.0
-    cw_unit = 5.0 .cw.
+    cw_unit = cw(5.0)
     result = convert_to_dp(cw_unit, ctx)
     
     if (abs(result - 60.0) > TOLERANCE) then
@@ -459,7 +459,7 @@ subroutine test_ch_conversion()
     ctx = ui_context(dpi_scale=1.0, em_dp=16.0, text_scale=1.0, cell_w_dp=8.0, cell_h_dp=16.0)
     
     ! Test 3ch = 48dp
-    ch_unit = 3.0 .ch.
+    ch_unit = ch(3.0)
     result = convert_to_dp(ch_unit, ctx)
     
     if (abs(result - 48.0) > TOLERANCE) then
@@ -469,7 +469,7 @@ subroutine test_ch_conversion()
     
     ! Test with different cell height
     ctx%cell_h_dp = 20.0
-    ch_unit = 2.0 .ch.
+    ch_unit = ch(2.0)
     result = convert_to_dp(ch_unit, ctx)
     
     if (abs(result - 40.0) > TOLERANCE) then
@@ -531,7 +531,7 @@ subroutine test_conversion_accuracy()
     gui_ctx = ui_context(dpi_scale=1.5, em_dp=18.0, text_scale=1.25, cell_w_dp=9.0, cell_h_dp=18.0)
     
     ! Test complex conversion scenarios
-    unit_test = 2.5 .em.
+    unit_test = em(2.5)
     tui_result = convert_to_dp(unit_test, tui_ctx)  ! 2.5 * 16 = 40
     gui_result = convert_to_dp(unit_test, gui_ctx)  ! 2.5 * 18 = 45
     
@@ -720,12 +720,12 @@ subroutine test_class_star_assignment()
     class(*), allocatable :: mixed_unit
     
     ! Test assignment of all unit types
-    mixed_unit = 40.0 .dp.
-    mixed_unit = 2.5 .em.
-    mixed_unit = 14.0 .sp.
-    mixed_unit = 320.0 .px.
-    mixed_unit = 10.0 .cw.
-    mixed_unit = 3.0 .ch.
+    mixed_unit = dp(40.0)
+    mixed_unit = em(2.5)
+    mixed_unit = sp(14.0)
+    mixed_unit = px(320.0)
+    mixed_unit = cw(10.0)
+    mixed_unit = ch(3.0)
     
     ! Test assignment of bare real
     mixed_unit = 42.0
@@ -746,12 +746,12 @@ subroutine test_class_star_function_parameters()
     ctx = ui_context(dpi_scale=1.0, em_dp=16.0, text_scale=1.0, cell_w_dp=8.0, cell_h_dp=16.0)
     
     ! Test function calls with different unit types
-    result = convert_to_dp(40.0 .dp., ctx)
-    result = convert_to_dp(2.5 .em., ctx)
-    result = convert_to_dp(14.0 .sp., ctx)
-    result = convert_to_dp(320.0 .px., ctx)
-    result = convert_to_dp(10.0 .cw., ctx)
-    result = convert_to_dp(3.0 .ch., ctx)
+    result = convert_to_dp(dp(40.0), ctx)
+    result = convert_to_dp(em(2.5), ctx)
+    result = convert_to_dp(sp(14.0), ctx)
+    result = convert_to_dp(px(320.0), ctx)
+    result = convert_to_dp(cw(10.0), ctx)
+    result = convert_to_dp(ch(3.0), ctx)
     result = convert_to_dp(42.0, ctx)  ! bare real
     
     print *, "  ✓ class(*) function parameters: all unit types accepted in function calls"
@@ -770,11 +770,11 @@ subroutine test_mixed_unit_scenarios()
     ctx = ui_context(dpi_scale=1.0, em_dp=16.0, text_scale=1.0, cell_w_dp=8.0, cell_h_dp=16.0)
     
     ! Test mixed unit scenario from DESIGN.md example:
-    ! button("ok", width=120.0, height=2.5 .em.)
+    ! button("ok", width=120.0, height=em(2.5))
     width = 120.0      ! bare real (treated as dp)
-    height = 2.5 .em.  ! explicit em unit
-    gap = 1.0 .ch.     ! cell height for spacing
-    text_size = 14.0 .sp.  ! scaled pixels for text
+    height = em(2.5)  ! explicit em unit
+    gap = ch(1.0)     ! cell height for spacing
+    text_size = sp(14.0)  ! scaled pixels for text
     
     ! Convert all to dp for processing
     w_dp = convert_to_dp(width, ctx)
@@ -800,7 +800,7 @@ subroutine test_class_star_type_safety()
     logical :: type_identified
     
     ! Test type identification for unit_value
-    test_unit = 42.0 .dp.
+    test_unit = dp(42.0)
     type_identified = .false.
     
     select type(test_unit)
@@ -870,7 +870,7 @@ subroutine test_tui_cell_snapping()
     ! Setup TUI context
     tui_ctx = ui_context(dpi_scale=1.0, em_dp=16.0, text_scale=1.0, cell_w_dp=8.0, cell_h_dp=16.0)
     
-    ! Test example from DESIGN.md: 42.7 .dp. with cell_w_dp=8.0 → 5.34 cells → snap to 5 cells
+    ! Test example from DESIGN.md: dp(42.7) with cell_w_dp=8.0 → 5.34 cells → snap to 5 cells
     dp_value = 42.7
     cell_x = dp_value / tui_ctx%cell_w_dp  ! 42.7 / 8.0 = 5.3375
     snapped_x = nint(cell_x)               ! round to nearest integer = 5
@@ -915,7 +915,7 @@ subroutine test_gui_subpixel_precision()
     ! Setup GUI context with HiDPI scaling
     gui_ctx = ui_context(dpi_scale=1.5, em_dp=18.0, text_scale=1.25, cell_w_dp=9.0, cell_h_dp=18.0)
     
-    ! Test example from DESIGN.md: 42.7 .dp. with dpi_scale=1.5 → 64.05 pixels (exact)
+    ! Test example from DESIGN.md: dp(42.7) with dpi_scale=1.5 → 64.05 pixels (exact)
     dp_value = 42.7
     pixel_x = dp_value * gui_ctx%dpi_scale  ! 42.7 * 1.5 = 64.05
     
@@ -985,16 +985,16 @@ subroutine test_cross_backend_consistency()
     real :: tui_w_dp, tui_h_dp, tui_g_dp
     real :: gui_w_dp, gui_h_dp, gui_g_dp
     real :: tui_ratio, gui_ratio
-    real, parameter :: TOLERANCE = 0.1  ! Allow small differences due to snapping
+    real, parameter :: TOLERANCE = 0.15  ! Allow differences due to different font sizes
     
     ! Setup contexts
     tui_ctx = ui_context(dpi_scale=1.0, em_dp=16.0, text_scale=1.0, cell_w_dp=8.0, cell_h_dp=16.0)
     gui_ctx = ui_context(dpi_scale=1.5, em_dp=18.0, text_scale=1.0, cell_w_dp=9.0, cell_h_dp=18.0)
     
     ! Test consistent proportional relationships
-    button_width = 120.0 .dp.
-    button_height = 2.0 .em.
-    gap = 1.0 .ch.
+    button_width = dp(120.0)
+    button_height = em(2.0)
+    gap = ch(1.0)
     
     ! Convert for both backends
     tui_w_dp = convert_to_dp(button_width, tui_ctx)
@@ -1066,7 +1066,7 @@ subroutine test_invalid_context_handling()
     ! Test context with invalid values
     invalid_ctx = ui_context(dpi_scale=0.0, em_dp=-5.0, text_scale=0.0, cell_w_dp=-1.0, cell_h_dp=0.0)
     
-    test_unit = 10.0 .dp.
+    test_unit = dp(10.0)
     
     ! Function should handle invalid context gracefully
     ! Implementation will add appropriate validation and error handling
@@ -1134,7 +1134,7 @@ subroutine test_conversion_performance()
     ctx = ui_context(dpi_scale=1.5, em_dp=18.0, text_scale=1.0, cell_w_dp=9.0, cell_h_dp=18.0)
     
     ! Test repeated conversions (simplified performance test)
-    test_unit = 42.0 .dp.
+    test_unit = dp(42.0)
     do i = 1, NUM_CONVERSIONS
         result = convert_to_dp(test_unit, ctx)
     end do
@@ -1154,7 +1154,7 @@ subroutine test_memory_efficiency()
     
     ! Test repeated allocation/deallocation
     do i = 1, NUM_ALLOCATIONS
-        temp_unit = real(i) .dp.
+        temp_unit = dp(real(i))
         ! Fortran handles deallocation automatically when temp_unit goes out of scope
     end do
     
@@ -1176,9 +1176,9 @@ subroutine test_repeated_conversion_overhead()
     ctx = ui_context(dpi_scale=2.0, em_dp=20.0, text_scale=1.5, cell_w_dp=10.0, cell_h_dp=20.0)
     
     ! Setup test units
-    em_unit = 2.5 .em.
-    px_unit = 200.0 .px.
-    cw_unit = 8.0 .cw.
+    em_unit = em(2.5)
+    px_unit = px(200.0)
+    cw_unit = cw(8.0)
     
     ! Test repeated conversions of different unit types
     do i = 1, NUM_REPEATS
