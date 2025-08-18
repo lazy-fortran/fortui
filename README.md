@@ -185,7 +185,7 @@ call ui_init(backend="tui", width=80, height=25, title="My App")
 
 ### Graphical UI (GUI)  
 ```fortran
-call ui_init(backend="gui", width=800, height=600, title="My App", &
+call ui_init(backend="gui", width=100, height=30, title="My App", &
              target_fps=60, vsync=.true.)
 call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 ```
