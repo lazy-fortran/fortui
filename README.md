@@ -71,132 +71,105 @@ program hello_world
 end program
 ```
 
-## Core Concepts
+## Core Types
+
+### node Type
+The foundational building block for all UI elements:
+```fortran
+type :: node
+    ! Minimal structure - extensible for widgets
+    ! Backend-agnostic design
+end type node
+```
+
+### view Type  
+Manages pan and zoom state for plot areas:
+```fortran
+type :: view
+    real :: scale_x = 1.0  ! Zoom factor X-axis
+    real :: scale_y = 1.0  ! Zoom factor Y-axis  
+    real :: off_x = 0.0    ! Pan offset X-axis
+    real :: off_y = 0.0    ! Pan offset Y-axis
+end type view
+```
 
 ### Grid Units
 All dimensions use **grid units (gu)**:
 - **TUI**: 1 gu = 1 terminal cell
 - **GUI**: 1 gu = 1 monospace character width/height
 
-### Widget IDs
-Each widget requires a unique string ID for state management:
-```fortran
-! ID is used internally to maintain widget state
-logical :: clicked = button("my_button", "Click me")
-```
-
-### Immediate Mode
-Widgets are declared, rendered, and updated in a single call:
-```fortran
-! This single call: declares widget, renders it, updates value, returns change status
-logical :: changed = slider("volume", 0.0, 1.0, 0.1, volume_level)
-```
-
 ## API Reference
 
-### Core Functions
+### Lifecycle Management
 
 ```fortran
 ! Initialize UI system
 call ui_init(backend, width, height, title [, target_fps, vsync])
 
+! Optional: Configure GUI idle policy
+call ui_set_idle_policy(mode [, idle_fps])  ! GUI only
+
 ! Frame lifecycle
 call ui_frame_begin(timeout_ms)  ! TUI: event timeout; GUI: ignored
-call ui_present(tree)            ! Render widget tree
+call ui_present(tree)            ! Render UI tree
 logical :: should_exit = ui_should_close()
 
 ! Cleanup
 call ui_shutdown()
 ```
 
-### Layout Widgets
+### Core Type Usage
 
 ```fortran
-! Vertical layout
-type(node) :: col = column([gap], [children])
+! Node type - building block for UI elements
+type(node) :: ui_root
+! (Will be extended by widget types from fortui_widgets module)
 
-! Horizontal layout  
-type(node) :: row = row([gap], [children])
-```
+! View type - pan/zoom state management
+type(view) :: plot_view
+plot_view%scale_x = 2.0    ! Zoom in X by 2x
+plot_view%off_x = 100.0    ! Pan right by 100 units
 
-### Control Widgets
-
-```fortran
-! Button - returns true when clicked
-logical :: clicked = button(id [, label])
-
-! Slider - updates value, returns true when changed
-logical :: changed = slider(id, min_val, max_val, step, value)
-
-! Checkbox - toggles value when clicked
-call checkbox(id, checked_state)
-
-! Text display
-call text(id, content)
-
-! Viewport with pan/zoom - returns true when view changed
-logical :: view_changed = viewport(id, width, height, view_state)
+! Memory management is automatic - no manual cleanup needed
 ```
 
 ## Complete Example
 
 ```fortran
-program plot_demo
+program core_types_demo  
   use fortui_core
-  use fortui_widgets
   implicit none
 
-  real :: gain = 1.0
-  logical :: show_grid = .false.
   type(view) :: plot_view
-  class(node), allocatable :: ui
+  type(node) :: ui_root
   logical :: running
+  integer :: frame_count = 0
 
-  call ui_init(backend="tui", width=100, height=35, title="Plot Demo")
+  call ui_init(backend="tui", width=80, height=25, title="Core Types Demo")
 
   running = .true.
   do while (running)
     call ui_frame_begin(timeout_ms=200)
 
-    ! Build UI tree declaratively
-    ui = column(gap=1, children=[ &
-           row(gap=1, children=[ &
-             button("zoom_in", "+"), &
-             button("zoom_out", "-"), &
-             slider("gain", 0.1, 5.0, 0.1, gain), &
-             checkbox("grid", show_grid) ]), &
-           viewport("plot", 80, 24, plot_view), &
-           text("status", format_status(gain, plot_view, show_grid)) ])
+    ! Update view state (zoom oscillation for demo)
+    frame_count = frame_count + 1
+    plot_view%scale_x = 1.0 + sin(real(frame_count) * 0.05) * 0.5
+    plot_view%scale_y = plot_view%scale_x
+    plot_view%off_x = cos(real(frame_count) * 0.03) * 20.0
 
-    ! React to interactions
-    if (button("zoom_in", "+"))  call zoom(plot_view, 1.2)
-    if (button("zoom_out", "-")) call zoom(plot_view, 1.0/1.2)
+    ! UI tree will be built using fortui_widgets module (coming soon)
+    ! ui_root = column(children=[ &
+    !   text("info", "Core types implemented!"), &
+    !   viewport("plot", 60, 15, plot_view) ])
 
-    call ui_present(ui)
+    call ui_present(ui_root)
     running = .not. ui_should_close()
   end do
 
   call ui_shutdown()
-
-contains
-  subroutine zoom(v, factor)
-    type(view), intent(inout) :: v
-    real, intent(in) :: factor
-    v%scale_x = v%scale_x * factor
-    v%scale_y = v%scale_y * factor
-  end subroutine
-
-  function format_status(g, v, grid) result(status)
-    real, intent(in) :: g
-    type(view), intent(in) :: v
-    logical, intent(in) :: grid
-    character(len=:), allocatable :: status
-    character(len=128) :: buffer
-    
-    write(buffer, '("gain=",F4.2," scale=(",F4.2,",",F4.2,") grid=",L1)') &
-          g, v%scale_x, v%scale_y, grid
-    status = trim(buffer)
-  end function
+  
+  print *, "Demo completed after", frame_count, "frames"
+  print *, "Final view state: scale=", plot_view%scale_x, "offset=", plot_view%off_x
 end program
 ```
 
@@ -220,12 +193,27 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 - Configurable frame rate
 - Adaptive idle policies
 
+## Current Implementation Status
+
+✅ **fortui_core module**: Complete with `node` and `view` types, lifecycle management  
+🚧 **fortui_widgets module**: In development (layout and interactive widgets)  
+✅ **Backend selection**: TUI/GUI conditional compilation working  
+✅ **Build system**: Automatic dependency detection and configuration  
+
 ## Architecture
 
-- **fortui_core**: Lifecycle management, core types, frame handling
-- **fortui_widgets**: Layout containers and interactive controls
-- **Dual backends**: termbox2 (TUI) and raylib/raygui (GUI)
-- **Monospace baseline**: Ensures pixel-perfect TUI/GUI consistency
+- **fortui_core**: ✅ Lifecycle management, core types, frame handling  
+- **fortui_widgets**: 🚧 Layout containers and interactive controls (coming soon)
+- **Dual backends**: ✅ termbox2 (TUI) and raylib/raygui (GUI) support
+- **Monospace baseline**: ✅ Ensures pixel-perfect TUI/GUI consistency
+
+## Documentation
+
+- **[Core Types API](docs/CORE_TYPES_API.md)**: Complete `node` and `view` type documentation
+- **[Lifecycle API](docs/LIFECYCLE_API.md)**: UI initialization and frame management
+- **[Backend Selection](docs/BACKEND_SELECTION.md)**: TUI vs GUI compilation guide  
+- **[Developer Guide](docs/DEVELOPER_GUIDE.md)**: Integration patterns and best practices
+- **[Build Guide](BUILD_GUIDE.md)**: Dependency setup and build configuration
 
 ## License
 
