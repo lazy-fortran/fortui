@@ -3,6 +3,7 @@ program check
 use test_core_types
 use test_conditional_compilation
 use test_lifecycle_functions
+use test_units_system
 implicit none
 
 ! Given: Test suite execution
@@ -31,6 +32,9 @@ subroutine run_fortran_tests()
     
     ! Lifecycle functions and backend selection tests
     call test_all_lifecycle_functions()
+    
+    ! Units system with postfix operators and context-aware conversion tests
+    call test_all_units_system()
     
     print *, "✓ All Fortran unit tests completed"
     print *, ""
