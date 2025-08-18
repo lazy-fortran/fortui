@@ -2,6 +2,7 @@ program check
 ! Test runner for fortui build system and core functionality
 use test_core_types
 use test_conditional_compilation
+use test_lifecycle_functions
 implicit none
 
 ! Given: Test suite execution
@@ -27,6 +28,9 @@ subroutine run_fortran_tests()
     
     ! Conditional compilation tests  
     call test_all_conditional_compilation()
+    
+    ! Lifecycle functions and backend selection tests
+    call test_all_lifecycle_functions()
     
     print *, "✓ All Fortran unit tests completed"
     print *, ""
