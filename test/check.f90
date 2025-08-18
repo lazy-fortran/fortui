@@ -4,6 +4,7 @@ use test_core_types
 use test_conditional_compilation
 use test_lifecycle_functions
 use test_units_system
+use test_layout_constructors
 implicit none
 
 ! Given: Test suite execution
@@ -35,6 +36,9 @@ subroutine run_fortran_tests()
     
     ! Units system with postfix operators and context-aware conversion tests
     call test_all_units_system()
+    
+    ! Layout constructor tests with class(*) gap support and children arrays
+    call test_all_layout_constructors()
     
     print *, "✓ All Fortran unit tests completed"
     print *, ""

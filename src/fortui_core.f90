@@ -4,12 +4,14 @@ module fortui_core
 implicit none
 private
 
-! Public types
-public :: node, view
+! Public types  
+public :: ui_element, node, view
 
 ! Public procedures
 public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
 public :: ui_set_idle_policy
+! Layout constructors (temporary stubs for testing)
+public :: column, row
 
 ! Internal state management
 type :: ui_state_t
@@ -27,8 +29,13 @@ end type ui_state_t
 
 type(ui_state_t), save :: ui_state
 
+! Abstract UI element hierarchy for tree construction
+type, abstract :: ui_element
+    ! Abstract base for all UI elements (nodes, widgets, layouts)
+end type ui_element
+
 ! Core UI tree building block - extensible for widgets
-type :: node
+type, extends(ui_element) :: node
     ! Minimal structure - will be extended by widget types
     ! Backend-agnostic design (identical behavior regardless of compilation flags)
 end type node
@@ -385,5 +392,30 @@ subroutine shutdown_gui_backend()
 #ifdef ENABLE_GUI
 #endif
 end subroutine shutdown_gui_backend
+
+! Layout constructor stubs for testing (will be moved to fortui_widgets)
+function column(gap, children) result(n)
+    class(*), intent(in), optional :: gap
+    type(node), intent(in), optional :: children(:)
+    type(node) :: n
+    
+    ! Stub implementation for testing - actual implementation by sergei-perfectionist-coder
+    ! TODO: Process gap parameter via convert_to_dp()
+    ! TODO: Handle children array and build layout tree
+    ! TODO: Implement column layout logic
+    n = node()
+end function column
+
+function row(gap, children) result(n)
+    class(*), intent(in), optional :: gap
+    type(node), intent(in), optional :: children(:)
+    type(node) :: n
+    
+    ! Stub implementation for testing - actual implementation by sergei-perfectionist-coder
+    ! TODO: Process gap parameter via convert_to_dp()
+    ! TODO: Handle children array and build layout tree  
+    ! TODO: Implement row layout logic
+    n = node()
+end function row
 
 end module fortui_core
