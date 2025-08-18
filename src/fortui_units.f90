@@ -1,6 +1,6 @@
 module fortui_units
-! Comprehensive units system for fortui with postfix operators and context-aware conversion
-! Provides ergonomic unit types (.dp., .em., .sp., .px., .cw., .ch.) and cross-backend conversion
+! Comprehensive units system for fortui with function syntax and context-aware conversion
+! Provides ergonomic unit constructor functions (dp(), em(), sp(), px(), cw(), ch()) and cross-backend conversion
 implicit none
 private
 
@@ -171,7 +171,7 @@ real function convert_to_dp(unit_arg, ctx) result(dp_val)
         class default
             ! Unsupported type - provide clear error message
             print *, "convert_to_dp: Error - Unsupported type passed to convert_to_dp"
-            print *, "  Supported types: unit_value (from .dp., .em., .sp., .px., .cw., .ch.), real, integer"
+            print *, "  Supported types: unit_value (from dp(), em(), sp(), px(), cw(), ch()), real, integer"
             dp_val = 0.0  ! Safe fallback value
     end select
 end function convert_to_dp
