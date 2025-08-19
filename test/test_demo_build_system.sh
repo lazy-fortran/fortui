@@ -68,13 +68,13 @@ assert_directory_exists() {
 }
 
 # Test 1: Demo Application Compilation via FMP
-test_demo_fmp_compilation() {
+test_demo_fpm_compilation() {
     echo -e "\n${YELLOW}Testing demo application FMP compilation...${NC}"
     
     cd "$PROJECT_ROOT"
     
     # Given: Demo application source in examples/ or app/
-    # When: Compiling via fmp build
+    # When: Compiling via fpm build
     # Then: Should compile successfully without errors
     
     # Create test demo application if needed
@@ -140,17 +140,17 @@ end program
 EOF
     fi
     
-    # Test FMP compilation
-    fmp build --verbose 2>&1 > /tmp/fmp_build_output.log
-    local fmp_exit_code=$?
+    # Test FPM compilation
+    fpm build --verbose 2>&1 > /tmp/fpm_build_output.log
+    local fpm_exit_code=$?
     
-    assert_success $fmp_exit_code "Demo application FMP compilation"
+    assert_success $fpm_exit_code "Demo application FPM compilation"
     
     # Check for executable generation
-    if [[ -f "build/gfortran_*/app/main" ]] || [[ -f "build/*/demo" ]]; then
-        assert_success 0 "Demo executable generated via FMP"
+    if ls build/gfortran_*/app/main 2>/dev/null || ls build/*/demo 2>/dev/null || ls build/gfortran_*/example/*demo* 2>/dev/null; then
+        assert_success 0 "Demo executable generated via FPM"
     else
-        assert_success 1 "Demo executable NOT generated via FMP"
+        assert_success 1 "Demo executable NOT generated via FPM"
     fi
 }
 
@@ -172,8 +172,8 @@ test_demo_build_script_integration() {
     export GUI_CACHE="$DEMO_CACHE"
     mkdir -p "$DEMO_CACHE"
     
-    # Run build script (TUI-only for testing)
-    ./tools/build_fortui.sh 2>&1 > /tmp/build_script_output.log
+    # Run build script (TUI-only for testing) - use config to avoid dependency building
+    ./tools/build_fortui.sh config 2>&1 > /tmp/build_script_output.log
     local build_script_exit_code=$?
     
     assert_success $build_script_exit_code "Build script execution for demo"
@@ -195,10 +195,12 @@ test_demo_executable_validation() {
     
     # Find the executable
     local demo_executable=""
-    if [[ -f "build/gfortran_*/app/main" ]]; then
+    if ls build/gfortran_*/app/main 2>/dev/null; then
         demo_executable=$(find build -name "main" -type f | head -1)
-    elif [[ -f "build/*/demo" ]]; then
+    elif ls build/*/demo 2>/dev/null; then
         demo_executable=$(find build -name "demo" -type f | head -1)
+    elif ls build/gfortran_*/example/*demo* 2>/dev/null; then
+        demo_executable=$(find build -path "*/example/*demo*" -type f -executable | head -1)
     fi
     
     if [[ -n "$demo_executable" ]] && [[ -x "$demo_executable" ]]; then
@@ -241,7 +243,7 @@ test_demo_cross_backend_build() {
     mkdir -p "$DEMO_CACHE"
     
     # Verify TUI backend configuration
-    fmp build --verbose 2>&1 | grep -q "ENABLE_GUI=0" && {
+    fpm build --verbose 2>&1 | grep -q "ENABLE_GUI=0" && {
         assert_success 0 "TUI backend configuration detected"
     } || {
         # Alternative: check for termbox2 dependencies
@@ -266,7 +268,7 @@ test_demo_performance_build() {
     # Check for optimization in build process
     export FMP_FFLAGS="-O2"
     
-    fmp build --profile release 2>&1 > /tmp/performance_build_output.log
+    fpm build --profile release 2>&1 > /tmp/performance_build_output.log
     local perf_build_exit_code=$?
     
     assert_success $perf_build_exit_code "Demo performance build compilation"
@@ -296,11 +298,8 @@ test_demo_dependency_management() {
     export GUI_CACHE="$DEMO_CACHE"
     export DISABLE_GUI=1
     
-    # Run dependency check
-    ./tools/build_fortui.sh dependency_check 2>&1 > /tmp/dependency_check_output.log || {
-        # Alternative: just test the script exists and runs
-        ./tools/build_fortui.sh --help 2>&1 > /tmp/build_help_output.log
-    }
+    # Run dependency check via config command
+    ./tools/build_fortui.sh config 2>&1 > /tmp/dependency_check_output.log
     local dep_check_exit_code=$?
     
     assert_success $dep_check_exit_code "Demo dependency management validation"
@@ -327,7 +326,7 @@ run_demo_build_tests() {
     TESTS_FAILED=0
     
     # Run all build tests
-    test_demo_fmp_compilation
+    test_demo_fpm_compilation
     test_demo_build_script_integration
     test_demo_executable_validation
     test_demo_cross_backend_build
@@ -358,7 +357,7 @@ run_demo_build_tests() {
 # Cleanup function
 cleanup_demo_tests() {
     rm -rf "$DEMO_CACHE" 2>/dev/null || true
-    rm -f /tmp/fmp_build_output.log 2>/dev/null || true
+    rm -f /tmp/fpm_build_output.log 2>/dev/null || true
     rm -f /tmp/build_script_output.log 2>/dev/null || true
     rm -f /tmp/demo_execution_output.log 2>/dev/null || true
     rm -f /tmp/performance_build_output.log 2>/dev/null || true

@@ -93,7 +93,7 @@ subroutine test_multi_widget_interaction_integration()
     
     print *, "=== Multi-Widget Interaction Integration Test ==="
     
-    call ui_init(backend="tui", width=100.0_dp, height=35.0_dp, title="Integration Test")
+    call ui_init(backend="tui", width=100, height=35, title="Integration Test")
     
     ! Test complete widget composition
     call test_complete_widget_composition(complete_ui)
@@ -131,7 +131,7 @@ subroutine test_realtime_application_behavior()
     call cpu_time(start_time)
     
     ! Initialize application
-    call ui_init(backend="tui", width=100.0_dp, height=35.0_dp, title="Real-Time Test")
+    call ui_init(backend="tui", width=100, height=35, title="Real-Time Test")
     
     ! Run realistic interaction scenario
     call test_realistic_user_scenario()
@@ -167,7 +167,7 @@ subroutine test_widget_layout_integration()
     
     print *, "=== Widget Layout Integration Test ==="
     
-    call ui_init(backend="tui", width=100.0_dp, height=35.0_dp, title="Layout Test")
+    call ui_init(backend="tui", width=100, height=35, title="Layout Test")
     
     ! Test layout construction with all widget types
     call test_complete_layout_construction(complex_layout)
@@ -225,7 +225,7 @@ subroutine test_application_initialization()
     ! Test the ui_init phase matching DESIGN.md specification
     
     ! Initialize with exact parameters from DESIGN.md
-    call ui_init(backend="tui", width=100.0_dp, height=35.0_dp, title="plot demo")
+    call ui_init(backend="tui", width=100, height=35, title="plot demo")
     test_state%ui_initialized = .true.
     
     ! Initialize application state
@@ -253,24 +253,24 @@ subroutine test_application_main_loop()
         test_state%frame_begun = .true.
         
         ! Create the exact UI structure from DESIGN.md
-        ui = column(gap=1.0_dp, children=[ &
-               row(gap=2.0_dp, children=[ &
-                 button("zoom_in"), &
-                 button("zoom_out", "-"), &
-                 slider("gain", 0.1, 5.0, 0.1, test_state%gain), &
-                 checkbox("grid", test_state%grid) ]), &
-               viewport("plot", 80.0_dp, 24.0_dp, test_state%viewport_state), &
-               text("status", create_status_line()) ])
+        ui = column(gap=1.0, children=[ &
+               widget(row(gap=2.0, children=[ &
+                 widget(button("zoom_in")), &
+                 widget(button("zoom_out", "-")), &
+                 widget(slider("gain", 0.1, 5.0, 0.1, test_state%gain)), &
+                 widget(checkbox("grid", test_state%grid)) ])), &
+               viewport("plot", 80.0, 24.0, test_state%viewport_state), &
+               widget(text("status", create_status_line())) ])
         
         ! Test button interactions from DESIGN.md
-        if (button("zoom_in")) then
+        test_state%zoom_in_pressed = button("zoom_in")
+        if (test_state%zoom_in_pressed) then
             call zoom_viewport(test_state%viewport_state, 1.2)
-            test_state%zoom_in_pressed = .true.
         end if
         
-        if (button("zoom_out", "-")) then
+        test_state%zoom_out_pressed = button("zoom_out", "-")
+        if (test_state%zoom_out_pressed) then
             call zoom_viewport(test_state%viewport_state, 1.0/1.2)
-            test_state%zoom_out_pressed = .true.
         end if
         
         call ui_present(ui)
@@ -304,14 +304,14 @@ subroutine test_complete_widget_composition(ui)
     class(ui_element), allocatable, intent(out) :: ui
     
     ! Test creating the complete UI composition from DESIGN.md
-    ui = column(gap=1.0_dp, children=[ &
-           row(gap=2.0_dp, children=[ &
-             button("zoom_in"), &
-             button("zoom_out", "-"), &
-             slider("gain", 0.1, 5.0, 0.1, test_state%gain), &
-             checkbox("grid", test_state%grid) ]), &
-           viewport("plot", 80.0_dp, 24.0_dp, test_state%viewport_state), &
-           text("status", create_status_line()) ])
+    ui = column(gap=1.0, children=[ &
+           widget(row(gap=2.0, children=[ &
+             widget(button("zoom_in")), &
+             widget(button("zoom_out", "-")), &
+             widget(slider("gain", 0.1, 5.0, 0.1, test_state%gain)), &
+             widget(checkbox("grid", test_state%grid)) ])), &
+           viewport("plot", 80.0, 24.0, test_state%viewport_state), &
+           widget(text("status", create_status_line())) ])
     
     if (allocated(ui)) then
         test_state%all_widgets_functional = .true.
@@ -395,7 +395,8 @@ subroutine test_realistic_user_scenario()
         
         ! Simulate user clicking zoom in multiple times
         if (mod(interaction_sequence, 3) == 1) then
-            if (button("zoom_in")) then
+            test_state%zoom_in_pressed = button("zoom_in")
+            if (test_state%zoom_in_pressed) then
                 call zoom_viewport(test_state%viewport_state, 1.2)
             end if
         end if
@@ -453,21 +454,23 @@ end subroutine test_performance_under_interaction_load
 
 subroutine test_complete_layout_construction(layout)
     class(ui_element), allocatable, intent(out) :: layout
+    real :: slider1_value = 5.0, slider2_value = 50.0
+    logical :: check1_value = .false., check2_value = .true.
     
     ! Build complex nested layout
-    layout = column(gap=1.0_dp, children=[ &
-               row(gap=2.0_dp, children=[ &
-                 column(gap=0.5_dp, children=[ &
-                   button("btn1"), &
-                   button("btn2") ]), &
-                 column(gap=0.5_dp, children=[ &
-                   slider("slider1", 0.0, 10.0, 0.1, 5.0), &
-                   slider("slider2", 0.0, 100.0, 1.0, 50.0) ]) ]), &
-               row(gap=2.0_dp, children=[ &
-                 checkbox("check1", .false.), &
-                 checkbox("check2", .true.) ]), &
-               viewport("viewport1", 40.0_dp, 20.0_dp, test_state%viewport_state), &
-               text("text1", "Complex layout test") ])
+    layout = column(gap=1.0, children=[ &
+               widget(row(gap=2.0, children=[ &
+                 widget(column(gap=0.5, children=[ &
+                   widget(button("btn1")), &
+                   widget(button("btn2")) ])), &
+                 widget(column(gap=0.5, children=[ &
+                   widget(slider("slider1", 0.0, 10.0, 0.1, slider1_value)), &
+                   widget(slider("slider2", 0.0, 100.0, 1.0, slider2_value)) ])) ])), &
+               widget(row(gap=2.0, children=[ &
+                 widget(checkbox("check1", check1_value)), &
+                 widget(checkbox("check2", check2_value)) ])), &
+               viewport("viewport1", 40.0, 20.0, test_state%viewport_state), &
+               widget(text("text1", "Complex layout test")) ])
     
     if (allocated(layout)) then
         test_state%layout_integrity_maintained = .true.
@@ -482,17 +485,20 @@ subroutine test_layout_stability_during_interactions(layout)
     class(ui_element), allocatable, intent(inout) :: layout
     
     integer :: interaction_round
+    logical :: btn1_clicked, btn2_clicked
     
     ! Test layout stability through multiple interaction rounds
     do interaction_round = 1, 5
         call ui_frame_begin(timeout_ms=100)
         
         ! Simulate interactions that might affect layout
-        if (button("btn1")) then
+        btn1_clicked = button("btn1")
+        if (btn1_clicked) then
             ! Layout should remain stable
         end if
         
-        if (button("btn2")) then
+        btn2_clicked = button("btn2")
+        if (btn2_clicked) then
             ! Layout should remain stable  
         end if
         
@@ -517,13 +523,13 @@ subroutine test_layout_responsiveness()
     do responsiveness_test = 1, 10
         ! Create rapidly changing layouts
         if (mod(responsiveness_test, 2) == 0) then
-            dynamic_layout = row(gap=1.0_dp, children=[ &
-                               button("responsive_btn"), &
-                               text("responsive_text", "Even frame") ])
+            dynamic_layout = row(gap=1.0, children=[ &
+                               widget(button("responsive_btn")), &
+                               widget(text("responsive_text", "Even frame")) ])
         else
-            dynamic_layout = column(gap=1.0_dp, children=[ &
-                               button("responsive_btn"), &
-                               text("responsive_text", "Odd frame") ])
+            dynamic_layout = column(gap=1.0, children=[ &
+                               widget(button("responsive_btn")), &
+                               widget(text("responsive_text", "Odd frame")) ])
         end if
         
         if (.not. allocated(dynamic_layout)) then
@@ -560,11 +566,13 @@ subroutine test_rapid_interaction_sequences()
     
     do rapid_interaction = 1, 50
         ! Rapid button clicking
-        if (button("zoom_in")) then
+        test_state%zoom_in_pressed = button("zoom_in")
+        if (test_state%zoom_in_pressed) then
             call zoom_viewport(test_state%viewport_state, 1.01)
         end if
         
-        if (button("zoom_out", "-")) then
+        test_state%zoom_out_pressed = button("zoom_out", "-")
+        if (test_state%zoom_out_pressed) then
             call zoom_viewport(test_state%viewport_state, 0.99)
         end if
         
@@ -657,11 +665,3 @@ end subroutine run_demo_integration_tests
 end module test_demo_integration
 
 
-! Standalone test program for demo integration validation
-program demo_integration_test_runner
-use test_demo_integration
-implicit none
-
-call run_demo_integration_tests()
-
-end program demo_integration_test_runner
