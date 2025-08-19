@@ -10,7 +10,7 @@ Terminal UI backend with termbox2 integration, visual widget rendering, and prod
 
 # Compile with TUI backend
 fpm build
-fmp run --example tui_rendering_demo
+fpm run --example tui_rendering_demo
 ```
 
 ## Basic Usage

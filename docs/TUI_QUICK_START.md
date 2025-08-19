@@ -9,7 +9,7 @@ Get the TUI backend running in 3 steps with visual widget rendering.
 ./tools/build_fortui.sh build
 
 # Compile with TUI support
-fmp build
+fpm build
 ```
 
 ## Basic Example
