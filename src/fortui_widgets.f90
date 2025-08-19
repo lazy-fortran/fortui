@@ -2,7 +2,7 @@ module fortui_widgets
 ! Widget system for fortui - immediate-mode UI with ID-based state management
 ! Implements button widget with unified class(*) interface and cross-backend support
 use iso_c_binding
-use fortui_core, only: ui_element, node, view
+use fortui_core, only: ui_element, node, view, widget_wrapper
 use fortui_units, only: ui_context, convert_to_dp, ui_get_context
 implicit none
 private
@@ -11,6 +11,9 @@ private
 public :: button, text, slider, checkbox
 public :: assignment(=)  ! Make assignment operators public
 public :: operator(.logical.)  ! Make logical operators public
+
+! Polymorphic widget helper functions for layout construction
+public :: widget, viewport
 
 ! Public widget node types for direct usage
 public :: button_node_t, text_node_t, slider_node_t, checkbox_node_t
@@ -31,6 +34,9 @@ end interface
 
 ! Single widget functions that return interactive ui_element types
 ! These support both layout construction and interaction detection
+
+! Polymorphic widget construction helpers
+! These functions return class(ui_element) for use in layout arrays
 
 ! Testing helper functions (for test suite only)
 public :: simulate_button_click, simulate_key_press, set_button_focus
@@ -1832,5 +1838,90 @@ subroutine assign_slider_to_logical(lhs, rhs)
     type(slider_node_t), intent(in) :: rhs
     lhs = rhs%value_changed
 end subroutine assign_slider_to_logical
+
+! ============================================================================
+! Polymorphic Widget Construction Helpers
+! ============================================================================
+! These functions solve the polymorphic array construction problem by returning
+! class(ui_element) instead of specific derived types, enabling mixed widget arrays
+
+function widget(source) result(wrapper)
+    ! Generic polymorphic converter for any widget node type
+    ! Creates concrete wrapper for use in arrays, avoiding abstract type issues
+    class(*), intent(in) :: source
+    type(widget_wrapper) :: wrapper
+    
+    ! Wrap the source element in a concrete wrapper type
+    select type (source)
+    type is (button_node_t)
+        allocate(button_node_t :: wrapper%wrapped_element)
+        select type (element => wrapper%wrapped_element)
+        type is (button_node_t)
+            element = source
+        end select
+    type is (text_node_t)
+        allocate(text_node_t :: wrapper%wrapped_element)
+        select type (element => wrapper%wrapped_element)
+        type is (text_node_t)
+            element = source
+        end select
+    type is (slider_node_t)
+        allocate(slider_node_t :: wrapper%wrapped_element)
+        select type (element => wrapper%wrapped_element)
+        type is (slider_node_t)
+            element = source
+        end select
+    type is (checkbox_node_t)
+        allocate(checkbox_node_t :: wrapper%wrapped_element)
+        select type (element => wrapper%wrapped_element)
+        type is (checkbox_node_t)
+            element = source
+        end select
+    type is (node)
+        allocate(node :: wrapper%wrapped_element)
+        select type (element => wrapper%wrapped_element)
+        type is (node)
+            element = source
+        end select
+    class default
+        ! For unsupported types, create a basic button placeholder
+        allocate(button_node_t :: wrapper%wrapped_element)
+        select type (element => wrapper%wrapped_element)
+        type is (button_node_t)
+            element = button("placeholder", "?")
+        end select
+        print *, "widget: Warning - unsupported type, wrapped as placeholder"
+    end select
+end function widget
+
+function viewport(id, width, height, view_state) result(wrapper)
+    ! Viewport widget implementation as concrete wrapper
+    ! Returns widget_wrapper for proper array construction
+    character(*), intent(in) :: id
+    real, intent(in) :: width, height
+    type(view), intent(inout) :: view_state
+    type(widget_wrapper) :: wrapper
+    
+    ! For now, create a text node as placeholder for viewport
+    ! In full implementation, this would be a proper viewport_node_t type
+    type(text_node_t) :: viewport_placeholder
+    character(len=64) :: viewport_label
+    
+    ! Create descriptive label for viewport placeholder
+    write(viewport_label, '(A,A,F0.1,A,F0.1,A)') trim(id), '(', width, 'x', height, ')'
+    
+    ! Create text node as viewport placeholder
+    viewport_placeholder = text(id, viewport_label, width=width, height=height)
+    
+    ! Wrap in concrete wrapper
+    allocate(text_node_t :: wrapper%wrapped_element)
+    select type (element => wrapper%wrapped_element)
+    type is (text_node_t)
+        element = viewport_placeholder
+    end select
+    
+    ! Note: view_state parameter maintained for API compatibility
+    ! Full viewport implementation would manage pan/zoom state
+end function viewport
 
 end module fortui_widgets

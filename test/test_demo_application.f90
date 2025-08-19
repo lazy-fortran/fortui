@@ -6,7 +6,7 @@ module test_demo_application
 ! Then: Validates system integration, application lifecycle, and build system
 
 use fortui_core
-use fortui_units
+use fortui_units, only: dp
 use fortui_widgets
 implicit none
 
@@ -112,7 +112,7 @@ subroutine test_demo_widget_integration()
     print *, "=== Demo Widget Integration Tests ==="
     
     ! Initialize for testing
-    call ui_init(backend="tui", width=100.0_dp, height=35.0_dp, title="Integration Test")
+    call ui_init(backend="tui", width=100, height=35, title="Integration Test")
     
     ! Test widget composition and interaction
     call test_demo_widget_composition(ui)
@@ -171,8 +171,8 @@ subroutine test_demo_performance()
     ! Then: Application meets performance targets (responsive UI, stable frame rate)
     
     real :: start_time, end_time, frame_duration
-    integer :: target_fps = 60
-    real :: max_frame_time_ms = 1000.0 / real(target_fps)
+    integer, parameter :: target_fps = 60
+    real, parameter :: max_frame_time_ms = 1000.0 / real(target_fps)
     
     print *, "=== Demo Performance Tests ==="
     
@@ -251,14 +251,14 @@ subroutine test_demo_layout_structure()
     logical :: structure_valid
     
     ! Mock the complete layout structure
-    ui = column(gap=1.0_dp, children=[ &
-           row(gap=2.0_dp, children=[ &
-             button("zoom_in"), &
-             button("zoom_out", "-"), &
-             slider("gain", 0.1, 5.0, 0.1, demo_state%gain), &
-             checkbox("grid", demo_state%grid) ]), &
-           viewport("plot", 80.0_dp, 24.0_dp, demo_state%v), &
-           text("status", "Test status line") ])
+    ui = column(gap=dp(1.0), children=[ &
+           widget(row(gap=dp(2.0), children=[ &
+             widget(button("zoom_in")), &
+             widget(button("zoom_out", "-")), &
+             widget(slider("gain", 0.1, 5.0, 0.1, demo_state%gain)), &
+             widget(checkbox("grid", demo_state%grid)) ])), &
+           viewport("plot", 80.0, 24.0, demo_state%v), &
+           widget(text("status", "Test status line")) ])
     
     structure_valid = allocated(ui)
     
@@ -325,7 +325,7 @@ end subroutine test_demo_helper_functions
 
 subroutine test_demo_initialization()
     ! Test ui_init with parameters matching DESIGN.md
-    call ui_init(backend="tui", width=100.0_dp, height=35.0_dp, title="plot demo")
+    call ui_init(backend="tui", width=100, height=35, title="plot demo")
     
     ! Validate initialization succeeded
     demo_state%running = .true.
@@ -375,14 +375,14 @@ subroutine test_demo_widget_composition(ui)
     class(ui_element), allocatable, intent(out) :: ui
     
     ! Test the exact widget composition from DESIGN.md
-    ui = column(gap=1.0_dp, children=[ &
-           row(gap=2.0_dp, children=[ &
-             button("zoom_in"), &
-             button("zoom_out", "-"), &
-             slider("gain", 0.1, 5.0, 0.1, demo_state%gain), &
-             checkbox("grid", demo_state%grid) ]), &
-           viewport("plot", 80.0_dp, 24.0_dp, demo_state%v), &
-           text("status", status_line(demo_state%gain, demo_state%v, demo_state%grid)) ])
+    ui = column(gap=dp(1.0), children=[ &
+           widget(row(gap=dp(2.0), children=[ &
+             widget(button("zoom_in")), &
+             widget(button("zoom_out", "-")), &
+             widget(slider("gain", 0.1, 5.0, 0.1, demo_state%gain)), &
+             widget(checkbox("grid", demo_state%grid)) ])), &
+           viewport("plot", 80.0, 24.0, demo_state%v), &
+           widget(text("status", status_line(demo_state%gain, demo_state%v, demo_state%grid))) ])
     
     if (.not. allocated(ui)) then
         print *, "✗ Widget composition failed"

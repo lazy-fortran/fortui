@@ -10,7 +10,7 @@ real, parameter :: DEFAULT_ROW_HEIGHT_DP = 32.0  ! Basic row height for vertical
 real, parameter :: DEFAULT_COLUMN_WIDTH_DP = 64.0  ! Basic column width for horizontal layout
 
 ! Public types  
-public :: ui_element, node, view
+public :: ui_element, node, view, widget_wrapper
 
 ! Public procedures
 public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
@@ -38,6 +38,11 @@ type(ui_state_t), save :: ui_state
 type, abstract :: ui_element
     ! Abstract base for all UI elements (nodes, widgets, layouts)
 end type ui_element
+
+! Concrete polymorphic wrapper for mixed widget arrays
+type, extends(ui_element) :: widget_wrapper
+    class(ui_element), allocatable :: wrapped_element
+end type widget_wrapper
 
 ! Core UI tree building block - extensible for widgets
 type, extends(ui_element) :: node
@@ -291,7 +296,7 @@ subroutine ui_frame_begin(timeout_ms)
 end subroutine ui_frame_begin
 
 subroutine ui_present(tree)
-    class(node), intent(in) :: tree
+    class(ui_element), intent(in) :: tree
     
     if (.not. ui_state%initialized) then
         print *, "ui_present: Error - UI not initialized. Call ui_init first."
@@ -829,7 +834,7 @@ end subroutine begin_gui_frame
 
 ! Backend-specific presentation stubs
 subroutine present_tui(tree)
-    class(node), intent(in) :: tree
+    class(ui_element), intent(in) :: tree
     
     if (.not. tui_state%initialized) return
     
@@ -894,13 +899,19 @@ recursive subroutine render_node_to_buffer(tree, offset_x_dp, offset_y_dp)
         ! Render layout node content
         call render_node_content(tree, offset_x_dp, offset_y_dp)
         
+    class is (widget_wrapper)
+        ! Handle wrapped widgets by unwrapping and rendering the contained element
+        if (allocated(tree%wrapped_element)) then
+            call render_node_to_buffer(tree%wrapped_element, offset_x_dp, offset_y_dp)
+        end if
+        
     class default
         ! Handle widget nodes (button_node_t, text_node_t, etc.)
         call render_node_content(tree, offset_x_dp, offset_y_dp)
     end select
 end subroutine render_node_to_buffer
 
-subroutine render_node_content(tree, x_dp, y_dp)
+recursive subroutine render_node_content(tree, x_dp, y_dp)
     ! Render ui_element content to back buffer with actual widget rendering
     class(ui_element), intent(in) :: tree
     real, intent(in) :: x_dp, y_dp
@@ -929,6 +940,13 @@ subroutine render_node_content(tree, x_dp, y_dp)
             ! Unknown layout type - render as placeholder
             call render_content_marker(cell_x, cell_y, '?')
         end select
+    class is (widget_wrapper)
+        ! Render wrapped widgets by rendering the contained element
+        if (allocated(tree%wrapped_element)) then
+            call render_node_content(tree%wrapped_element, x_dp, y_dp)
+        else
+            call render_content_marker(cell_x, cell_y, '!')  ! Error - empty wrapper
+        end if
     class default
         ! Render widget nodes (button_node_t, text_node_t, etc.)
         call render_content_marker(cell_x, cell_y, 'W')  ! W for widget
@@ -1098,7 +1116,7 @@ subroutine apply_buffer_diff()
 end subroutine apply_buffer_diff
 
 subroutine present_gui(tree)
-    class(node), intent(in) :: tree
+    class(ui_element), intent(in) :: tree
     ! TODO: GUI rendering with raygui
 end subroutine present_gui
 
