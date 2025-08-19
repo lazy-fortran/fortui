@@ -160,7 +160,9 @@ layout = column(gap=16.0)       ! bare real (treated as dp)
 
 **Complete Documentation:** [Layout API Guide](docs/LAYOUT_API.md)
 
-## Button Widget
+## Widget System
+
+### Button Widget
 
 Interactive button with click detection and auto-sizing:
 
@@ -178,7 +180,24 @@ if (button("big_btn", width=dp(80.0), height=dp(40.0))) then
 end if
 ```
 
-**Complete Documentation:** [Button Widget API](docs/BUTTON_WIDGET.md)
+### Text Widget
+
+Display text content with auto-sizing and multiline support:
+
+```fortran
+! Basic text display
+call text("label", "Hello World!")
+
+! Custom size with multiline content
+call text("info", "Line 1" // char(10) // "Line 2", text_size=sp(16.0))
+
+! Auto-sizing with TUI units
+call text("terminal", "Terminal Text", width=cw(25.0))
+```
+
+**Complete Documentation:** 
+- [Button Widget API](docs/BUTTON_WIDGET.md)
+- [Text Widget API](docs/TEXT_WIDGET.md)
 
 ### Units System
 fortui provides a comprehensive units system for cross-backend consistency:
@@ -266,9 +285,11 @@ program core_types_demo
     plot_view%scale_y = plot_view%scale_x
     plot_view%off_x = cos(real(frame_count) * 0.03) * 20.0
 
-    ! UI tree will be built using fortui_widgets module (coming soon)
+    ! Build UI with text widgets
     ! ui_root = column(children=[ &
-    !   text("info", "Core types implemented!"), &
+    !   text("title", "fortui Demo - Frame " // int_to_str(frame_count)), &
+    !   text("view_info", "Scale: " // real_to_str(plot_view%scale_x) // &
+    !                     " Offset: " // real_to_str(plot_view%off_x)), &
     !   viewport("plot", 60, 15, plot_view) ])
 
     call ui_present(ui_root)
@@ -318,7 +339,7 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 ✅ **fortui_core module**: Complete with `node` and `view` types, lifecycle management, layout constructors  
 ✅ **fortui_units module**: Complete with comprehensive cross-backend units system
 ✅ **Layout system**: `column()` and `row()` functions with gap parameters and children arrays - **PRODUCTION READY**
-✅ **fortui_widgets module**: Button widget implemented with click detection  
+✅ **fortui_widgets module**: Button widget with click detection, text widget with auto-sizing  
 ✅ **Backend selection**: TUI/GUI conditional compilation working  
 ✅ **Build system**: Automatic dependency detection and configuration
 
@@ -333,7 +354,7 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 
 - **fortui_core**: ✅ Lifecycle management, core types, frame handling  
 - **fortui_units**: ✅ Cross-backend units system with dp, em, sp, px, cw, ch support
-- **fortui_widgets**: ✅ Button widget with click detection and auto-sizing
+- **fortui_widgets**: ✅ Button and text widgets with click detection, auto-sizing, multiline support
 - **Dual backends**: ✅ termbox2 (TUI) and raylib/raygui (GUI) support
 - **Monospace baseline**: ✅ Ensures pixel-perfect TUI/GUI consistency
 
