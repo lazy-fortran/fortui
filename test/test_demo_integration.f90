@@ -665,11 +665,3 @@ end subroutine run_demo_integration_tests
 end module test_demo_integration
 
 
-! Standalone test program for demo integration validation
-program demo_integration_test_runner
-use test_demo_integration
-implicit none
-
-call run_demo_integration_tests()
-
-end program demo_integration_test_runner

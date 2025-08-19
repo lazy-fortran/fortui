@@ -629,11 +629,3 @@ end subroutine run_demo_application_tests
 end module test_demo_application
 
 
-! Standalone test program for demo application validation
-program demo_application_test_runner
-use test_demo_application
-implicit none
-
-call run_demo_application_tests()
-
-end program demo_application_test_runner
