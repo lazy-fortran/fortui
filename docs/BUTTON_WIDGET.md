@@ -54,8 +54,8 @@ button("btn", width=40.0)        ! bare real (treated as dp)
 ## Auto-Sizing
 
 When width/height not specified:
-- **Width**: Calculated from label length + padding (minimum 40dp)
-- **Height**: Based on font size with 1.8x ratio (minimum 20dp)
+- **Width**: Calculated from label length + padding (minimum 20dp for clickability)
+- **Height**: Based on font size with 1.8x ratio (minimum 16dp for clickability)
 
 ## Click Detection
 
