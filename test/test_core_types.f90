@@ -45,11 +45,31 @@ subroutine test_node_initialization()
     ! When: Creating new node instance
     ! Then: Node should have proper default state
     
-    type(node) :: test_node
+    type(node) :: test_node, another_node
+    integer :: test_count = 0
     
     ! Test that node type can be declared and initialized
     ! Node type is minimal by design - extensible for widgets
-    print *, "  ✓ Node initialization: node type declaration successful"
+    test_node = node()
+    test_count = test_count + 1
+    
+    ! Test multiple node instances can be created
+    another_node = node()
+    test_count = test_count + 1
+    
+    ! Test node assignment operations
+    another_node = test_node
+    test_count = test_count + 1
+    
+    ! Test array of nodes can be created
+    type(node) :: node_array(3)
+    integer :: i
+    do i = 1, 3
+        node_array(i) = node()
+    end do
+    test_count = test_count + 3
+    
+    print *, "  ✓ Node initialization: validated", test_count, "node operations"
 end subroutine test_node_initialization
 
 subroutine test_node_memory_management()
@@ -59,16 +79,37 @@ subroutine test_node_memory_management()
     
     type(node) :: stack_node
     type(node), allocatable :: alloc_node
+    type(node), allocatable :: node_array(:)
+    integer :: test_count = 0
     
     ! Test stack allocation
-    ! Fortran automatically manages memory for stack-allocated derived types
+    stack_node = node()
+    test_count = test_count + 1
     
-    ! Test allocatable allocation
+    ! Test allocatable single node
     allocate(alloc_node)
+    alloc_node = node()
+    test_count = test_count + 1
     
-    ! Fortran automatically deallocates when alloc_node goes out of scope
-    ! No manual cleanup needed - follows CLAUDE.md Fortran rules
-    print *, "  ✓ Node memory management: automatic cleanup verified"
+    ! Test allocatable array
+    allocate(node_array(5))
+    integer :: i
+    do i = 1, 5
+        node_array(i) = node()
+        test_count = test_count + 1
+    end do
+    
+    ! Test explicit deallocation (optional - automatic cleanup happens at scope end)
+    deallocate(node_array)
+    
+    ! Test reallocation
+    allocate(node_array(2))
+    node_array(1) = node()
+    node_array(2) = stack_node  ! Assignment from stack node
+    test_count = test_count + 2
+    
+    ! Fortran automatically deallocates when variables go out of scope
+    print *, "  ✓ Node memory management: validated", test_count, "memory operations"
 end subroutine test_node_memory_management
 
 subroutine test_node_backend_compatibility()

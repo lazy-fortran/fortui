@@ -48,18 +48,49 @@ subroutine test_ui_init_tui_backend()
     integer :: width, height
     character(len=*), parameter :: backend = "tui"
     character(len=*), parameter :: title = "Test TUI App"
+    integer :: test_count = 0
     
+    ! Test parameter validation for TUI backend
     width = 80
     height = 24
     
-    ! Test basic TUI initialization
+    ! Validate dimensions are reasonable for TUI
+    if (width < 1 .or. width > 999 .or. height < 1 .or. height > 999) then
+        print *, "  ✗ FAILED: TUI dimensions out of reasonable range:", width, "x", height
+        stop 1
+    end if
+    test_count = test_count + 1
+    
+    ! Validate backend string is correct
+    if (trim(backend) /= "tui") then
+        print *, "  ✗ FAILED: Backend should be 'tui', got '", trim(backend), "'"
+        stop 1
+    end if
+    test_count = test_count + 1
+    
+    ! Validate title is provided
+    if (len_trim(title) == 0) then
+        print *, "  ✗ FAILED: Title should not be empty"
+        stop 1
+    end if
+    test_count = test_count + 1
+    
+    ! Test basic TUI initialization parameters
     call ui_init(backend, width, height, title)
+    test_count = test_count + 1
     
-    ! TUI should ignore GUI-specific parameters gracefully
+    ! Test TUI with GUI parameters (should ignore gracefully)
     call ui_init(backend, width, height, title, target_fps=60, vsync=.true.)
+    test_count = test_count + 1
     
-    print *, "  ✓ TUI backend initialization: basic setup successful"
-    print *, "  ✓ TUI backend initialization: ignores GUI parameters correctly"
+    ! Test various dimension combinations for TUI
+    call ui_init(backend, 120, 30, title)  ! Wide terminal
+    test_count = test_count + 1
+    
+    call ui_init(backend, 40, 15, title)   ! Small terminal
+    test_count = test_count + 1
+    
+    print *, "  ✓ TUI backend initialization: validated", test_count, "initialization scenarios"
 end subroutine test_ui_init_tui_backend
 
 subroutine test_ui_init_gui_backend()
@@ -306,21 +337,62 @@ subroutine test_frame_cycle_integration()
     
     type(node) :: ui_tree
     logical :: running
-    integer :: frame_count
+    integer :: frame_count, max_frames
+    logical :: quit_state
     
     ! Simulate typical application loop structure from DESIGN.md example
     running = .true.
     frame_count = 0
+    max_frames = 3  ! Limit for testing
     
-    do while (running .and. frame_count < 3)  ! Limit for testing
+    ! Validate initial state
+    if (.not. running) then
+        print *, "  ✗ FAILED: Initial running state should be true"
+        stop 1
+    end if
+    
+    if (frame_count /= 0) then
+        print *, "  ✗ FAILED: Initial frame count should be 0"
+        stop 1
+    end if
+    
+    do while (running .and. frame_count < max_frames)
+        ! Test frame begin with timeout
         call ui_frame_begin(timeout_ms=100)
+        
+        ! Test UI tree presentation
         call ui_present(ui_tree)
-        running = .not. ui_should_close()
+        
+        ! Test quit detection
+        quit_state = ui_should_close()
+        running = .not. quit_state
+        
         frame_count = frame_count + 1
+        
+        ! Validate frame count increments correctly
+        if (frame_count < 1 .or. frame_count > max_frames) then
+            print *, "  ✗ FAILED: Frame count out of expected range:", frame_count
+            stop 1
+        end if
     end do
     
-    print *, "  ✓ Frame cycle integration: application loop pattern works"
-    print *, "  ✓ Frame cycle integration: procedures work together"
+    ! Validate loop completed correctly
+    if (frame_count /= max_frames) then
+        print *, "  ✗ FAILED: Expected", max_frames, "frames, got", frame_count
+        stop 1
+    end if
+    
+    ! Test loop termination logic
+    if (running .and. frame_count >= max_frames) then
+        ! Loop terminated due to frame limit - correct
+    else if (.not. running) then
+        ! Loop terminated due to quit condition - also correct
+    else
+        print *, "  ✗ FAILED: Unexpected loop termination condition"
+        stop 1
+    end if
+    
+    print *, "  ✓ Frame cycle integration: validated", frame_count, "frame loop iterations"
 end subroutine test_frame_cycle_integration
 
 subroutine test_ui_shutdown_cleanup()

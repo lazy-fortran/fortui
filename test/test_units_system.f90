@@ -269,31 +269,40 @@ subroutine test_dp_conversion()
     
     type(ui_context) :: ctx
     class(*), allocatable :: dp_unit
-    real :: result
+    real :: result, expected
     real, parameter :: TOLERANCE = 1.0e-6
+    integer :: test_count = 0
     
     ! Setup default context
     ctx = ui_context(dpi_scale=1.0, em_dp=16.0, text_scale=1.0, cell_w_dp=8.0, cell_h_dp=16.0)
     
-    ! Test identity conversion for dp units
-    dp_unit = dp(40.0)
+    ! Test identity conversion for dp units - multiple values
+    real, parameter :: test_values(5) = [40.0, 123.456, 0.0, -10.5, 9999.0]
+    integer :: i
+    
+    do i = 1, size(test_values)
+        expected = test_values(i)
+        dp_unit = dp(expected)
+        result = convert_to_dp(dp_unit, ctx)
+        test_count = test_count + 1
+        
+        if (abs(result - expected) > TOLERANCE) then
+            print *, "  ✗ FAILED: dp conversion test", i, "got", result, "expected", expected
+            stop 1
+        end if
+    end do
+    
+    ! Verify dp conversion is truly identity - no scaling factors applied
+    expected = 42.7
+    dp_unit = dp(expected)
     result = convert_to_dp(dp_unit, ctx)
     
-    if (abs(result - 40.0) > TOLERANCE) then
-        print *, "  ✗ FAILED: dp conversion should be identity, got", result, "expected 40.0"
+    if (abs(result - expected) > TOLERANCE) then
+        print *, "  ✗ FAILED: dp identity conversion failed for", expected
         stop 1
     end if
     
-    ! Test with different dp value
-    dp_unit = dp(123.456)
-    result = convert_to_dp(dp_unit, ctx)
-    
-    if (abs(result - 123.456) > TOLERANCE) then
-        print *, "  ✗ FAILED: dp conversion precision error"
-        stop 1
-    end if
-    
-    print *, "  ✓ dp conversion: identity conversion verified"
+    print *, "  ✓ dp conversion: identity verified for", test_count + 1, "test cases"
 end subroutine test_dp_conversion
 
 subroutine test_em_conversion()
@@ -303,41 +312,45 @@ subroutine test_em_conversion()
     
     type(ui_context) :: ctx
     class(*), allocatable :: em_unit
-    real :: result
+    real :: result, expected
     real, parameter :: TOLERANCE = 1.0e-6
+    integer :: test_count = 0
     
-    ! Setup context with em_dp = 16.0 (default font size)
+    ! Test em conversion with multiple contexts and values
+    real, parameter :: em_values(4) = [1.0, 2.5, 0.8, -1.2]
+    real, parameter :: em_dp_values(3) = [16.0, 20.0, 12.5]
+    integer :: i, j
+    
+    do j = 1, size(em_dp_values)
+        ctx = ui_context(dpi_scale=1.0, em_dp=em_dp_values(j), text_scale=1.0, cell_w_dp=8.0, cell_h_dp=16.0)
+        
+        do i = 1, size(em_values)
+            expected = em_values(i) * em_dp_values(j)
+            em_unit = em(em_values(i))
+            result = convert_to_dp(em_unit, ctx)
+            test_count = test_count + 1
+            
+            if (abs(result - expected) > TOLERANCE) then
+                print *, "  ✗ FAILED: em conversion", em_values(i), "with em_dp=", em_dp_values(j)
+                print *, "    got", result, "expected", expected
+                stop 1
+            end if
+        end do
+    end do
+    
+    ! Test boundary conditions
     ctx = ui_context(dpi_scale=1.0, em_dp=16.0, text_scale=1.0, cell_w_dp=8.0, cell_h_dp=16.0)
     
-    ! Test 1em = 16dp
-    em_unit = em(1.0)
+    ! Test zero em
+    em_unit = em(0.0)
     result = convert_to_dp(em_unit, ctx)
-    
-    if (abs(result - 16.0) > TOLERANCE) then
-        print *, "  ✗ FAILED: 1em should be 16dp, got", result
+    if (abs(result) > TOLERANCE) then
+        print *, "  ✗ FAILED: 0em should be 0dp, got", result
         stop 1
     end if
+    test_count = test_count + 1
     
-    ! Test 2.5em = 40dp
-    em_unit = em(2.5)
-    result = convert_to_dp(em_unit, ctx)
-    
-    if (abs(result - 40.0) > TOLERANCE) then
-        print *, "  ✗ FAILED: 2.5em should be 40dp, got", result
-        stop 1
-    end if
-    
-    ! Test with different em_dp context
-    ctx%em_dp = 20.0
-    em_unit = em(1.5)
-    result = convert_to_dp(em_unit, ctx)
-    
-    if (abs(result - 30.0) > TOLERANCE) then
-        print *, "  ✗ FAILED: 1.5em with em_dp=20 should be 30dp, got", result
-        stop 1
-    end if
-    
-    print *, "  ✓ em conversion: font size scaling verified"
+    print *, "  ✓ em conversion: scaling verified for", test_count, "test cases"
 end subroutine test_em_conversion
 
 subroutine test_sp_conversion()
@@ -520,32 +533,71 @@ subroutine test_conversion_accuracy()
     
     type(ui_context) :: tui_ctx, gui_ctx
     class(*), allocatable :: unit_test
-    real :: tui_result, gui_result
+    real :: tui_result, gui_result, expected_tui, expected_gui
     real, parameter :: TOLERANCE = 1.0e-6
+    integer :: test_count = 0
     
     ! Setup realistic contexts
-    ! TUI context
+    ! TUI context (terminal)
     tui_ctx = ui_context(dpi_scale=1.0, em_dp=16.0, text_scale=1.0, cell_w_dp=8.0, cell_h_dp=16.0)
     
     ! GUI context (HiDPI with larger font)
     gui_ctx = ui_context(dpi_scale=1.5, em_dp=18.0, text_scale=1.25, cell_w_dp=9.0, cell_h_dp=18.0)
     
-    ! Test complex conversion scenarios
+    ! Test all unit types with both contexts
+    ! EM units
     unit_test = em(2.5)
-    tui_result = convert_to_dp(unit_test, tui_ctx)  ! 2.5 * 16 = 40
-    gui_result = convert_to_dp(unit_test, gui_ctx)  ! 2.5 * 18 = 45
+    expected_tui = 2.5 * 16.0  ! 40.0
+    expected_gui = 2.5 * 18.0  ! 45.0
+    tui_result = convert_to_dp(unit_test, tui_ctx)
+    gui_result = convert_to_dp(unit_test, gui_ctx)
+    test_count = test_count + 2
     
-    if (abs(tui_result - 40.0) > TOLERANCE) then
-        print *, "  ✗ FAILED: TUI em conversion inaccurate"
+    if (abs(tui_result - expected_tui) > TOLERANCE .or. abs(gui_result - expected_gui) > TOLERANCE) then
+        print *, "  ✗ FAILED: em conversion accuracy - TUI:", tui_result, "GUI:", gui_result
         stop 1
     end if
     
-    if (abs(gui_result - 45.0) > TOLERANCE) then
-        print *, "  ✗ FAILED: GUI em conversion inaccurate"
+    ! SP units (scaled pixels)
+    unit_test = sp(16.0)
+    expected_tui = 16.0 * 1.0   ! 16.0 
+    expected_gui = 16.0 * 1.25  ! 20.0
+    tui_result = convert_to_dp(unit_test, tui_ctx)
+    gui_result = convert_to_dp(unit_test, gui_ctx)
+    test_count = test_count + 2
+    
+    if (abs(tui_result - expected_tui) > TOLERANCE .or. abs(gui_result - expected_gui) > TOLERANCE) then
+        print *, "  ✗ FAILED: sp conversion accuracy - TUI:", tui_result, "GUI:", gui_result
         stop 1
     end if
     
-    print *, "  ✓ Conversion accuracy: realistic contexts handled correctly"
+    ! PX units (physical pixels)
+    unit_test = px(30.0)
+    expected_tui = 30.0 / 1.0   ! 30.0
+    expected_gui = 30.0 / 1.5   ! 20.0
+    tui_result = convert_to_dp(unit_test, tui_ctx)
+    gui_result = convert_to_dp(unit_test, gui_ctx)
+    test_count = test_count + 2
+    
+    if (abs(tui_result - expected_tui) > TOLERANCE .or. abs(gui_result - expected_gui) > TOLERANCE) then
+        print *, "  ✗ FAILED: px conversion accuracy - TUI:", tui_result, "GUI:", gui_result
+        stop 1
+    end if
+    
+    ! CW units (cell width)
+    unit_test = cw(5.0)
+    expected_tui = 5.0 * 8.0   ! 40.0
+    expected_gui = 5.0 * 9.0   ! 45.0
+    tui_result = convert_to_dp(unit_test, tui_ctx)
+    gui_result = convert_to_dp(unit_test, gui_ctx)
+    test_count = test_count + 2
+    
+    if (abs(tui_result - expected_tui) > TOLERANCE .or. abs(gui_result - expected_gui) > TOLERANCE) then
+        print *, "  ✗ FAILED: cw conversion accuracy - TUI:", tui_result, "GUI:", gui_result
+        stop 1
+    end if
+    
+    print *, "  ✓ Conversion accuracy: verified for", test_count, "conversions across contexts"
 end subroutine test_conversion_accuracy
 
 subroutine test_ui_context_management()
