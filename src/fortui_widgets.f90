@@ -615,28 +615,16 @@ integer function find_or_create_text_state(id) result(index)
         
         ! Initialize new text state with bounds checking
         text_states(index) = text_state_t()
-        ! Safely copy ID with bounds checking to prevent buffer overflow
-        if (len_trim(id) <= len(text_states(index)%id)) then
-            text_states(index)%id = id
-        else
-            ! Truncate ID to fit buffer and warn user
-            text_states(index)%id = id(1:len(text_states(index)%id))
-            print *, "text: Warning - ID truncated to fit buffer: ", trim(text_states(index)%id)
-        end if
+        ! Safely copy ID with bounds checking helper
+        call safe_copy_id(id, text_states(index)%id)
         text_states(index)%last_frame = text_frame_counter
     else
         ! Handle overflow - reuse oldest slot
         print *, "text: Warning - Maximum text widget limit reached, reusing slot"
         index = MAX_TEXT_WIDGETS
         text_states(index) = text_state_t()
-        ! Safely copy ID with bounds checking to prevent buffer overflow
-        if (len_trim(id) <= len(text_states(index)%id)) then
-            text_states(index)%id = id
-        else
-            ! Truncate ID to fit buffer and warn user
-            text_states(index)%id = id(1:len(text_states(index)%id))
-            print *, "text: Warning - ID truncated to fit buffer: ", trim(text_states(index)%id)
-        end if
+        ! Safely copy ID with bounds checking helper
+        call safe_copy_id(id, text_states(index)%id)
         text_states(index)%last_frame = text_frame_counter
     end if
 end function find_or_create_text_state
@@ -910,6 +898,20 @@ subroutine render_text_placeholder(state_index)
 end subroutine render_text_placeholder
 
 ! Text widget utilities and debug functions
+
+subroutine safe_copy_id(source_id, target_id)
+    ! Helper function to safely copy ID with bounds checking
+    character(*), intent(in) :: source_id
+    character(*), intent(inout) :: target_id
+    
+    if (len_trim(source_id) <= len(target_id)) then
+        target_id = source_id
+    else
+        ! Truncate ID to fit buffer and warn user
+        target_id = source_id(1:len(target_id))
+        print *, "text: Warning - ID truncated to fit buffer: ", trim(target_id)
+    end if
+end subroutine safe_copy_id
 
 subroutine cleanup_unused_text_states()
     ! Clean up text states that haven't been accessed recently
