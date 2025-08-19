@@ -189,14 +189,16 @@ end if
 Display text content with auto-sizing and multiline support:
 
 ```fortran
+type(text_node_t) :: label_widget, info_widget, terminal_widget
+
 ! Basic text display
-call text("label", "Hello World!")
+label_widget = text("label", "Hello World!")
 
 ! Custom size with multiline content
-call text("info", "Line 1" // char(10) // "Line 2", text_size=sp(16.0))
+info_widget = text("info", "Line 1" // char(10) // "Line 2", text_size=sp(16.0))
 
 ! Auto-sizing with TUI units
-call text("terminal", "Terminal Text", width=cw(25.0))
+terminal_widget = text("terminal", "Terminal Text", width=cw(25.0))
 ```
 
 ### Slider Widget
