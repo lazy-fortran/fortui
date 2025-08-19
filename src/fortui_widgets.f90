@@ -7,8 +7,27 @@ use fortui_units, only: ui_context, convert_to_dp, ui_get_context
 implicit none
 private
 
-! Public widget functions
+! Public widget functions - dual interface support
 public :: button, text, slider, checkbox
+public :: assignment(=)  ! Make assignment operators public
+public :: operator(.logical.)  ! Make logical operators public
+
+! Assignment operators for logical context usage
+interface assignment(=)
+    module procedure assign_button_to_logical
+    module procedure assign_checkbox_to_logical
+    module procedure assign_slider_to_logical
+end interface
+
+! Logical operators for direct logical context usage (IF statements)
+interface operator(.logical.)
+    module procedure button_to_logical_op
+    module procedure checkbox_to_logical_op
+    module procedure slider_to_logical_op
+end interface
+
+! Single widget functions that return interactive ui_element types
+! These support both layout construction and interaction detection
 
 ! Testing helper functions (for test suite only)
 public :: simulate_button_click, simulate_key_press, set_button_focus
@@ -16,6 +35,47 @@ public :: get_button_debug_info, reset_button_system
 public :: get_text_debug_info, reset_text_system
 public :: simulate_slider_interaction, get_slider_debug_info, reset_slider_system
 public :: simulate_checkbox_toggle, get_checkbox_debug_info, reset_checkbox_system
+
+! Widget node types for layout construction with interaction state
+type, extends(ui_element) :: button_node_t
+    character(len=256) :: id = ""
+    character(len=256) :: label = ""
+    real :: width_dp = 0.0
+    real :: height_dp = 0.0
+    logical :: clicked = .false.  ! Interaction state
+contains
+    procedure :: to_logical => button_to_logical
+end type button_node_t
+
+type, extends(ui_element) :: text_node_t
+    character(len=256) :: id = ""
+    character(len=1024) :: value = ""
+    real :: text_size_dp = 14.0
+    real :: width_dp = 0.0
+    real :: height_dp = 0.0
+end type text_node_t
+
+type, extends(ui_element) :: slider_node_t
+    character(len=256) :: id = ""
+    real :: min_val = 0.0
+    real :: max_val = 100.0
+    real :: step_val = 1.0
+    real :: width_dp = 0.0
+    real :: height_dp = 0.0
+    logical :: value_changed = .false.  ! Interaction state
+contains
+    procedure :: to_logical => slider_to_logical
+end type slider_node_t
+
+type, extends(ui_element) :: checkbox_node_t
+    character(len=256) :: id = ""
+    character(len=256) :: label = ""
+    real :: width_dp = 0.0
+    real :: height_dp = 0.0
+    logical :: toggled = .false.  ! Interaction state
+contains
+    procedure :: to_logical => checkbox_to_logical
+end type checkbox_node_t
 
 ! Internal state management types
 type :: button_state_t
@@ -119,18 +179,20 @@ type(input_state_t), save :: input_state
 
 contains
 
-logical function button(id, label, width, height) result(clicked)
-    ! Immediate-mode button widget with unified class(*) interface
-    ! Returns true only on the frame when button is clicked
+function button(id, label, width, height) result(widget_node)
+    ! Immediate-mode button widget with unified interface
+    ! Returns ui_element for layout construction with interaction state
     character(*), intent(in) :: id
     character(*), intent(in), optional :: label
     class(*), intent(in), optional :: width
     class(*), intent(in), optional :: height
+    type(button_node_t) :: widget_node
     
     integer :: state_index
     character(len=256) :: display_label
     real :: button_width_dp, button_height_dp
     type(ui_context) :: ctx
+    logical :: clicked
     
     ! Increment frame counter for immediate-mode behavior
     current_frame = current_frame + 1
@@ -185,6 +247,13 @@ logical function button(id, label, width, height) result(clicked)
     
     ! Process input and determine click state
     clicked = process_button_interaction(state_index, display_label)
+    
+    ! Create widget node with layout and interaction data
+    widget_node%id = id
+    widget_node%label = display_label
+    widget_node%width_dp = button_width_dp
+    widget_node%height_dp = button_height_dp
+    widget_node%clicked = clicked
     
     ! Render button (would be handled by presentation system in full implementation)
     call render_button_placeholder(state_index, display_label)
@@ -543,7 +612,7 @@ subroutine ensure_button_exists_for_testing(id)
     ! Create a minimal button state for testing if it doesn't exist
     character(*), intent(in) :: id
     integer :: state_index
-    logical :: dummy
+    type(button_node_t) :: dummy
     
     state_index = find_button_state_by_id(id)
     if (state_index <= 0) then
@@ -563,11 +632,12 @@ end subroutine ensure_button_exists_for_testing
 ! Text Widget Implementation 
 ! =========================
 
-subroutine text(id, value, text_size, width, height)
-    ! Immediate-mode text widget with unified class(*) interface
-    ! Displays text content with auto-sizing and cross-backend support
+function text(id, value, text_size, width, height) result(widget_node)
+    ! Immediate-mode text widget with unified interface
+    ! Returns ui_element for layout construction
     character(*), intent(in) :: id, value
     class(*), intent(in), optional :: text_size, width, height
+    type(text_node_t) :: widget_node
     
     integer :: state_index
     real :: widget_width_dp, widget_height_dp, widget_text_size_dp
@@ -639,21 +709,34 @@ subroutine text(id, value, text_size, width, height)
     ! Process text content (wrapping, clipping, line counting)
     call process_text_content(state_index, value, widget_width_dp, widget_text_size_dp, ctx)
     
+    ! Create widget node with layout data
+    widget_node%id = id
+    if (len_trim(value) <= len(widget_node%value)) then
+        widget_node%value = value
+    else
+        widget_node%value = value(1:len(widget_node%value))
+    end if
+    widget_node%text_size_dp = widget_text_size_dp
+    widget_node%width_dp = widget_width_dp
+    widget_node%height_dp = widget_height_dp
+    
     ! Render text (would be handled by presentation system in full implementation)
     call render_text_placeholder(state_index)
-end subroutine text
+end function text
 
-logical function slider(id, min_val, max_val, step_val, value, width, height) result(value_changed)
-    ! Immediate-mode slider widget with unified class(*) interface and value management
-    ! Returns true only when value changes from user interaction
+function slider(id, min_val, max_val, step_val, value, width, height) result(widget_node)
+    ! Immediate-mode slider widget with unified interface
+    ! Returns ui_element for layout construction with interaction state
     character(*), intent(in) :: id
     real, intent(in) :: min_val, max_val, step_val  
     real, intent(inout) :: value
     class(*), intent(in), optional :: width, height
+    type(slider_node_t) :: widget_node
     
     integer :: state_index
     real :: widget_width_dp, widget_height_dp
     real :: previous_value, clamped_value
+    logical :: value_changed
     type(ui_context) :: ctx
     
     ! Security validation - verify parameters
@@ -737,21 +820,31 @@ logical function slider(id, min_val, max_val, step_val, value, width, height) re
     ! Handle interaction simulation for testing
     call handle_slider_interaction(state_index)
     
-    ! Render slider (would be handled by presentation system in full implementation)
-    call render_slider_placeholder(state_index)
-    
     ! Detect value change (immediate-mode behavior)
     value_changed = abs(clamped_value - previous_value) > 0.0001
     
+    ! Create widget node with layout and interaction data
+    widget_node%id = id
+    widget_node%min_val = min_val
+    widget_node%max_val = max_val
+    widget_node%step_val = step_val
+    widget_node%width_dp = widget_width_dp
+    widget_node%height_dp = widget_height_dp
+    widget_node%value_changed = value_changed
+    
+    ! Render slider (would be handled by presentation system in full implementation)
+    call render_slider_placeholder(state_index)
+    
 end function slider
 
-subroutine checkbox(id, checked, label, width, height)
-    ! Immediate-mode checkbox widget with unified class(*) interface and cross-backend support
-    ! Returns toggle interaction status and modifies checked parameter based on user interactions
+function checkbox(id, checked, label, width, height) result(widget_node)
+    ! Immediate-mode checkbox widget with unified interface
+    ! Returns ui_element for layout construction with interaction state
     character(*), intent(in) :: id
     logical, intent(inout) :: checked
     character(*), intent(in), optional :: label
     class(*), intent(in), optional :: width, height
+    type(checkbox_node_t) :: widget_node
     
     integer :: state_index
     character(len=256) :: display_label
@@ -826,9 +919,16 @@ subroutine checkbox(id, checked, label, width, height)
         checkbox_states(state_index)%state_changed = .false.
     end if
     
+    ! Create widget node with layout and interaction data
+    widget_node%id = id
+    widget_node%label = display_label
+    widget_node%width_dp = widget_width_dp
+    widget_node%height_dp = widget_height_dp
+    widget_node%toggled = toggled_this_frame
+    
     ! Render checkbox (would be handled by presentation system in full implementation)
     call render_checkbox_placeholder(state_index)
-end subroutine checkbox
+end function checkbox
 
 integer function find_or_create_checkbox_state(id) result(index)
     ! Find existing checkbox state or create new one with security-hardened ID handling
@@ -1659,12 +1759,13 @@ subroutine ensure_checkbox_exists_for_testing(id)
     character(*), intent(in) :: id
     integer :: state_index
     logical :: dummy_checked
+    type(checkbox_node_t) :: widget_node
     
     state_index = find_checkbox_state_by_id(id)
     if (state_index <= 0) then
         ! Create checkbox by calling it once
         dummy_checked = .false.
-        call checkbox(id, dummy_checked)
+        widget_node = checkbox(id, dummy_checked)
         state_index = find_checkbox_state_by_id(id)
         if (state_index > 0) then
             ! Set up reasonable test position and size
@@ -1675,5 +1776,58 @@ subroutine ensure_checkbox_exists_for_testing(id)
         end if
     end if
 end subroutine ensure_checkbox_exists_for_testing
+
+! Widget node logical conversion procedures for dual usage patterns
+
+logical function button_to_logical(this) result(clicked)
+    class(button_node_t), intent(in) :: this
+    clicked = this%clicked
+end function button_to_logical
+
+logical function checkbox_to_logical(this) result(toggled)
+    class(checkbox_node_t), intent(in) :: this
+    toggled = this%toggled
+end function checkbox_to_logical
+
+logical function slider_to_logical(this) result(changed)
+    class(slider_node_t), intent(in) :: this
+    changed = this%value_changed
+end function slider_to_logical
+
+! Logical operator functions for .logical. operator
+logical function button_to_logical_op(this) result(clicked)
+    type(button_node_t), intent(in) :: this
+    clicked = this%clicked
+end function button_to_logical_op
+
+logical function checkbox_to_logical_op(this) result(toggled)
+    type(checkbox_node_t), intent(in) :: this
+    toggled = this%toggled
+end function checkbox_to_logical_op
+
+logical function slider_to_logical_op(this) result(changed)
+    type(slider_node_t), intent(in) :: this
+    changed = this%value_changed
+end function slider_to_logical_op
+
+! Assignment operator implementations
+
+subroutine assign_button_to_logical(lhs, rhs)
+    logical, intent(out) :: lhs
+    type(button_node_t), intent(in) :: rhs
+    lhs = rhs%clicked
+end subroutine assign_button_to_logical
+
+subroutine assign_checkbox_to_logical(lhs, rhs)
+    logical, intent(out) :: lhs
+    type(checkbox_node_t), intent(in) :: rhs
+    lhs = rhs%toggled
+end subroutine assign_checkbox_to_logical
+
+subroutine assign_slider_to_logical(lhs, rhs)
+    logical, intent(out) :: lhs
+    type(slider_node_t), intent(in) :: rhs
+    lhs = rhs%value_changed
+end subroutine assign_slider_to_logical
 
 end module fortui_widgets

@@ -45,7 +45,7 @@ type, extends(ui_element) :: node
     character(len=32) :: layout_type = "none"    ! "column", "row", "none"
     real :: gap_dp = 0.0                         ! Converted gap in dp units
     ! Children array for tree composition
-    type(node), allocatable :: children(:)
+    class(ui_element), allocatable :: children(:)
     ! Backend-agnostic design (identical behavior regardless of compilation flags)
 contains
     ! Assignment operator overload for proper memory management
@@ -844,8 +844,8 @@ subroutine present_tui(tree)
 end subroutine present_tui
 
 recursive subroutine render_node_to_buffer(tree, offset_x_dp, offset_y_dp)
-    ! Render node tree to the back buffer using dp coordinates
-    class(node), intent(in) :: tree
+    ! Render ui_element tree to the back buffer using dp coordinates
+    class(ui_element), intent(in) :: tree
     real, intent(in) :: offset_x_dp, offset_y_dp
     
     integer :: i, child_offset_x_dp, child_offset_y_dp
@@ -855,9 +855,12 @@ recursive subroutine render_node_to_buffer(tree, offset_x_dp, offset_y_dp)
     current_offset_x_dp = offset_x_dp
     current_offset_y_dp = offset_y_dp
     
-    ! Only process children if the array is allocated
-    if (allocated(tree%children)) then
-        select case (trim(tree%layout_type))
+    ! Handle different ui_element types
+    select type (tree)
+    class is (node)
+        ! Only process children if the array is allocated for layout nodes
+        if (allocated(tree%children)) then
+            select case (trim(tree%layout_type))
         case ("column")
             ! Vertical layout - children stacked vertically
             do i = 1, size(tree%children)
@@ -885,16 +888,21 @@ recursive subroutine render_node_to_buffer(tree, offset_x_dp, offset_y_dp)
             do i = 1, size(tree%children)
                 call render_node_to_buffer(tree%children(i), current_offset_x_dp, current_offset_y_dp)
             end do
-        end select
-    end if
-    
-    ! Render this node's content (placeholder for widget rendering)
-    call render_node_content(tree, offset_x_dp, offset_y_dp)
+            end select
+        end if
+        
+        ! Render layout node content
+        call render_node_content(tree, offset_x_dp, offset_y_dp)
+        
+    class default
+        ! Handle widget nodes (button_node_t, text_node_t, etc.)
+        call render_node_content(tree, offset_x_dp, offset_y_dp)
+    end select
 end subroutine render_node_to_buffer
 
 subroutine render_node_content(tree, x_dp, y_dp)
-    ! Render node content to back buffer with actual widget rendering
-    class(node), intent(in) :: tree
+    ! Render ui_element content to back buffer with actual widget rendering
+    class(ui_element), intent(in) :: tree
     real, intent(in) :: x_dp, y_dp
     integer :: cell_x, cell_y
     
@@ -905,18 +913,25 @@ subroutine render_node_content(tree, x_dp, y_dp)
     if (cell_x < 0 .or. cell_x >= tui_state%terminal_width .or. &
         cell_y < 0 .or. cell_y >= tui_state%terminal_height) return
     
-    ! Render based on layout type - for layout containers, draw borders
-    select case (trim(tree%layout_type))
-    case ("column")
-        call render_column_container(tree, cell_x, cell_y)
-    case ("row")
-        call render_row_container(tree, cell_x, cell_y)
-    case ("none")
-        ! No specific layout - render as content placeholder
-        call render_content_marker(cell_x, cell_y, '*')
-    case default
-        ! Unknown layout type - render as placeholder
-        call render_content_marker(cell_x, cell_y, '?')
+    ! Render based on ui_element type
+    select type (tree)
+    class is (node)
+        ! Render layout nodes based on layout type
+        select case (trim(tree%layout_type))
+        case ("column")
+            call render_column_container(tree, cell_x, cell_y)
+        case ("row")
+            call render_row_container(tree, cell_x, cell_y)
+        case ("none")
+            ! No specific layout - render as content placeholder
+            call render_content_marker(cell_x, cell_y, '*')
+        case default
+            ! Unknown layout type - render as placeholder
+            call render_content_marker(cell_x, cell_y, '?')
+        end select
+    class default
+        ! Render widget nodes (button_node_t, text_node_t, etc.)
+        call render_content_marker(cell_x, cell_y, 'W')  ! W for widget
     end select
 end subroutine render_node_content
 
@@ -1133,7 +1148,7 @@ end subroutine shutdown_gui_backend
 function column(gap, children) result(n)
     use fortui_units, only: convert_to_dp, ui_get_context, ui_context
     class(*), intent(in), optional :: gap
-    type(node), intent(in), optional :: children(:)
+    class(ui_element), intent(in), optional :: children(:)
     type(node) :: n
     
     type(ui_context) :: ctx
@@ -1155,19 +1170,15 @@ function column(gap, children) result(n)
     
     ! Handle children array
     if (present(children)) then
-        allocate(n%children(size(children)))
-        do i = 1, size(children)
-            n%children(i) = children(i)
-        end do
-    else
-        allocate(n%children(0))  ! Empty children array
+        allocate(n%children(size(children)), source=children)
+    ! else - children remains unallocated for empty arrays
     end if
 end function column
 
 function row(gap, children) result(n)
     use fortui_units, only: convert_to_dp, ui_get_context, ui_context
     class(*), intent(in), optional :: gap
-    type(node), intent(in), optional :: children(:)
+    class(ui_element), intent(in), optional :: children(:)
     type(node) :: n
     
     type(ui_context) :: ctx
@@ -1189,12 +1200,8 @@ function row(gap, children) result(n)
     
     ! Handle children array
     if (present(children)) then
-        allocate(n%children(size(children)))
-        do i = 1, size(children)
-            n%children(i) = children(i)
-        end do
-    else
-        allocate(n%children(0))  ! Empty children array
+        allocate(n%children(size(children)), source=children)
+    ! else - children remains unallocated for empty arrays
     end if
 end function row
 
@@ -1209,12 +1216,9 @@ recursive subroutine assign_node(lhs, rhs)
     lhs%layout_type = rhs%layout_type
     lhs%gap_dp = rhs%gap_dp
     
-    ! Deep copy children array (automatic reallocation when assigning allocatable arrays)
+    ! Deep copy polymorphic children array
     if (allocated(rhs%children)) then
-        allocate(lhs%children(size(rhs%children)))
-        do i = 1, size(rhs%children)
-            lhs%children(i) = rhs%children(i)
-        end do
+        allocate(lhs%children(size(rhs%children)), source=rhs%children)
     ! else - no children to copy, lhs%children automatically unallocated for intent(out)
     end if
 end subroutine assign_node
