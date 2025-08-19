@@ -462,11 +462,26 @@ end subroutine init_gui_backend
 subroutine allocate_cell_buffers()
     ! Allocate front and back cell buffers for diff-based rendering
     integer :: width, height
+    type(tb_cell), allocatable :: temp_front(:,:), temp_back(:,:)
+    integer, allocatable :: temp_hashes(:)
     
     width = tui_state%terminal_width
     height = tui_state%terminal_height
     
-    ! Allocate new buffers (Fortran automatically deallocates existing when reallocating)
+    ! Deallocate existing buffers using move_alloc for automatic cleanup
+    ! Fortran automatically deallocates when arrays go out of scope
+    if (allocated(tui_state%front_buffer)) then
+        ! Use temporary arrays for automatic deallocation
+        call move_alloc(tui_state%front_buffer, temp_front)
+    end if
+    if (allocated(tui_state%back_buffer)) then
+        call move_alloc(tui_state%back_buffer, temp_back) 
+    end if
+    if (allocated(tui_state%line_hashes)) then
+        call move_alloc(tui_state%line_hashes, temp_hashes)
+    end if
+    
+    ! Allocate new buffers
     allocate(tui_state%front_buffer(width, height))
     allocate(tui_state%back_buffer(width, height))
     allocate(tui_state%line_hashes(height))
