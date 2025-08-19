@@ -3,6 +3,7 @@ module fortui
 ! Users should "use fortui" to access the complete API
 use fortui_core
 use fortui_units
+use fortui_widgets
 implicit none
 
 ! Re-export all public types from fortui_core
@@ -21,5 +22,8 @@ public :: dp, em, sp, px, cw, ch
 
 ! Re-export all public functions from fortui_units
 public :: convert_to_dp, ui_get_context, ui_set_context
+
+! Re-export all public widget functions from fortui_widgets
+public :: button
 
 end module fortui
