@@ -195,9 +195,28 @@ call text("info", "Line 1" // char(10) // "Line 2", text_size=sp(16.0))
 call text("terminal", "Terminal Text", width=cw(25.0))
 ```
 
+### Slider Widget
+
+Interactive numeric input with range control and step quantization:
+
+```fortran
+real :: volume = 50.0
+
+! Returns true when value changes
+if (slider("volume", 0.0, 100.0, 5.0, volume, width=dp(120.0))) then
+    print *, "Volume changed to:", volume
+end if
+
+! Continuous values (step_val = 0.0)
+if (slider("temp", 15.0, 30.0, 0.0, temperature)) then
+    print *, "Temperature:", temperature, "°C"
+end if
+```
+
 **Complete Documentation:** 
 - [Button Widget API](docs/BUTTON_WIDGET.md)
 - [Text Widget API](docs/TEXT_WIDGET.md)
+- [Slider Widget API](docs/SLIDER_WIDGET.md)
 
 ### Units System
 fortui provides a comprehensive units system for cross-backend consistency:
@@ -339,7 +358,7 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 ✅ **fortui_core module**: Complete with `node` and `view` types, lifecycle management, layout constructors  
 ✅ **fortui_units module**: Complete with comprehensive cross-backend units system
 ✅ **Layout system**: `column()` and `row()` functions with gap parameters and children arrays - **PRODUCTION READY**
-✅ **fortui_widgets module**: Button widget with click detection, text widget with auto-sizing  
+✅ **fortui_widgets module**: Button widget with click detection, text widget with auto-sizing, slider widget with value updates  
 ✅ **Backend selection**: TUI/GUI conditional compilation working  
 ✅ **Build system**: Automatic dependency detection and configuration
 
@@ -354,7 +373,7 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 
 - **fortui_core**: ✅ Lifecycle management, core types, frame handling  
 - **fortui_units**: ✅ Cross-backend units system with dp, em, sp, px, cw, ch support
-- **fortui_widgets**: ✅ Button and text widgets with click detection, auto-sizing, multiline support
+- **fortui_widgets**: ✅ Button, text, and slider widgets with interaction detection, auto-sizing, value management
 - **Dual backends**: ✅ termbox2 (TUI) and raylib/raygui (GUI) support
 - **Monospace baseline**: ✅ Ensures pixel-perfect TUI/GUI consistency
 
