@@ -355,10 +355,11 @@ call ui_init(backend="auto", width=80, height=25, title="My App")
 ```fortran
 call ui_init(backend="tui", width=80, height=25, title="My App")
 ```
-- Event-driven with smart timeouts
-- Minimal terminal writes via diffing
-- Full mouse support
-- Always available (no dependencies)
+- **Visual rendering**: Layout characters (`|`, `-`, `*`) for widget visualization
+- **Event-driven**: Smart timeouts with keyboard/mouse support
+- **Cell-based display**: Perfect coordinate snapping to terminal grid
+- **Performance optimized**: Front/back buffer diffing for minimal writes
+- **Production ready**: Complete termbox2 integration with fallback testing
 
 ### Graphical UI (GUI)  
 ```fortran

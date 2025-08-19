@@ -5,13 +5,14 @@ This guide covers building fortui with its dual TUI/GUI backends using the autom
 ## Quick Start
 
 ```bash
-# Build dependencies automatically
+# Build termbox2 dependency for TUI backend
 ./tools/build_fortui.sh build
 
-# Build with FPM
+# Compile with TUI backend support
 fpm build
 
-# Run tests  
+# Test TUI visual rendering
+fpm run --example tui_rendering_demo
 fpm test
 ```
 
@@ -30,10 +31,10 @@ The build script `tools/build_fortui.sh` provides several commands:
 ```bash
 ./tools/build_fortui.sh build
 ```
-- Builds termbox2 (TUI backend, always required)
-- Builds fortran-raygui (GUI backend, conditional on raylib availability)
-- Creates cached builds in `~/.cache/fortui` by default
-- Only rebuilds when needed (uses build markers)
+- **termbox2**: TUI backend with visual widget rendering (always built)
+- **fortran-raygui**: GUI backend (conditional on raylib availability)
+- **Caching**: `~/.cache/fortui` with smart rebuild detection
+- **Mock support**: Testing without real termbox2 dependency
 
 ### Check Configuration
 ```bash
