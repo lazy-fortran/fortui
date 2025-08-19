@@ -5,6 +5,10 @@ use iso_c_binding
 implicit none
 private
 
+! Layout dimension constants
+real, parameter :: DEFAULT_ROW_HEIGHT_DP = 32.0  ! Basic row height for vertical layout
+real, parameter :: DEFAULT_COLUMN_WIDTH_DP = 64.0  ! Basic column width for horizontal layout
+
 ! Public types  
 public :: ui_element, node, view
 
@@ -695,7 +699,7 @@ recursive subroutine render_node_to_buffer(tree, offset_x_dp, offset_y_dp)
             do i = 1, size(tree%children)
                 call render_node_to_buffer(tree%children(i), current_offset_x_dp, current_offset_y_dp)
                 ! Move down for next child (placeholder - would need proper sizing)
-                current_offset_y_dp = current_offset_y_dp + 32.0  ! Basic row height in dp
+                current_offset_y_dp = current_offset_y_dp + DEFAULT_ROW_HEIGHT_DP
                 if (tree%gap_dp > 0.0) then
                     current_offset_y_dp = current_offset_y_dp + tree%gap_dp
                 end if
@@ -706,7 +710,7 @@ recursive subroutine render_node_to_buffer(tree, offset_x_dp, offset_y_dp)
             do i = 1, size(tree%children)
                 call render_node_to_buffer(tree%children(i), current_offset_x_dp, current_offset_y_dp)
                 ! Move right for next child (placeholder - would need proper sizing)
-                current_offset_x_dp = current_offset_x_dp + 64.0  ! Basic column width in dp
+                current_offset_x_dp = current_offset_x_dp + DEFAULT_COLUMN_WIDTH_DP
                 if (tree%gap_dp > 0.0) then
                     current_offset_x_dp = current_offset_x_dp + tree%gap_dp
                 end if
