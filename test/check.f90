@@ -5,6 +5,8 @@ use test_conditional_compilation
 use test_lifecycle_functions
 use test_units_system
 use test_layout_constructors
+use test_tui_backend
+use test_termbox2_interface
 implicit none
 
 ! Given: Test suite execution
@@ -39,6 +41,12 @@ subroutine run_fortran_tests()
     
     ! Layout constructor tests with class(*) gap support and children arrays
     call test_all_layout_constructors()
+    
+    ! TUI backend tests with termbox2 integration and event-driven model
+    call test_all_tui_backend()
+    
+    ! Termbox2 C interface tests with memory management and error handling
+    call test_all_termbox2_interface()
     
     print *, "✓ All Fortran unit tests completed"
     print *, ""

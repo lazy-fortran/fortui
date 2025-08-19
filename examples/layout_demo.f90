@@ -1,8 +1,7 @@
 program layout_demo
 ! Demonstrates layout constructor functions with real UI tree building
 ! Shows column() and row() usage with gap parameters and nested structures
-use fortui_core
-use fortui_units
+use fortui
 implicit none
 
 type(node) :: ui_root, header_section, content_area, footer_section

@@ -318,12 +318,20 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 
 ## Documentation
 
+### Core Documentation
 - **[Layout API Guide](docs/LAYOUT_API.md)**: Complete layout system documentation with examples
 - **[Units Guide](docs/UNITS_GUIDE.md)**: Complete units system documentation with examples
-- **[Application Integration](docs/APPLICATION_INTEGRATION.md)**: Complete examples for real applications
-- **[Lifecycle API](docs/LIFECYCLE_API.md)**: UI initialization and frame management
-- **[Backend Selection](docs/BACKEND_SELECTION.md)**: TUI vs GUI compilation guide  
 - **[Core Types API](docs/CORE_TYPES_API.md)**: Complete `node` and `view` type documentation
+- **[Lifecycle API](docs/LIFECYCLE_API.md)**: UI initialization and frame management
+
+### Backend Guides
+- **[TUI Backend Guide](docs/TUI_BACKEND_GUIDE.md)**: Complete terminal UI backend documentation with termbox2 integration
+- **[Event System Guide](docs/EVENT_SYSTEM_GUIDE.md)**: Event-driven model for responsive TUI applications
+- **[Coordinate System Guide](docs/COORDINATE_SYSTEM_GUIDE.md)**: Coordinate conversion and cell-based rendering system
+- **[Backend Selection](docs/BACKEND_SELECTION.md)**: TUI vs GUI compilation and runtime selection guide
+
+### Integration & Development
+- **[Application Integration](docs/APPLICATION_INTEGRATION.md)**: Complete examples for real applications
 - **[Developer Guide](docs/DEVELOPER_GUIDE.md)**: Integration patterns and best practices
 - **[Build Guide](BUILD_GUIDE.md)**: Dependency setup and build configuration
 

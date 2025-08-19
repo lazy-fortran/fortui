@@ -1,6 +1,7 @@
 module fortui_core
 ! Core types and lifecycle management for fortui
 ! Provides backend-agnostic node and view types for UI tree construction
+use iso_c_binding
 implicit none
 private
 
@@ -55,6 +56,57 @@ type :: view
     real :: off_x = 0.0    ! Pan offset X-axis
     real :: off_y = 0.0    ! Pan offset Y-axis
 end type view
+
+! Termbox2 C library interface types and constants
+! Event structure for C interoperability
+type, bind(C) :: tb_event
+    integer(c_int) :: type
+    integer(c_int) :: mod
+    integer(c_int) :: key
+    integer(c_int32_t) :: ch
+    integer(c_int) :: w, h
+    integer(c_int) :: x, y
+end type tb_event
+
+! Cell structure for terminal rendering
+type, bind(C) :: tb_cell
+    integer(c_int32_t) :: ch
+    integer(c_int) :: fg
+    integer(c_int) :: bg
+end type tb_cell
+
+! Termbox2 constants
+integer, parameter :: TB_KEY_ESC = 27
+integer, parameter :: TB_KEY_CTRL_C = 3
+integer, parameter :: TB_KEY_CTRL_D = 4
+integer, parameter :: TB_KEY_CTRL_Z = 26
+integer, parameter :: TB_EVENT_KEY = 1
+integer, parameter :: TB_EVENT_RESIZE = 2
+integer, parameter :: TB_EVENT_MOUSE = 3
+
+! TUI backend state
+type :: tui_state_t
+    logical :: initialized = .false.
+    integer :: terminal_width = 0
+    integer :: terminal_height = 0
+    type(tb_cell), allocatable :: front_buffer(:, :)
+    type(tb_cell), allocatable :: back_buffer(:, :)
+    integer, allocatable :: line_hashes(:)  ! For diff optimization
+    logical :: resize_pending = .false.
+    logical :: quit_requested = .false.
+end type tui_state_t
+
+type(tui_state_t), save :: tui_state
+
+! Mock termbox2 state for testing without actual library
+type :: mock_terminal_state_t
+    logical :: initialized = .false.
+    integer :: width = 80
+    integer :: height = 24
+    integer :: event_count = 0
+end type mock_terminal_state_t
+
+type(mock_terminal_state_t), save :: mock_terminal
 
 contains
 
@@ -347,8 +399,52 @@ end function is_headless_environment
 
 ! Backend-specific initialization stubs (will be implemented when backend modules available)
 subroutine init_tui_backend()
-    ! Initialize TUI backend
-    ! TODO: Initialize termbox2 when TUI module available
+    ! Initialize TUI backend with termbox2
+    use fortui_units, only: ui_get_context, ui_set_context, ui_context
+    integer(c_int) :: init_result
+    type(ui_context) :: ctx
+    
+    ! Initialize mock termbox2 for testing
+    init_result = mock_tb_init()
+    if (init_result /= 0) then
+        print *, "init_tui_backend: Warning - termbox2 initialization failed with code:", init_result
+        print *, "init_tui_backend: Continuing with mock terminal for testing"
+        
+        ! Set up mock terminal dimensions for testing
+        tui_state%terminal_width = max(1, ui_state%window_width)
+        tui_state%terminal_height = max(1, ui_state%window_height)
+    else
+        ! Get actual terminal dimensions from mock termbox2
+        tui_state%terminal_width = mock_tb_width()
+        tui_state%terminal_height = mock_tb_height()
+        
+        ! Clear the terminal
+        call mock_tb_clear()
+    end if
+    
+    ! Validate terminal dimensions
+    if (tui_state%terminal_width <= 0 .or. tui_state%terminal_height <= 0) then
+        print *, "init_tui_backend: Warning - Invalid terminal dimensions detected"
+        tui_state%terminal_width = max(80, tui_state%terminal_width)
+        tui_state%terminal_height = max(24, tui_state%terminal_height)
+    end if
+    
+    ! Initialize cell buffers for front/back buffer system
+    call allocate_cell_buffers()
+    
+    ! Update UI context with terminal cell dimensions
+    call ui_get_context(ctx)
+    ctx%cell_w_dp = 8.0   ! Standard terminal cell width in dp
+    ctx%cell_h_dp = 16.0  ! Standard terminal cell height in dp
+    ctx%dpi_scale = 1.0   ! TUI always uses 1.0 DPI scale
+    call ui_set_context(ctx)
+    
+    tui_state%initialized = .true.
+    tui_state%resize_pending = .false.
+    tui_state%quit_requested = .false.
+    
+    print *, "init_tui_backend: TUI initialized, size=", &
+             tui_state%terminal_width, "x", tui_state%terminal_height
 end subroutine init_tui_backend
 
 subroutine init_gui_backend()
@@ -358,11 +454,206 @@ subroutine init_gui_backend()
 #endif
 end subroutine init_gui_backend
 
+! TUI backend helper functions
+subroutine allocate_cell_buffers()
+    ! Allocate front and back cell buffers for diff-based rendering
+    integer :: width, height
+    
+    width = tui_state%terminal_width
+    height = tui_state%terminal_height
+    
+    ! Deallocate existing buffers if present
+    if (allocated(tui_state%front_buffer)) deallocate(tui_state%front_buffer)
+    if (allocated(tui_state%back_buffer)) deallocate(tui_state%back_buffer)
+    if (allocated(tui_state%line_hashes)) deallocate(tui_state%line_hashes)
+    
+    ! Allocate new buffers
+    allocate(tui_state%front_buffer(width, height))
+    allocate(tui_state%back_buffer(width, height))
+    allocate(tui_state%line_hashes(height))
+    
+    ! Initialize buffers with default values
+    call clear_cell_buffers()
+end subroutine allocate_cell_buffers
+
+subroutine clear_cell_buffers()
+    ! Clear both front and back buffers
+    integer :: x, y
+    type(tb_cell) :: empty_cell
+    
+    ! Initialize empty cell
+    empty_cell%ch = int(ichar(' '), c_int32_t)
+    empty_cell%fg = 0
+    empty_cell%bg = 0
+    
+    ! Clear both buffers
+    do y = 1, tui_state%terminal_height
+        do x = 1, tui_state%terminal_width
+            tui_state%front_buffer(x, y) = empty_cell
+            tui_state%back_buffer(x, y) = empty_cell
+        end do
+    end do
+    
+    ! Clear line hashes
+    tui_state%line_hashes = 0
+end subroutine clear_cell_buffers
+
+integer function calculate_line_hash(line_cells) result(hash)
+    ! Calculate hash for a line of cells for diff optimization
+    type(tb_cell), intent(in) :: line_cells(:)
+    integer :: i
+    
+    hash = 0
+    do i = 1, size(line_cells)
+        ! Simple hash combining character and colors
+        hash = hash + line_cells(i)%ch + line_cells(i)%fg * 31 + line_cells(i)%bg * 97
+        hash = mod(hash, 2147483647)  ! Keep within integer range
+    end do
+end function calculate_line_hash
+
+subroutine dp_to_cell_coords(dp_x, dp_y, cell_x, cell_y)
+    ! Convert dp coordinates to cell coordinates with snapping
+    use fortui_units, only: ui_get_context, ui_context
+    real, intent(in) :: dp_x, dp_y
+    integer, intent(out) :: cell_x, cell_y
+    type(ui_context) :: ctx
+    
+    call ui_get_context(ctx)
+    
+    ! Convert to cell coordinates and snap to cell boundaries
+    cell_x = nint(dp_x / ctx%cell_w_dp)
+    cell_y = nint(dp_y / ctx%cell_h_dp)
+    
+    ! Clamp to terminal boundaries
+    cell_x = max(0, min(cell_x, tui_state%terminal_width - 1))
+    cell_y = max(0, min(cell_y, tui_state%terminal_height - 1))
+end subroutine dp_to_cell_coords
+
 ! Backend-specific frame management stubs
 subroutine begin_tui_frame(timeout_ms)
     integer, intent(in) :: timeout_ms
-    ! TODO: TUI event polling with timeout
+    
+    if (.not. tui_state%initialized) return
+    
+    ! Event polling with timeout for TUI responsiveness
+    call poll_tui_events(timeout_ms)
+    
+    ! Handle any pending resize events
+    if (tui_state%resize_pending) then
+        call handle_terminal_resize()
+        tui_state%resize_pending = .false.
+    end if
+    
+    ! Clear back buffer for new frame
+    call clear_back_buffer()
 end subroutine begin_tui_frame
+
+subroutine poll_tui_events(timeout_ms)
+    ! Poll events with timeout handling for responsive TUI
+    integer, intent(in) :: timeout_ms
+    type(tb_event) :: event
+    integer(c_int) :: event_result
+    integer :: safe_timeout
+    
+    ! Validate timeout parameter
+    safe_timeout = max(0, min(timeout_ms, 5000))  ! Cap at 5 seconds for safety
+    
+    ! Poll for events with timeout
+    event_result = mock_tb_peek_event(event, int(safe_timeout, c_int))
+    
+    if (event_result > 0) then
+        ! Process the event
+        call process_tui_event(event)
+    end if
+    
+    ! Coalesce rapid events by checking for more events with zero timeout
+    do
+        event_result = mock_tb_peek_event(event, 0_c_int)
+        if (event_result <= 0) exit
+        call process_tui_event(event)
+    end do
+end subroutine poll_tui_events
+
+subroutine process_tui_event(event)
+    ! Process individual TUI events
+    type(tb_event), intent(in) :: event
+    
+    select case (event%type)
+    case (TB_EVENT_KEY)
+        call process_key_event(event)
+    case (TB_EVENT_RESIZE)
+        call process_resize_event(event)
+    case (TB_EVENT_MOUSE)
+        call process_mouse_event(event)
+    end select
+end subroutine process_tui_event
+
+subroutine process_key_event(event)
+    ! Process keyboard events for quit detection
+    type(tb_event), intent(in) :: event
+    
+    ! Check for quit keys
+    if (event%key == TB_KEY_ESC .or. &
+        event%key == TB_KEY_CTRL_C .or. &
+        event%key == TB_KEY_CTRL_D) then
+        tui_state%quit_requested = .true.
+    end if
+end subroutine process_key_event
+
+subroutine process_resize_event(event)
+    ! Process terminal resize events
+    type(tb_event), intent(in) :: event
+    
+    tui_state%resize_pending = .true.
+end subroutine process_resize_event
+
+subroutine process_mouse_event(event)
+    ! Process mouse events (placeholder for future implementation)
+    type(tb_event), intent(in) :: event
+    
+    ! Mouse events not implemented in current version
+end subroutine process_mouse_event
+
+subroutine handle_terminal_resize()
+    ! Handle terminal resize by reallocating buffers
+    integer :: new_width, new_height
+    
+    ! Get new terminal dimensions
+    new_width = mock_tb_width()
+    new_height = mock_tb_height()
+    
+    ! Validate dimensions
+    if (new_width <= 0 .or. new_height <= 0) return
+    
+    ! Update state
+    tui_state%terminal_width = new_width
+    tui_state%terminal_height = new_height
+    
+    ! Reallocate buffers
+    call allocate_cell_buffers()
+    
+    print *, "handle_terminal_resize: resized to ", new_width, "x", new_height
+end subroutine handle_terminal_resize
+
+subroutine clear_back_buffer()
+    ! Clear only the back buffer for new frame rendering
+    integer :: x, y
+    type(tb_cell) :: empty_cell
+    
+    if (.not. allocated(tui_state%back_buffer)) return
+    
+    ! Initialize empty cell
+    empty_cell%ch = int(ichar(' '), c_int32_t)
+    empty_cell%fg = 0
+    empty_cell%bg = 0
+    
+    ! Clear back buffer
+    do y = 1, tui_state%terminal_height
+        do x = 1, tui_state%terminal_width
+            tui_state%back_buffer(x, y) = empty_cell
+        end do
+    end do
+end subroutine clear_back_buffer
 
 subroutine begin_gui_frame()
     ! TODO: GUI frame timing
@@ -371,8 +662,126 @@ end subroutine begin_gui_frame
 ! Backend-specific presentation stubs
 subroutine present_tui(tree)
     class(node), intent(in) :: tree
-    ! TODO: TUI rendering with diff-based updates
+    
+    if (.not. tui_state%initialized) return
+    
+    ! Render widget tree to back buffer
+    call render_node_to_buffer(tree, 0.0, 0.0)
+    
+    ! Apply diff-based updates to terminal
+    call apply_buffer_diff()
+    
+    ! Present the changes to the terminal
+    call mock_tb_present()
 end subroutine present_tui
+
+recursive subroutine render_node_to_buffer(tree, offset_x_dp, offset_y_dp)
+    ! Render node tree to the back buffer using dp coordinates
+    class(node), intent(in) :: tree
+    real, intent(in) :: offset_x_dp, offset_y_dp
+    
+    integer :: i, child_offset_x_dp, child_offset_y_dp
+    real :: current_offset_x_dp, current_offset_y_dp
+    
+    ! Start at the given offset
+    current_offset_x_dp = offset_x_dp
+    current_offset_y_dp = offset_y_dp
+    
+    ! Only process children if the array is allocated
+    if (allocated(tree%children)) then
+        select case (trim(tree%layout_type))
+        case ("column")
+            ! Vertical layout - children stacked vertically
+            do i = 1, size(tree%children)
+                call render_node_to_buffer(tree%children(i), current_offset_x_dp, current_offset_y_dp)
+                ! Move down for next child (placeholder - would need proper sizing)
+                current_offset_y_dp = current_offset_y_dp + 32.0  ! Basic row height in dp
+                if (tree%gap_dp > 0.0) then
+                    current_offset_y_dp = current_offset_y_dp + tree%gap_dp
+                end if
+            end do
+            
+        case ("row")
+            ! Horizontal layout - children placed side by side
+            do i = 1, size(tree%children)
+                call render_node_to_buffer(tree%children(i), current_offset_x_dp, current_offset_y_dp)
+                ! Move right for next child (placeholder - would need proper sizing)
+                current_offset_x_dp = current_offset_x_dp + 64.0  ! Basic column width in dp
+                if (tree%gap_dp > 0.0) then
+                    current_offset_x_dp = current_offset_x_dp + tree%gap_dp
+                end if
+            end do
+            
+        case default
+            ! No specific layout - render children at same position (overlay)
+            do i = 1, size(tree%children)
+                call render_node_to_buffer(tree%children(i), current_offset_x_dp, current_offset_y_dp)
+            end do
+        end select
+    end if
+    
+    ! Render this node's content (placeholder for widget rendering)
+    call render_node_content(tree, offset_x_dp, offset_y_dp)
+end subroutine render_node_to_buffer
+
+subroutine render_node_content(tree, x_dp, y_dp)
+    ! Render node content to back buffer (placeholder for widget rendering)
+    class(node), intent(in) :: tree
+    real, intent(in) :: x_dp, y_dp
+    integer :: cell_x, cell_y
+    type(tb_cell) :: cell
+    
+    ! Convert dp coordinates to cell coordinates
+    call dp_to_cell_coords(x_dp, y_dp, cell_x, cell_y)
+    
+    ! Check bounds
+    if (cell_x < 0 .or. cell_x >= tui_state%terminal_width .or. &
+        cell_y < 0 .or. cell_y >= tui_state%terminal_height) return
+    
+    ! Render a simple marker for testing (would be replaced by actual widget rendering)
+    cell%ch = int(ichar('*'), c_int32_t)
+    cell%fg = 7  ! White foreground
+    cell%bg = 0  ! Black background
+    
+    ! Set cell in back buffer (using 1-based indexing)
+    tui_state%back_buffer(cell_x + 1, cell_y + 1) = cell
+end subroutine render_node_content
+
+subroutine apply_buffer_diff()
+    ! Apply diff-based updates from back buffer to front buffer and terminal
+    integer :: y, x, new_hash
+    logical :: line_changed
+    
+    if (.not. allocated(tui_state%front_buffer) .or. &
+        .not. allocated(tui_state%back_buffer) .or. &
+        .not. allocated(tui_state%line_hashes)) return
+    
+    ! Process each line
+    do y = 1, tui_state%terminal_height
+        ! Calculate hash for current line in back buffer
+        new_hash = calculate_line_hash(tui_state%back_buffer(:, y))
+        
+        ! Check if line has changed
+        line_changed = (new_hash /= tui_state%line_hashes(y))
+        
+        if (line_changed) then
+            ! Update line in terminal and front buffer
+            do x = 1, tui_state%terminal_width
+                ! Update terminal cell (using 0-based indexing for C interface)
+                call mock_tb_set_cell(x - 1, y - 1, &
+                                tui_state%back_buffer(x, y)%ch, &
+                                tui_state%back_buffer(x, y)%fg, &
+                                tui_state%back_buffer(x, y)%bg)
+                
+                ! Update front buffer
+                tui_state%front_buffer(x, y) = tui_state%back_buffer(x, y)
+            end do
+            
+            ! Update line hash
+            tui_state%line_hashes(y) = new_hash
+        end if
+    end do
+end subroutine apply_buffer_diff
 
 subroutine present_gui(tree)
     class(node), intent(in) :: tree
@@ -382,13 +791,7 @@ end subroutine present_gui
 ! Backend-specific quit detection stubs
 logical function check_tui_quit()
     ! Check for TUI quit events (ESC, Ctrl+C, etc.)
-    ! For now, return true after reasonable timeout to prevent infinite loop
-    integer, save :: call_count = 0
-    call_count = call_count + 1
-    
-    ! Auto-quit after 10 seconds (approximately 500 frames at 50fps)
-    ! This prevents infinite loops during development/testing
-    check_tui_quit = call_count > 500
+    check_tui_quit = tui_state%quit_requested .or. .not. tui_state%initialized
 end function check_tui_quit
 
 logical function check_gui_quit()
@@ -404,7 +807,24 @@ end function check_gui_quit
 
 ! Backend-specific shutdown stubs
 subroutine shutdown_tui_backend()
-    ! TODO: TUI cleanup
+    ! Cleanup TUI backend resources
+    
+    if (.not. tui_state%initialized) return
+    
+    ! Shutdown termbox2 library
+    call mock_tb_shutdown()
+    
+    ! Deallocate buffers
+    if (allocated(tui_state%front_buffer)) deallocate(tui_state%front_buffer)
+    if (allocated(tui_state%back_buffer)) deallocate(tui_state%back_buffer)
+    if (allocated(tui_state%line_hashes)) deallocate(tui_state%line_hashes)
+    
+    ! Reset state
+    tui_state%initialized = .false.
+    tui_state%terminal_width = 0
+    tui_state%terminal_height = 0
+    tui_state%resize_pending = .false.
+    tui_state%quit_requested = .false.
 end subroutine shutdown_tui_backend
 
 subroutine shutdown_gui_backend()
@@ -483,7 +903,7 @@ function row(gap, children) result(n)
 end function row
 
 ! Assignment operator implementation for proper memory management
-subroutine assign_node(lhs, rhs)
+recursive subroutine assign_node(lhs, rhs)
     class(node), intent(out) :: lhs
     class(node), intent(in) :: rhs
     
@@ -504,5 +924,77 @@ subroutine assign_node(lhs, rhs)
         if (allocated(lhs%children)) deallocate(lhs%children)
     end if
 end subroutine assign_node
+
+! Mock termbox2 implementations for testing without actual library
+integer(c_int) function mock_tb_init() result(ret)
+    ! Mock termbox2 initialization
+    mock_terminal%initialized = .true.
+    mock_terminal%width = 80
+    mock_terminal%height = 24
+    mock_terminal%event_count = 0
+    ret = 0  ! Success
+end function mock_tb_init
+
+subroutine mock_tb_shutdown()
+    ! Mock termbox2 shutdown
+    mock_terminal%initialized = .false.
+end subroutine mock_tb_shutdown
+
+integer(c_int) function mock_tb_width() result(width)
+    ! Mock terminal width query
+    width = mock_terminal%width
+end function mock_tb_width
+
+integer(c_int) function mock_tb_height() result(height)
+    ! Mock terminal height query
+    height = mock_terminal%height
+end function mock_tb_height
+
+integer(c_int) function mock_tb_peek_event(event, timeout_ms) result(ret)
+    ! Mock event polling with timeout
+    type(tb_event), intent(out) :: event
+    integer(c_int), intent(in) :: timeout_ms
+    
+    mock_terminal%event_count = mock_terminal%event_count + 1
+    
+    ! Simulate different events based on call count for testing
+    if (mock_terminal%event_count == 10) then
+        ! Simulate ESC key after 10 calls for testing
+        event%type = TB_EVENT_KEY
+        event%key = TB_KEY_ESC
+        event%ch = 27
+        event%mod = 0
+        event%x = 0
+        event%y = 0
+        event%w = 0
+        event%h = 0
+        ret = 1  ! Event available
+    else if (mock_terminal%event_count > 50) then
+        ! Stop generating events after 50 calls to prevent infinite loops
+        ret = 0  ! No event
+    else
+        ! No event for most calls
+        ret = 0
+    end if
+end function mock_tb_peek_event
+
+subroutine mock_tb_set_cell(x, y, ch, fg, bg)
+    ! Mock cell setting (no-op for testing)
+    integer(c_int), intent(in) :: x, y
+    integer(c_int32_t), intent(in) :: ch
+    integer(c_int), intent(in) :: fg, bg
+    
+    ! No operation for mock - would update display in real implementation
+end subroutine mock_tb_set_cell
+
+subroutine mock_tb_clear()
+    ! Mock terminal clear (no-op for testing)
+    ! No operation for mock
+end subroutine mock_tb_clear
+
+subroutine mock_tb_present()
+    ! Mock terminal present (no-op for testing)
+    ! No operation for mock
+end subroutine mock_tb_present
 
 end module fortui_core
