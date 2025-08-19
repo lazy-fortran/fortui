@@ -169,13 +169,17 @@ Interactive button with click detection and auto-sizing:
 ```fortran
 use fortui_widgets
 
-! Basic usage - returns true when clicked
-if (button("save_btn", label="Save")) then
+logical :: save_clicked, big_clicked
+
+! Basic usage - assignment operator pattern
+save_clicked = button("save_btn", label="Save")
+if (save_clicked) then
     print *, "Save button clicked!"
 end if
 
 ! Custom size with units
-if (button("big_btn", width=dp(80.0), height=dp(40.0))) then
+big_clicked = button("big_btn", width=dp(80.0), height=dp(40.0))
+if (big_clicked) then
     ! Handle click
 end if
 ```
@@ -200,15 +204,18 @@ call text("terminal", "Terminal Text", width=cw(25.0))
 Interactive numeric input with range control and step quantization:
 
 ```fortran
-real :: volume = 50.0
+real :: volume = 50.0, temperature = 20.0
+logical :: volume_changed, temp_changed
 
-! Returns true when value changes
-if (slider("volume", 0.0, 100.0, 5.0, volume, width=dp(120.0))) then
+! Assignment operator pattern for change detection
+volume_changed = slider("volume", 0.0, 100.0, 5.0, volume, width=dp(120.0))
+if (volume_changed) then
     print *, "Volume changed to:", volume
 end if
 
 ! Continuous values (step_val = 0.0)
-if (slider("temp", 15.0, 30.0, 0.0, temperature)) then
+temp_changed = slider("temp", 15.0, 30.0, 0.0, temperature)
+if (temp_changed) then
     print *, "Temperature:", temperature, "°C"
 end if
 ```
@@ -218,16 +225,17 @@ end if
 Boolean input with toggle functionality:
 
 ```fortran
-logical :: sound_enabled = .true.
+logical :: sound_enabled = .true., enabled = .false.
+type(checkbox_node_t) :: sound_widget, notif_widget
 
-! Toggles boolean state when clicked
-call checkbox("sound", sound_enabled, label="Enable Sound")
+! Checkbox widget returns widget node with toggle state
+sound_widget = checkbox("sound", sound_enabled, label="Enable Sound")
 if (sound_enabled) then
     print *, "Sound is enabled"
 end if
 
 ! Auto-sizing with label
-call checkbox("notifications", enabled, label="Email Notifications")
+notif_widget = checkbox("notifications", enabled, label="Email Notifications")
 ```
 
 **Complete Documentation:** 
