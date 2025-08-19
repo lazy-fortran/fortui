@@ -112,7 +112,7 @@ subroutine test_demo_widget_integration()
     print *, "=== Demo Widget Integration Tests ==="
     
     ! Initialize for testing
-    call ui_init(backend="tui", width=100.0_dp, height=35.0_dp, title="Integration Test")
+    call ui_init(backend="tui", width=100, height=35, title="Integration Test")
     
     ! Test widget composition and interaction
     call test_demo_widget_composition(ui)
@@ -325,7 +325,7 @@ end subroutine test_demo_helper_functions
 
 subroutine test_demo_initialization()
     ! Test ui_init with parameters matching DESIGN.md
-    call ui_init(backend="tui", width=100.0_dp, height=35.0_dp, title="plot demo")
+    call ui_init(backend="tui", width=100, height=35, title="plot demo")
     
     ! Validate initialization succeeded
     demo_state%running = .true.

@@ -8,7 +8,7 @@ implicit none
 private
 
 ! Public widget functions
-public :: button, text, slider, checkbox
+public :: button, text, slider, checkbox, viewport
 
 ! Testing helper functions (for test suite only)
 public :: simulate_button_click, simulate_key_press, set_button_focus
@@ -16,6 +16,7 @@ public :: get_button_debug_info, reset_button_system
 public :: get_text_debug_info, reset_text_system
 public :: simulate_slider_interaction, get_slider_debug_info, reset_slider_system
 public :: simulate_checkbox_toggle, get_checkbox_debug_info, reset_checkbox_system
+public :: get_viewport_debug_info, reset_viewport_system
 
 ! Internal state management types
 type :: button_state_t
@@ -81,6 +82,20 @@ type :: checkbox_state_t
     logical :: state_changed = .false. ! State changed this frame
 end type checkbox_state_t
 
+! Internal state management types for viewport widgets
+type :: viewport_state_t
+    real :: width_dp = 0.0          ! Viewport width in dp
+    real :: height_dp = 0.0         ! Viewport height in dp
+    real :: x_dp = 0.0              ! Widget position x
+    real :: y_dp = 0.0              ! Widget position y
+    character(len=256) :: id = ""   ! Widget identifier
+    logical :: hovered = .false.    ! Mouse hovering over viewport
+    logical :: focused = .false.    ! Keyboard focus state
+    logical :: dragging = .false.   ! Currently panning with mouse
+    integer :: last_frame = 0       ! Last frame accessed
+    logical :: view_changed = .false. ! View state changed this frame
+end type viewport_state_t
+
 ! Global state storage for all buttons
 integer, parameter :: MAX_BUTTONS = 1000
 type(button_state_t), save :: button_states(MAX_BUTTONS)
@@ -104,6 +119,12 @@ integer, parameter :: MAX_CHECKBOXES = 500
 type(checkbox_state_t), save :: checkbox_states(MAX_CHECKBOXES)
 integer, save :: checkbox_count = 0
 integer, save :: checkbox_frame_counter = 0
+
+! Global viewport state storage
+integer, parameter :: MAX_VIEWPORTS = 100
+type(viewport_state_t), save :: viewport_states(MAX_VIEWPORTS)
+integer, save :: viewport_count = 0
+integer, save :: viewport_frame_counter = 0
 
 ! Mouse and keyboard state tracking
 type :: input_state_t
@@ -829,6 +850,59 @@ subroutine checkbox(id, checked, label, width, height)
     ! Render checkbox (would be handled by presentation system in full implementation)
     call render_checkbox_placeholder(state_index)
 end subroutine checkbox
+
+subroutine viewport(id, width, height, v)
+    ! Immediate-mode viewport widget for pan/zoom display areas
+    ! Manages pan/zoom state through view parameter and processes mouse interactions
+    character(*), intent(in) :: id
+    class(*), intent(in) :: width, height
+    type(view), intent(inout) :: v
+    
+    integer :: state_index
+    real :: widget_width_dp, widget_height_dp
+    type(ui_context) :: ctx
+    logical :: view_updated_this_frame
+    
+    ! Increment frame counter for immediate-mode behavior
+    viewport_frame_counter = viewport_frame_counter + 1
+    
+    ! Validate ID parameter
+    if (len_trim(id) == 0) then
+        print *, "viewport: Warning - Empty viewport ID provided, using fallback"
+        return
+    end if
+    
+    ! Get or create viewport state
+    state_index = find_or_create_viewport_state(id)
+    if (state_index <= 0) then
+        return
+    end if
+    
+    ! Get current UI context
+    call ui_get_context(ctx)
+    
+    ! Calculate dimensions
+    widget_width_dp = convert_to_dp(width, ctx)
+    widget_height_dp = convert_to_dp(height, ctx)
+    
+    ! Apply minimum size constraints for usability
+    widget_width_dp = max(widget_width_dp, 32.0)
+    widget_height_dp = max(widget_height_dp, 16.0)
+    
+    ! Update viewport state with current dimensions
+    viewport_states(state_index)%width_dp = widget_width_dp
+    viewport_states(state_index)%height_dp = widget_height_dp
+    viewport_states(state_index)%last_frame = viewport_frame_counter
+    
+    ! Process input and determine view updates
+    view_updated_this_frame = process_viewport_interaction(state_index, v)
+    
+    ! Update state change tracking
+    viewport_states(state_index)%view_changed = view_updated_this_frame
+    
+    ! Render viewport (would be handled by presentation system in full implementation)
+    call render_viewport_placeholder(state_index)
+end subroutine viewport
 
 integer function find_or_create_checkbox_state(id) result(index)
     ! Find existing checkbox state or create new one with security-hardened ID handling
@@ -1675,5 +1749,118 @@ subroutine ensure_checkbox_exists_for_testing(id)
         end if
     end if
 end subroutine ensure_checkbox_exists_for_testing
+
+! Viewport widget helper functions
+
+integer function find_or_create_viewport_state(id) result(index)
+    ! Find existing viewport state or create new one
+    character(*), intent(in) :: id
+    
+    integer :: i
+    
+    ! Search for existing state
+    do i = 1, viewport_count
+        if (trim(viewport_states(i)%id) == trim(id)) then
+            index = i
+            return
+        end if
+    end do
+    
+    ! Create new state if space available
+    if (viewport_count < MAX_VIEWPORTS) then
+        viewport_count = viewport_count + 1
+        index = viewport_count
+        
+        ! Initialize viewport state
+        viewport_states(index) = viewport_state_t()
+        call safe_copy_viewport_id(id, viewport_states(index)%id)
+    else
+        print *, "viewport: Warning - Maximum viewport limit reached"
+        index = 0
+    end if
+end function find_or_create_viewport_state
+
+subroutine safe_copy_viewport_id(source, target)
+    ! Safe string copy for viewport ID
+    character(*), intent(in) :: source
+    character(*), intent(out) :: target
+    
+    integer :: copy_len
+    copy_len = min(len(source), len(target))
+    target = ""
+    target(1:copy_len) = source(1:copy_len)
+end subroutine safe_copy_viewport_id
+
+logical function process_viewport_interaction(state_index, v) result(updated)
+    ! Process viewport mouse/keyboard interactions
+    integer, intent(in) :: state_index
+    type(view), intent(inout) :: v
+    
+    ! Simplified interaction processing - real implementation would handle mouse events
+    updated = .false.
+    
+    ! Update interaction state
+    viewport_states(state_index)%hovered = .false.
+    viewport_states(state_index)%dragging = .false.
+    viewport_states(state_index)%focused = .false.
+    
+    ! In a full implementation, this would process actual mouse/keyboard events
+    ! For now, we maintain state consistency
+end function process_viewport_interaction
+
+subroutine render_viewport_placeholder(state_index)
+    ! Placeholder for viewport rendering
+    integer, intent(in) :: state_index
+    
+    ! Mark viewport as rendered for this frame
+    viewport_states(state_index)%last_frame = viewport_frame_counter
+    
+    ! In full implementation, this would render the viewport content
+end subroutine render_viewport_placeholder
+
+! Viewport testing helper functions
+
+subroutine get_viewport_debug_info(id, width, height, hovered, focused)
+    ! Get debug information for viewport testing
+    character(*), intent(in) :: id
+    real, intent(out) :: width, height
+    logical, intent(out) :: hovered, focused
+    
+    integer :: state_index
+    
+    state_index = find_viewport_state_by_id(id)
+    if (state_index > 0) then
+        width = viewport_states(state_index)%width_dp
+        height = viewport_states(state_index)%height_dp
+        hovered = viewport_states(state_index)%hovered
+        focused = viewport_states(state_index)%focused
+    else
+        width = 0.0
+        height = 0.0
+        hovered = .false.
+        focused = .false.
+    end if
+end subroutine get_viewport_debug_info
+
+subroutine reset_viewport_system()
+    ! Reset all viewport state for testing
+    viewport_count = 0
+    viewport_frame_counter = 0
+    viewport_states = viewport_state_t()  ! Initialize all to default
+end subroutine reset_viewport_system
+
+integer function find_viewport_state_by_id(id) result(index)
+    ! Find viewport state by ID (returns 0 if not found)
+    character(*), intent(in) :: id
+    integer :: i
+    
+    index = 0
+    do i = 1, viewport_count
+        if (trim(viewport_states(i)%id) == trim(id)) then
+            index = i
+            return
+        end if
+    end do
+end function find_viewport_state_by_id
 
 end module fortui_widgets
