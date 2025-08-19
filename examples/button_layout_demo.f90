@@ -10,8 +10,8 @@ type(node), allocatable :: children(:)
 logical :: running = .true.
 integer :: frame_count = 0
 
-! Button state
-logical :: save_clicked, load_clicked, settings_clicked, quit_clicked
+! Button nodes
+type(node) :: save_btn, load_btn, settings_btn, quit_btn
 
 print *, "Button + Layout Demo"
 print *, "===================="
@@ -20,36 +20,26 @@ do while (running .and. frame_count < 10)
     frame_count = frame_count + 1
     
     ! Test button functionality
-    save_clicked = button("save", label="Save File")
-    load_clicked = button("load", label="Load File") 
-    settings_clicked = button("settings", width=dp(80.0))
-    quit_clicked = button("quit", label="Exit", width=dp(60.0), height=dp(30.0))
+    save_btn = button("save", label="Save File")
+    load_btn = button("load", label="Load File") 
+    settings_btn = button("settings", width=dp(80.0))
+    quit_btn = button("quit", label="Exit", width=dp(60.0), height=dp(30.0))
     
-    ! Create layout structure (buttons would be integrated here in full implementation)
+    ! Create layout structure (buttons integrated directly)
     allocate(children(4))
-    children(1) = node()  ! save button placeholder
-    children(2) = node()  ! load button placeholder  
-    children(3) = node()  ! settings button placeholder
-    children(4) = node()  ! quit button placeholder
+    children(1) = save_btn
+    children(2) = load_btn
+    children(3) = settings_btn
+    children(4) = quit_btn
     
     ui_root = column(gap=dp(8.0), children=children)
     deallocate(children)
     
-    ! Handle button clicks
-    if (save_clicked) then
-        print *, "Frame", frame_count, ": Save button clicked!"
-    end if
+    ! Note: In new API, interaction detection handled by UI framework
+    print *, "Frame", frame_count, ": Buttons rendered in layout successfully"
     
-    if (load_clicked) then
-        print *, "Frame", frame_count, ": Load button clicked!"
-    end if
-    
-    if (settings_clicked) then
-        print *, "Frame", frame_count, ": Settings button clicked!"
-    end if
-    
-    if (quit_clicked) then
-        print *, "Frame", frame_count, ": Quit button clicked!"
+    ! Exit after demonstrating layout integration
+    if (frame_count >= 5) then
         running = .false.
     end if
 end do
