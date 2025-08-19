@@ -10,7 +10,7 @@ public :: ui_element, node, view
 ! Public procedures
 public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
 public :: ui_set_idle_policy
-! Layout constructors (temporary stubs for testing)
+! Layout constructors
 public :: column, row
 
 ! Internal state management
