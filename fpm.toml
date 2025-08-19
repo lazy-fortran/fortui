@@ -4,6 +4,17 @@ license = "license"
 author = "Christopher Albert"
 maintainer = "albert@tugraz.at"
 copyright = "Copyright 2025, Christopher Albert"
+
+[[example]]
+name = "simple_test"
+source-dir = "examples"
+main = "simple_test.f90"
+
+[[example]]  
+name = "layout_demo"
+source-dir = "examples"
+main = "layout_demo.f90"
+
 [build]
 auto-executables = true
 auto-tests = true

@@ -687,7 +687,9 @@ recursive subroutine render_node_to_buffer(tree, offset_x_dp, offset_y_dp)
     current_offset_x_dp = offset_x_dp
     current_offset_y_dp = offset_y_dp
     
-    ! Render children based on layout type
+    ! Render children based on layout type - check if children array is allocated first
+    if (.not. allocated(tree%children)) return
+    
     select case (trim(tree%layout_type))
     case ("column")
         ! Vertical layout - children stacked vertically
