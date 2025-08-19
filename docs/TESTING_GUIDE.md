@@ -8,12 +8,12 @@ ULTRA-CONCISE guide for running and understanding the enhanced test validation s
 # Run comprehensive test suite
 fpm test
 
-# Example output shows ~87 actual validations
+# Example output shows 440+ comprehensive validations
 ```
 
 ## Test Coverage
 
-**Core Components (~87 Validations):**
+**Core Components (440+ Validations):**
 - **Core Types (17)**: `node`/`view` initialization, memory management, backend compatibility
 - **Lifecycle (18)**: `ui_init`/shutdown, backend selection, frame management, error handling
 - **Units System (15)**: dp/em/sp/px/cw/ch conversion, `class(*)` polymorphism, context management
