@@ -5121,43 +5121,37 @@ subroutine mock_checkbox(id, checked)
     character(*), intent(in) :: id
     logical, intent(inout) :: checked
     
-    ! Mock implementation - would call real checkbox when implemented
-    ! For now, just validate parameter handling
-    if (len_trim(id) > 0) then
-        ! Normal case - maintain current state
-    else
-        ! Edge case - handle empty ID gracefully
-        checked = .false.
-    end if
+    ! Call the actual checkbox widget implementation
+    call checkbox(id, checked)
 end subroutine mock_checkbox
 
 subroutine mock_checkbox_with_label(id, checked, label)
-    ! Mock checkbox with label implementation for testing
+    ! Call real checkbox with label implementation for testing
     character(*), intent(in) :: id, label
     logical, intent(inout) :: checked
     
-    ! Mock implementation with label handling
-    call mock_checkbox(id, checked)
+    ! Call the actual checkbox widget with label
+    call checkbox(id, checked, label=label)
 end subroutine mock_checkbox_with_label
 
 subroutine mock_checkbox_with_dimensions(id, checked, width, height)
-    ! Mock checkbox with dimensions implementation for testing
+    ! Call real checkbox with dimensions implementation for testing
     character(*), intent(in) :: id
     logical, intent(inout) :: checked
     class(*), intent(in) :: width, height
     
-    ! Mock implementation with dimension handling
-    call mock_checkbox(id, checked)
+    ! Call the actual checkbox widget with dimensions
+    call checkbox(id, checked, width=width, height=height)
 end subroutine mock_checkbox_with_dimensions
 
 subroutine mock_checkbox_full(id, checked, label, width, height)
-    ! Mock checkbox with all parameters implementation for testing
+    ! Call real checkbox with all parameters implementation for testing
     character(*), intent(in) :: id, label
     logical, intent(inout) :: checked
     class(*), intent(in) :: width, height
     
-    ! Mock implementation with complete parameter set
-    call mock_checkbox(id, checked)
+    ! Call the actual checkbox widget with all parameters
+    call checkbox(id, checked, label=label, width=width, height=height)
 end subroutine mock_checkbox_full
 
 ! Testing utility functions for checkbox interaction simulation
