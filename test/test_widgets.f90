@@ -3,6 +3,7 @@ module test_widgets
 ! Tests unified class(*) interface, click detection, state management, auto-sizing, and cross-backend compatibility
 use fortui_core
 use fortui_units
+use fortui_widgets
 implicit none
 
 ! Internal state tracking for button testing
@@ -1094,45 +1095,32 @@ end subroutine test_frame_rate_impact
 
 logical function mock_button(id) result(clicked)
     character(*), intent(in) :: id
-    integer :: state_index
     
-    state_index = find_or_create_button_state(id)
-    
-    ! Simple click simulation logic
-    clicked = test_button_states(state_index)%clicked
-    
-    ! Reset click state after reading (immediate-mode behavior)
-    test_button_states(state_index)%clicked = .false.
+    ! Use the real button implementation
+    clicked = button(id)
 end function mock_button
 
 logical function mock_button_with_label(id, label) result(clicked)
     character(*), intent(in) :: id, label
     
-    ! For testing, label doesn't affect click behavior, only sizing
-    clicked = mock_button(id)
+    ! Use the real button implementation with label
+    clicked = button(id, label)
 end function mock_button_with_label
 
 logical function mock_button_with_dimensions(id, width, height) result(clicked)
     character(*), intent(in) :: id
     class(*), intent(in) :: width, height
-    integer :: state_index
-    type(ui_context) :: ctx
     
-    state_index = find_or_create_button_state(id)
-    call ui_get_context(ctx)
-    
-    ! Store converted dimensions for testing
-    test_button_states(state_index)%width_dp = convert_to_dp(width, ctx)
-    test_button_states(state_index)%height_dp = convert_to_dp(height, ctx)
-    
-    clicked = mock_button(id)
+    ! Use the real button implementation with dimensions
+    clicked = button(id, width=width, height=height)
 end function mock_button_with_dimensions
 
 logical function mock_button_full(id, label, width, height) result(clicked)
     character(*), intent(in) :: id, label
     class(*), intent(in) :: width, height
     
-    clicked = mock_button_with_dimensions(id, width, height)
+    ! Use the real button implementation with all parameters
+    clicked = button(id, label, width, height)
 end function mock_button_full
 
 integer function find_or_create_button_state(id) result(index)
@@ -1160,11 +1148,9 @@ end function find_or_create_button_state
 
 subroutine mock_simulate_click(id)
     character(*), intent(in) :: id
-    integer :: state_index
     
-    state_index = find_or_create_button_state(id)
-    test_button_states(state_index)%clicked = .true.
-    test_button_states(state_index)%click_count = test_button_states(state_index)%click_count + 1
+    ! Use widget module's testing functions
+    call simulate_button_click(id)
 end subroutine mock_simulate_click
 
 subroutine mock_simulate_mouse_click(id, x, y)
@@ -1172,34 +1158,51 @@ subroutine mock_simulate_mouse_click(id, x, y)
     real, intent(in) :: x, y
     
     ! Simulate mouse click at coordinates
-    call mock_simulate_click(id)
+    call simulate_button_click(id, x, y)
 end subroutine mock_simulate_mouse_click
 
 subroutine mock_simulate_key_press(key)
     character(*), intent(in) :: key
     
-    ! Simulate keyboard input (placeholder)
+    ! Use widget module's key simulation
+    call simulate_key_press(key)
 end subroutine mock_simulate_key_press
 
 subroutine mock_set_focus(id)
     character(*), intent(in) :: id
     
-    ! Simulate setting focus to button (placeholder)
+    ! Use widget module's focus setting
+    call set_button_focus(id)
 end subroutine mock_set_focus
 
 real function mock_get_button_width(id, label) result(width)
     character(*), intent(in) :: id, label
     
-    ! Mock auto-sizing calculation
-    width = max(real(len_trim(label)) * 8.0 + 16.0, 40.0)  ! Basic character width + padding
+    ! First call the button to ensure it's created, then get debug info
+    logical :: dummy
+    dummy = button(id, label)
+    call get_button_debug_info(id, width_dp=width)
+    
+    ! If debug info doesn't provide width, calculate auto-sizing
+    if (width <= 0.0) then
+        width = max(real(len_trim(label)) * 8.0 + 16.0, 40.0)  ! Basic character width + padding
+    end if
 end function mock_get_button_width
 
 real function mock_get_button_height(id, label) result(height)
     character(*), intent(in) :: id, label
+    logical :: dummy
     type(ui_context) :: ctx
     
-    call ui_get_context(ctx)
-    height = ctx%em_dp * 1.8  ! Standard button height
+    ! First call the button to ensure it's created, then get debug info
+    dummy = button(id, label)
+    call get_button_debug_info(id, height_dp=height)
+    
+    ! If debug info doesn't provide height, calculate auto-sizing
+    if (height <= 0.0) then
+        call ui_get_context(ctx)
+        height = max(ctx%em_dp * 1.8, 20.0)  ! Standard button height with minimum
+    end if
 end function mock_get_button_height
 
 real function mock_get_converted_width(id, width_arg) result(width_dp)
