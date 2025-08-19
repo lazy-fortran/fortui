@@ -195,10 +195,12 @@ test_demo_executable_validation() {
     
     # Find the executable
     local demo_executable=""
-    if [[ -f "build/gfortran_*/app/main" ]]; then
+    if ls build/gfortran_*/app/main 2>/dev/null; then
         demo_executable=$(find build -name "main" -type f | head -1)
-    elif [[ -f "build/*/demo" ]]; then
+    elif ls build/*/demo 2>/dev/null; then
         demo_executable=$(find build -name "demo" -type f | head -1)
+    elif ls build/gfortran_*/example/*demo* 2>/dev/null; then
+        demo_executable=$(find build -path "*/example/*demo*" -type f -executable | head -1)
     fi
     
     if [[ -n "$demo_executable" ]] && [[ -x "$demo_executable" ]]; then
@@ -296,11 +298,8 @@ test_demo_dependency_management() {
     export GUI_CACHE="$DEMO_CACHE"
     export DISABLE_GUI=1
     
-    # Run dependency check
-    ./tools/build_fortui.sh dependency_check 2>&1 > /tmp/dependency_check_output.log || {
-        # Alternative: just test the script exists and runs
-        ./tools/build_fortui.sh --help 2>&1 > /tmp/build_help_output.log
-    }
+    # Run dependency check via config command
+    ./tools/build_fortui.sh config 2>&1 > /tmp/dependency_check_output.log
     local dep_check_exit_code=$?
     
     assert_success $dep_check_exit_code "Demo dependency management validation"
