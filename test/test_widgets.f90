@@ -4625,16 +4625,13 @@ subroutine test_checkbox_dp_unit_handling()
     ! When: Using density-independent pixel units for dimensions
     ! Then: Should convert and apply dp units correctly
     
-    use fortui_units, only: dp_t
+    use fortui_units, only: dp
     logical :: test_checked
     character(len=32) :: test_id = "test_dp_checkbox"
-    type(dp_t) :: width_dp, height_dp
     
     test_checked = .false.
-    width_dp%value = 24.0
-    height_dp%value = 24.0
     
-    call mock_checkbox_with_dimensions(test_id, test_checked, width_dp, height_dp)
+    call mock_checkbox_with_dimensions(test_id, test_checked, dp(24.0), dp(24.0))
     
     print *, "  ✓ dp unit handling: density-independent pixels processed correctly"
 end subroutine test_checkbox_dp_unit_handling
@@ -4644,16 +4641,13 @@ subroutine test_checkbox_em_unit_handling()
     ! When: Using relative font size units for dimensions
     ! Then: Should convert and apply em units correctly
     
-    use fortui_units, only: em_t
+    use fortui_units, only: em
     logical :: test_checked
     character(len=32) :: test_id = "test_em_checkbox"
-    type(em_t) :: width_em, height_em
     
     test_checked = .false.
-    width_em%value = 1.5
-    height_em%value = 1.5
     
-    call mock_checkbox_with_dimensions(test_id, test_checked, width_em, height_em)
+    call mock_checkbox_with_dimensions(test_id, test_checked, em(1.5), em(1.5))
     
     print *, "  ✓ em unit handling: relative font units processed correctly"
 end subroutine test_checkbox_em_unit_handling
@@ -4663,16 +4657,13 @@ subroutine test_checkbox_ch_unit_handling()
     ! When: Using character width units for dimensions
     ! Then: Should convert and apply ch units correctly
     
-    use fortui_units, only: ch_t
+    use fortui_units, only: ch
     logical :: test_checked
     character(len=32) :: test_id = "test_ch_checkbox"
-    type(ch_t) :: width_ch, height_ch
     
     test_checked = .false.
-    width_ch%value = 2.0
-    height_ch%value = 2.0
     
-    call mock_checkbox_with_dimensions(test_id, test_checked, width_ch, height_ch)
+    call mock_checkbox_with_dimensions(test_id, test_checked, ch(2.0), ch(2.0))
     
     print *, "  ✓ ch unit handling: character width units processed correctly"
 end subroutine test_checkbox_ch_unit_handling
@@ -4682,17 +4673,13 @@ subroutine test_checkbox_mixed_unit_combinations()
     ! When: Using mixed unit types in same checkbox call
     ! Then: Should handle unit conversion correctly for both parameters
     
-    use fortui_units, only: dp_t, em_t
+    use fortui_units, only: dp, em
     logical :: test_checked
     character(len=32) :: test_id = "test_mixed_checkbox"
-    type(dp_t) :: width_dp
-    type(em_t) :: height_em
     
     test_checked = .false.
-    width_dp%value = 20.0
-    height_em%value = 1.2
     
-    call mock_checkbox_with_dimensions(test_id, test_checked, width_dp, height_em)
+    call mock_checkbox_with_dimensions(test_id, test_checked, dp(20.0), em(1.2))
     
     print *, "  ✓ mixed unit combinations: different unit types handled correctly"
 end subroutine test_checkbox_mixed_unit_combinations
@@ -4716,22 +4703,21 @@ subroutine test_checkbox_unit_conversion_accuracy()
     ! When: Testing conversion accuracy between different unit types
     ! Then: Should maintain precision within acceptable tolerances
     
-    use fortui_units, only: dp_t, em_t
+    use fortui_units, only: dp, em, unit_value
     logical :: test_checked
     character(len=32) :: test_id = "test_conversion_checkbox"
-    type(dp_t) :: width_dp
-    type(em_t) :: width_em
+    type(unit_value) :: width_dp_unit, width_em_unit
     real :: expected_dp, actual_dp
     
     test_checked = .false.
     
     ! Test dp to internal conversion
-    width_dp%value = 20.0
-    call mock_checkbox_with_dimensions(test_id, test_checked, width_dp, width_dp)
+    width_dp_unit = dp(20.0)
+    call mock_checkbox_with_dimensions(test_id, test_checked, width_dp_unit, width_dp_unit)
     
     ! Test em to internal conversion  
-    width_em%value = 1.5
-    call mock_checkbox_with_dimensions(test_id, test_checked, width_em, width_em)
+    width_em_unit = em(1.5)
+    call mock_checkbox_with_dimensions(test_id, test_checked, width_em_unit, width_em_unit)
     
     print *, "  ✓ unit conversion accuracy: precision maintained within tolerances"
 end subroutine test_checkbox_unit_conversion_accuracy
@@ -5175,15 +5161,13 @@ subroutine mock_checkbox_full(id, checked, label, width, height)
 end subroutine mock_checkbox_full
 
 ! Testing utility functions for checkbox interaction simulation
-subroutine simulate_checkbox_toggle(id)
-    character(*), intent(in) :: id
-    ! Mock toggle simulation
-end subroutine simulate_checkbox_toggle
+! Note: simulate_checkbox_toggle() is provided by fortui_widgets module
 
 subroutine simulate_checkbox_click(id, x, y)
     character(*), intent(in) :: id
     real, intent(in) :: x, y
-    ! Mock click simulation
+    ! Mock click simulation - delegates to simulate_checkbox_toggle for compatibility
+    call simulate_checkbox_toggle(id)
 end subroutine simulate_checkbox_click
 
 subroutine simulate_checkbox_hover(id)
@@ -5210,10 +5194,7 @@ subroutine advance_checkbox_frame()
     ! Mock frame advancement
 end subroutine advance_checkbox_frame
 
-subroutine reset_checkbox_system()
-    ! Mock system reset
-    checkbox_state_count = 0
-end subroutine reset_checkbox_system
+! Note: reset_checkbox_system() is provided by fortui_widgets module
 
 ! Validation utility functions for testing
 logical function validate_checkbox_has_reasonable_size(id) result(is_reasonable)
