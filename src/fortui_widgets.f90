@@ -8,7 +8,7 @@ implicit none
 private
 
 ! Public widget functions
-public :: button
+public :: button, text
 
 ! Testing helper functions (for test suite only)
 public :: simulate_button_click, simulate_key_press, set_button_focus
@@ -489,5 +489,25 @@ subroutine ensure_button_exists_for_testing(id)
         end if
     end if
 end subroutine ensure_button_exists_for_testing
+
+! Text Widget Implementation (Placeholder for Issue #4)
+! =====================================================
+
+subroutine text(id, value, text_size, width, height)
+    ! Placeholder text widget implementation for testing
+    ! Full implementation will be done by sergei-perfectionist-coder in Phase 5
+    character(*), intent(in) :: id, value
+    class(*), intent(in), optional :: text_size, width, height
+    
+    ! Placeholder - just validate parameters don't crash
+    if (len_trim(id) == 0) then
+        print *, "text: Warning - Empty text ID provided"
+        return
+    end if
+    
+    ! For now, just print basic information for testing
+    ! This will be replaced with full text rendering implementation
+    ! print *, "TEXT:", trim(id), "->", trim(value)
+end subroutine text
 
 end module fortui_widgets
