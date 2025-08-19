@@ -271,14 +271,14 @@ subroutine test_dp_conversion()
     class(*), allocatable :: dp_unit
     real :: result, expected
     real, parameter :: TOLERANCE = 1.0e-6
+    real, parameter :: test_values(5) = [40.0, 123.456, 0.0, -10.5, 9999.0]
     integer :: test_count = 0
+    integer :: i
     
     ! Setup default context
     ctx = ui_context(dpi_scale=1.0, em_dp=16.0, text_scale=1.0, cell_w_dp=8.0, cell_h_dp=16.0)
     
     ! Test identity conversion for dp units - multiple values
-    real, parameter :: test_values(5) = [40.0, 123.456, 0.0, -10.5, 9999.0]
-    integer :: i
     
     do i = 1, size(test_values)
         expected = test_values(i)
@@ -314,11 +314,9 @@ subroutine test_em_conversion()
     class(*), allocatable :: em_unit
     real :: result, expected
     real, parameter :: TOLERANCE = 1.0e-6
-    integer :: test_count = 0
-    
-    ! Test em conversion with multiple contexts and values
     real, parameter :: em_values(4) = [1.0, 2.5, 0.8, -1.2]
     real, parameter :: em_dp_values(3) = [16.0, 20.0, 12.5]
+    integer :: test_count = 0
     integer :: i, j
     
     do j = 1, size(em_dp_values)

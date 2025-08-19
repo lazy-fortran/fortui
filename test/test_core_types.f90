@@ -61,13 +61,7 @@ subroutine test_node_initialization()
     another_node = test_node
     test_count = test_count + 1
     
-    ! Test array of nodes can be created
-    type(node) :: node_array(3)
-    integer :: i
-    do i = 1, 3
-        node_array(i) = node()
-    end do
-    test_count = test_count + 3
+    ! Test array of nodes can be created (moved to stack allocation test)
     
     print *, "  ✓ Node initialization: validated", test_count, "node operations"
 end subroutine test_node_initialization
@@ -80,11 +74,19 @@ subroutine test_node_memory_management()
     type(node) :: stack_node
     type(node), allocatable :: alloc_node
     type(node), allocatable :: node_array(:)
+    type(node) :: node_array_stack(3)
     integer :: test_count = 0
+    integer :: i
     
     ! Test stack allocation
     stack_node = node()
     test_count = test_count + 1
+    
+    ! Test stack array of nodes
+    do i = 1, 3
+        node_array_stack(i) = node()
+        test_count = test_count + 1
+    end do
     
     ! Test allocatable single node
     allocate(alloc_node)
@@ -93,7 +95,6 @@ subroutine test_node_memory_management()
     
     ! Test allocatable array
     allocate(node_array(5))
-    integer :: i
     do i = 1, 5
         node_array(i) = node()
         test_count = test_count + 1
@@ -123,11 +124,9 @@ subroutine test_node_backend_compatibility()
     ! Same structure and behavior regardless of ENABLE_GUI flag
     ! This test validates the type works identically across backends
     
-#ifdef ENABLE_GUI
-    print *, "  ✓ Node backend compatibility: GUI compilation mode"
-#else
-    print *, "  ✓ Node backend compatibility: TUI-only compilation mode"
-#endif
+    ! Backend compatibility test - node works across all backends
+    test_node = node()
+    print *, "  ✓ Node backend compatibility: node type works consistently"
     
     print *, "  ✓ Node backend compatibility: consistent behavior verified"
 end subroutine test_node_backend_compatibility

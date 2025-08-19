@@ -272,6 +272,11 @@ subroutine test_keyboard_quit_events()
     
     logical :: quit_detected
     integer :: test_count = 0
+    ! Test quit key constants are defined (validates interface completeness)
+    integer, parameter :: EXPECTED_ESC_KEY = 27
+    integer, parameter :: EXPECTED_CTRL_C = 3
+    integer, parameter :: EXPECTED_CTRL_D = 4
+    integer, parameter :: EXPECTED_CTRL_Z = 26
     
     ! Test quit detection logic structure
     ! Initialize to safe state
@@ -310,10 +315,7 @@ subroutine test_keyboard_quit_events()
     end if
     
     ! Test quit key constants are defined (validates interface completeness)
-    integer, parameter :: EXPECTED_ESC_KEY = 27
-    integer, parameter :: EXPECTED_CTRL_C = 3
-    integer, parameter :: EXPECTED_CTRL_D = 4
-    integer, parameter :: EXPECTED_CTRL_Z = 26
+    ! Move parameter declarations to beginning of subroutine
     
     ! Validate key constants are in reasonable ranges
     if (EXPECTED_ESC_KEY < 1 .or. EXPECTED_ESC_KEY > 127) then
