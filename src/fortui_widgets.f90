@@ -12,6 +12,9 @@ public :: button, text, slider, checkbox
 public :: assignment(=)  ! Make assignment operators public
 public :: operator(.logical.)  ! Make logical operators public
 
+! Public widget node types for direct usage
+public :: button_node_t, text_node_t, slider_node_t, checkbox_node_t
+
 ! Assignment operators for logical context usage
 interface assignment(=)
     module procedure assign_button_to_logical
