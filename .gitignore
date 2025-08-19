@@ -1,1 +1,10 @@
 *.mod
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*~
+*.tmp
+build/
+.cache/
