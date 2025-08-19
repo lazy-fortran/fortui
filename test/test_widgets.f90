@@ -3760,9 +3760,8 @@ logical function mock_slider(id, min_val, max_val, step_val, value) result(value
     real, intent(in) :: min_val, max_val, step_val
     real, intent(inout) :: value
     
-    ! Use the real slider implementation when available
-    ! For now, provide mock behavior for testing
-    value_changed = mock_slider_behavior(id, min_val, max_val, step_val, value)
+    ! Use the real slider implementation
+    value_changed = slider(id, min_val, max_val, step_val, value)
 end function mock_slider
 
 logical function mock_slider_with_dimensions(id, min_val, max_val, step_val, value, width, height) result(value_changed)
@@ -3771,8 +3770,8 @@ logical function mock_slider_with_dimensions(id, min_val, max_val, step_val, val
     real, intent(inout) :: value
     class(*), intent(in) :: width, height
     
-    ! Use the real slider implementation with dimensions when available
-    value_changed = mock_slider_behavior(id, min_val, max_val, step_val, value)
+    ! Use the real slider implementation with dimensions
+    value_changed = slider(id, min_val, max_val, step_val, value, width, height)
 end function mock_slider_with_dimensions
 
 logical function mock_slider_full(id, min_val, max_val, step_val, value, width, height) result(value_changed)
@@ -3781,8 +3780,8 @@ logical function mock_slider_full(id, min_val, max_val, step_val, value, width, 
     real, intent(inout) :: value
     class(*), intent(in) :: width, height
     
-    ! Use the real slider implementation with all parameters when available
-    value_changed = mock_slider_behavior(id, min_val, max_val, step_val, value)
+    ! Use the real slider implementation with all parameters
+    value_changed = slider(id, min_val, max_val, step_val, value, width, height)
 end function mock_slider_full
 
 logical function mock_slider_behavior(id, min_val, max_val, step_val, value) result(value_changed)
@@ -3851,18 +3850,6 @@ integer function find_or_create_slider_state(id) result(index)
 end function find_or_create_slider_state
 
 ! Slider interaction simulation utilities
-subroutine simulate_slider_interaction(id, new_value)
-    character(*), intent(in) :: id
-    real, intent(in) :: new_value
-    
-    integer :: state_index
-    
-    state_index = find_or_create_slider_state(id)
-    if (state_index > 0) then
-        test_slider_states(state_index)%value = new_value
-        test_slider_states(state_index)%value_changed = .true.
-    end if
-end subroutine simulate_slider_interaction
 
 subroutine simulate_slider_drag_start(id, start_value)
     character(*), intent(in) :: id

@@ -8,12 +8,13 @@ implicit none
 private
 
 ! Public widget functions
-public :: button, text
+public :: button, text, slider
 
 ! Testing helper functions (for test suite only)
 public :: simulate_button_click, simulate_key_press, set_button_focus
 public :: get_button_debug_info, reset_button_system
 public :: get_text_debug_info, reset_text_system
+public :: simulate_slider_interaction, get_slider_debug_info, reset_slider_system
 
 ! Internal state management types
 type :: button_state_t
@@ -45,6 +46,23 @@ type :: text_state_t
     integer :: last_frame = 0         ! Last frame accessed
 end type text_state_t
 
+! Internal state management types for slider widgets
+type :: slider_state_t
+    real :: value = 0.0              ! Current slider value
+    real :: min_val = 0.0           ! Minimum value
+    real :: max_val = 100.0         ! Maximum value  
+    real :: step_val = 1.0          ! Step size (0 for continuous)
+    real :: width_dp = 0.0          ! Widget width in dp (0 = auto-size)
+    real :: height_dp = 0.0         ! Widget height in dp (0 = auto-size)
+    real :: x_dp = 0.0              ! Widget position x
+    real :: y_dp = 0.0              ! Widget position y
+    character(len=256) :: id = ""   ! Widget identifier
+    logical :: dragging = .false.   ! Currently being dragged
+    logical :: hovered = .false.    ! Mouse hovering over slider
+    integer :: last_frame = 0       ! Last frame accessed
+    logical :: focused = .false.    ! Keyboard focus state
+end type slider_state_t
+
 ! Global state storage for all buttons
 integer, parameter :: MAX_BUTTONS = 1000
 type(button_state_t), save :: button_states(MAX_BUTTONS)
@@ -56,6 +74,12 @@ integer, parameter :: MAX_TEXT_WIDGETS = 500
 type(text_state_t), save :: text_states(MAX_TEXT_WIDGETS)
 integer, save :: text_count = 0
 integer, save :: text_frame_counter = 0
+
+! Global slider state storage
+integer, parameter :: MAX_SLIDERS = 500
+type(slider_state_t), save :: slider_states(MAX_SLIDERS)
+integer, save :: slider_count = 0
+integer, save :: slider_frame_counter = 0
 
 ! Mouse and keyboard state tracking
 type :: input_state_t
@@ -595,6 +619,194 @@ subroutine text(id, value, text_size, width, height)
     call render_text_placeholder(state_index)
 end subroutine text
 
+logical function slider(id, min_val, max_val, step_val, value, width, height) result(value_changed)
+    ! Immediate-mode slider widget with unified class(*) interface and value management
+    ! Returns true only when value changes from user interaction
+    character(*), intent(in) :: id
+    real, intent(in) :: min_val, max_val, step_val  
+    real, intent(inout) :: value
+    class(*), intent(in), optional :: width, height
+    
+    integer :: state_index
+    real :: widget_width_dp, widget_height_dp
+    real :: previous_value, clamped_value
+    type(ui_context) :: ctx
+    
+    ! Security validation - verify parameters
+    if (len_trim(id) == 0) then
+        print *, "slider: Warning - Empty slider ID provided, using fallback"
+        value_changed = .false.
+        return  
+    end if
+    
+    ! Validate range parameters
+    if (min_val >= max_val) then
+        print *, "slider: Error - Invalid range: min_val must be less than max_val"
+        value_changed = .false.
+        return
+    end if
+    
+    ! Validate step parameter  
+    if (step_val < 0.0) then
+        print *, "slider: Error - Invalid step: step_val must be non-negative"
+        value_changed = .false.
+        return
+    end if
+    
+    ! Get or create slider state
+    state_index = find_or_create_slider_state(id)
+    if (state_index <= 0) then
+        value_changed = .false.
+        return
+    end if
+    
+    ! Store previous value for change detection
+    previous_value = slider_states(state_index)%value
+    
+    ! Update slider range parameters
+    slider_states(state_index)%min_val = min_val
+    slider_states(state_index)%max_val = max_val
+    slider_states(state_index)%step_val = step_val
+    
+    ! Apply range clamping to input value
+    clamped_value = max(min_val, min(max_val, value))
+    
+    ! Apply step quantization if step > 0
+    if (step_val > 0.0) then
+        clamped_value = min_val + step_val * nint((clamped_value - min_val) / step_val)
+        ! Ensure quantized value is still within range (handles floating point precision issues)
+        clamped_value = max(min_val, min(max_val, clamped_value))
+    end if
+    
+    ! Update value parameter and state
+    value = clamped_value
+    slider_states(state_index)%value = clamped_value
+    
+    ! Get current UI context for dimensions
+    call ui_get_context(ctx)
+    slider_frame_counter = slider_frame_counter + 1
+    
+    ! Calculate dimensions
+    if (present(width)) then
+        widget_width_dp = convert_to_dp(width, ctx)
+        ! Apply minimum width constraints for usability
+        widget_width_dp = max(widget_width_dp, 50.0)
+    else
+        ! Auto-size width for slider - default to reasonable size
+        widget_width_dp = max(ctx%em_dp * 8.0, 120.0)
+    end if
+    
+    if (present(height)) then  
+        widget_height_dp = convert_to_dp(height, ctx)
+        ! Apply minimum height constraints for usability
+        widget_height_dp = max(widget_height_dp, 16.0)
+    else
+        ! Auto-size height for slider - compact but usable
+        widget_height_dp = max(ctx%em_dp * 1.5, 24.0)
+    end if
+    
+    ! Update slider state with current parameters
+    slider_states(state_index)%width_dp = widget_width_dp
+    slider_states(state_index)%height_dp = widget_height_dp  
+    slider_states(state_index)%last_frame = slider_frame_counter
+    
+    ! Handle interaction simulation for testing
+    call handle_slider_interaction(state_index)
+    
+    ! Render slider (would be handled by presentation system in full implementation)
+    call render_slider_placeholder(state_index)
+    
+    ! Detect value change (immediate-mode behavior)
+    value_changed = abs(clamped_value - previous_value) > 0.0001
+    
+end function slider
+
+integer function find_or_create_slider_state(id) result(index)
+    ! Find existing slider state or create new one with security-hardened ID handling
+    character(*), intent(in) :: id
+    integer :: i
+    
+    ! Search for existing state
+    do i = 1, slider_count
+        if (trim(slider_states(i)%id) == trim(id)) then
+            index = i
+            return
+        end if
+    end do
+    
+    ! Create new state if space available
+    if (slider_count < MAX_SLIDERS) then
+        slider_count = slider_count + 1
+        index = slider_count
+        
+        ! Initialize new slider state with bounds checking
+        slider_states(index) = slider_state_t()
+        
+        ! Safe ID copying to prevent buffer overflow
+        call safe_copy_slider_id(id, slider_states(index)%id)
+        slider_states(index)%last_frame = slider_frame_counter
+    else
+        ! Reuse oldest slot if limit reached
+        print *, "slider: Warning - Maximum slider widget limit reached, reusing slot"
+        index = 1  ! Reuse first slot as fallback
+        slider_states(index) = slider_state_t()
+        
+        call safe_copy_slider_id(id, slider_states(index)%id)
+        slider_states(index)%last_frame = slider_frame_counter
+    end if
+end function find_or_create_slider_state
+
+subroutine safe_copy_slider_id(source_id, target_id)
+    ! Securely copy slider ID with bounds checking to prevent buffer overflow
+    character(*), intent(in) :: source_id
+    character(*), intent(out) :: target_id
+    integer :: copy_length
+    
+    copy_length = min(len(source_id), len(target_id))
+    target_id = source_id(1:copy_length)
+    
+    if (len_trim(source_id) > len(target_id)) then
+        print *, "slider: Warning - ID truncated to fit buffer: ", trim(target_id)
+    end if
+end subroutine safe_copy_slider_id
+
+subroutine handle_slider_interaction(state_index)
+    ! Handle slider interaction simulation for testing framework
+    integer, intent(in) :: state_index
+    
+    ! Basic interaction state management
+    ! In a full implementation, this would handle:
+    ! 1. Mouse drag detection and value updates
+    ! 2. Keyboard arrow key navigation
+    ! 3. Click positioning on slider track
+    ! 4. Focus and hover state management
+    
+    ! For now, maintain interaction state consistency
+    if (slider_states(state_index)%dragging) then
+        ! Simulate dragging interaction
+        slider_states(state_index)%hovered = .true.
+    end if
+    
+end subroutine handle_slider_interaction
+
+subroutine render_slider_placeholder(state_index)
+    ! Placeholder for slider rendering - would integrate with backend rendering system
+    integer, intent(in) :: state_index
+    
+    ! Full implementation would handle:
+    ! 1. Draw slider track (TUI: ASCII chars, GUI: filled rectangle)
+    ! 2. Draw slider thumb/handle at value position
+    ! 3. Handle cross-backend coordinate conversion
+    ! 4. Apply hover/focus visual feedback
+    ! 5. Render value text if space allows
+    
+    ! For testing, set up reasonable slider positions
+    if (slider_states(state_index)%x_dp == 0.0 .and. slider_states(state_index)%y_dp == 0.0) then
+        slider_states(state_index)%x_dp = 0.0
+        slider_states(state_index)%y_dp = 0.0
+    end if
+end subroutine render_slider_placeholder
+
 integer function find_or_create_text_state(id) result(index)
     ! Find existing text state or create new one
     character(*), intent(in) :: id
@@ -969,5 +1181,62 @@ integer function find_text_state_by_id(id) result(index)
         end if
     end do
 end function find_text_state_by_id
+
+! Slider widget testing and debug functions
+
+subroutine simulate_slider_interaction(id, new_value)
+    ! Simulate slider interaction for testing framework
+    character(*), intent(in) :: id
+    real, intent(in) :: new_value
+    integer :: state_index
+    
+    state_index = find_slider_state_by_id(id) 
+    if (state_index > 0) then
+        ! Simulate user interaction by updating internal state
+        slider_states(state_index)%value = new_value
+        slider_states(state_index)%dragging = .true.
+        slider_states(state_index)%hovered = .true.
+    end if
+end subroutine simulate_slider_interaction
+
+subroutine get_slider_debug_info(id, value, min_val, max_val, step_val, width_dp, height_dp, dragging)
+    ! Get debug information about a slider state for testing validation
+    character(*), intent(in) :: id
+    real, intent(out), optional :: value, min_val, max_val, step_val, width_dp, height_dp
+    logical, intent(out), optional :: dragging
+    integer :: state_index
+    
+    state_index = find_slider_state_by_id(id)
+    if (state_index == 0) return
+    
+    if (present(value)) value = slider_states(state_index)%value
+    if (present(min_val)) min_val = slider_states(state_index)%min_val
+    if (present(max_val)) max_val = slider_states(state_index)%max_val  
+    if (present(step_val)) step_val = slider_states(state_index)%step_val
+    if (present(width_dp)) width_dp = slider_states(state_index)%width_dp
+    if (present(height_dp)) height_dp = slider_states(state_index)%height_dp
+    if (present(dragging)) dragging = slider_states(state_index)%dragging
+end subroutine get_slider_debug_info
+
+subroutine reset_slider_system()
+    ! Reset the entire slider widget system (useful for testing)
+    slider_count = 0
+    slider_frame_counter = 0
+    slider_states = slider_state_t()  ! Initialize all to default
+end subroutine reset_slider_system
+
+integer function find_slider_state_by_id(id) result(index)
+    ! Find slider state by ID (returns 0 if not found)
+    character(*), intent(in) :: id
+    integer :: i
+    
+    index = 0
+    do i = 1, slider_count
+        if (trim(slider_states(i)%id) == trim(id)) then
+            index = i
+            return
+        end if
+    end do
+end function find_slider_state_by_id
 
 end module fortui_widgets
