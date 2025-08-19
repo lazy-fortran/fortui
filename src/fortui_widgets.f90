@@ -540,8 +540,15 @@ subroutine text(id, value, text_size, width, height)
         return
     end if
     
-    ! Store text content
-    text_states(state_index)%value = value
+    ! Store text content with bounds checking to prevent buffer overflow
+    if (len_trim(value) <= len(text_states(state_index)%value)) then
+        text_states(state_index)%value = value
+    else
+        ! Truncate value to fit buffer and warn user
+        text_states(state_index)%value = value(1:len(text_states(state_index)%value))
+        print *, "text: Warning - Text content truncated to fit buffer (max ", &
+                 len(text_states(state_index)%value), " chars)"
+    end if
     
     ! Get current UI context
     call ui_get_context(ctx)
@@ -606,16 +613,30 @@ integer function find_or_create_text_state(id) result(index)
         text_count = text_count + 1
         index = text_count
         
-        ! Initialize new text state
+        ! Initialize new text state with bounds checking
         text_states(index) = text_state_t()
-        text_states(index)%id = id
+        ! Safely copy ID with bounds checking to prevent buffer overflow
+        if (len_trim(id) <= len(text_states(index)%id)) then
+            text_states(index)%id = id
+        else
+            ! Truncate ID to fit buffer and warn user
+            text_states(index)%id = id(1:len(text_states(index)%id))
+            print *, "text: Warning - ID truncated to fit buffer: ", trim(text_states(index)%id)
+        end if
         text_states(index)%last_frame = text_frame_counter
     else
         ! Handle overflow - reuse oldest slot
         print *, "text: Warning - Maximum text widget limit reached, reusing slot"
         index = MAX_TEXT_WIDGETS
         text_states(index) = text_state_t()
-        text_states(index)%id = id
+        ! Safely copy ID with bounds checking to prevent buffer overflow
+        if (len_trim(id) <= len(text_states(index)%id)) then
+            text_states(index)%id = id
+        else
+            ! Truncate ID to fit buffer and warn user
+            text_states(index)%id = id(1:len(text_states(index)%id))
+            print *, "text: Warning - ID truncated to fit buffer: ", trim(text_states(index)%id)
+        end if
         text_states(index)%last_frame = text_frame_counter
     end if
 end function find_or_create_text_state
@@ -633,32 +654,41 @@ real function calculate_text_auto_width(content, text_size_dp, ctx) result(width
     integer :: content_length, max_line_length
     real :: text_width_dp
     character(len=len(content)) :: line
-    integer :: line_start, line_end, newline_pos
+    integer :: line_start, line_end, newline_pos, newline_length
+    logical :: is_newline
     
     ! Calculate the maximum line length for multiline content
     max_line_length = 0
     line_start = 1
     
     do while (line_start <= len(content))
-        ! Find next newline or end of string
-        newline_pos = index(content(line_start:), char(10))  ! ASCII newline
+        ! Find next newline or end of string - comprehensive Unicode newline detection
+        ! Handle ASCII LF (10), ASCII CR (13), CRLF (13+10), and Unicode newlines
+        newline_pos = find_next_newline(content(line_start:))
         if (newline_pos > 0) then
             line_end = line_start + newline_pos - 2
+            ! Get length of this line
+            if (line_end >= line_start) then
+                content_length = line_end - line_start + 1
+                max_line_length = max(max_line_length, content_length)
+            end if
+            
+            ! Move to next line, skipping the complete newline sequence
+            ! Get the actual newline length to skip properly
+            call check_newline_at_position(content, line_start + newline_pos - 1, is_newline, newline_length)
+            if (is_newline) then
+                line_start = line_start + newline_pos - 1 + newline_length
+            else
+                line_start = line_start + newline_pos
+            end if
         else
             line_end = len_trim(content)
-        end if
-        
-        ! Get length of this line
-        if (line_end >= line_start) then
-            content_length = line_end - line_start + 1
-            max_line_length = max(max_line_length, content_length)
-        end if
-        
-        ! Move to next line
-        if (newline_pos > 0) then
-            line_start = line_start + newline_pos
-        else
-            exit
+            ! Get length of this line
+            if (line_end >= line_start) then
+                content_length = line_end - line_start + 1
+                max_line_length = max(max_line_length, content_length)
+            end if
+            exit  ! No more lines
         end if
     end do
     
@@ -710,17 +740,100 @@ real function calculate_text_auto_height(content, text_size_dp, width_dp, ctx) r
 end function calculate_text_auto_height
 
 integer function count_text_newlines(text) result(count)
-    ! Count newline characters in text
+    ! Count newlines in text with comprehensive Unicode support and security hardening
     character(*), intent(in) :: text
-    integer :: i
+    integer :: i, newline_length
+    logical :: is_newline
     
     count = 0
-    do i = 1, len(text)
-        if (iachar(text(i:i)) == 10) then  ! ASCII newline
+    i = 1
+    do while (i <= len(text))
+        ! Comprehensive Unicode newline detection with security hardening
+        call check_newline_at_position(text, i, is_newline, newline_length)
+        if (is_newline) then
             count = count + 1
+            ! Skip the complete newline sequence (handles CRLF)
+            i = i + newline_length
+        else
+            i = i + 1
         end if
     end do
 end function count_text_newlines
+
+integer function find_next_newline(text) result(pos)
+    ! Find next newline position with comprehensive Unicode support and security hardening
+    character(*), intent(in) :: text
+    integer :: i, char_code
+    logical :: is_newline
+    integer :: newline_length
+    
+    pos = 0
+    i = 1
+    
+    do while (i <= len(text))
+        call check_newline_at_position(text, i, is_newline, newline_length)
+        if (is_newline) then
+            pos = i
+            return
+        end if
+        i = i + 1
+    end do
+end function find_next_newline
+
+subroutine check_newline_at_position(text, pos, is_newline, newline_length)
+    ! Comprehensive Unicode newline detection with security hardening
+    ! Detects ASCII LF, CR, CRLF, and common Unicode newline variants
+    character(*), intent(in) :: text
+    integer, intent(in) :: pos
+    logical, intent(out) :: is_newline
+    integer, intent(out) :: newline_length
+    
+    integer :: char_code, next_char_code
+    
+    is_newline = .false.
+    newline_length = 1
+    
+    ! Bounds checking for security
+    if (pos < 1 .or. pos > len(text)) then
+        return
+    end if
+    
+    char_code = iachar(text(pos:pos))
+    
+    ! ASCII Line Feed (LF) - most common
+    if (char_code == 10) then
+        is_newline = .true.
+        newline_length = 1
+    ! ASCII Carriage Return (CR)
+    else if (char_code == 13) then
+        is_newline = .true.
+        ! Check for CRLF sequence
+        if (pos < len(text)) then
+            next_char_code = iachar(text(pos+1:pos+1))
+            if (next_char_code == 10) then
+                newline_length = 2  ! CRLF
+            else
+                newline_length = 1  ! CR only
+            end if
+        else
+            newline_length = 1  ! CR at end of string
+        end if
+    ! Unicode Line/Paragraph Separators (U+2028/U+2029) - potential injection vectors
+    else if (char_code == 226 .and. pos + 2 <= len(text)) then
+        ! Check for UTF-8 encoded Unicode separators (E2 80 A8/A9)
+        if (iachar(text(pos+1:pos+1)) == 128) then
+            if (iachar(text(pos+2:pos+2)) == 168) then
+                ! U+2028 Line Separator
+                is_newline = .true.
+                newline_length = 3
+            else if (iachar(text(pos+2:pos+2)) == 169) then
+                ! U+2029 Paragraph Separator
+                is_newline = .true.
+                newline_length = 3
+            end if
+        end if
+    end if
+end subroutine check_newline_at_position
 
 integer function estimate_wrapped_lines(content, text_size_dp, width_dp) result(lines)
     ! Estimate number of lines needed for text wrapping
