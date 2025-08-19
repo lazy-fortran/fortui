@@ -171,7 +171,7 @@ subroutine test_demo_performance()
     ! Then: Application meets performance targets (responsive UI, stable frame rate)
     
     real :: start_time, end_time, frame_duration
-    integer :: target_fps = 60
+    integer, parameter :: target_fps = 60
     real :: max_frame_time_ms = 1000.0 / real(target_fps)
     
     print *, "=== Demo Performance Tests ==="
@@ -251,13 +251,13 @@ subroutine test_demo_layout_structure()
     logical :: structure_valid
     
     ! Mock the complete layout structure
-    ui = column(gap=1.0_dp, children=[ &
-           row(gap=2.0_dp, children=[ &
+    ui = column(gap=dp(1.0), children=[ &
+           row(gap=dp(2.0), children=[ &
              button("zoom_in"), &
              button("zoom_out", "-"), &
              slider("gain", 0.1, 5.0, 0.1, demo_state%gain), &
              checkbox("grid", demo_state%grid) ]), &
-           viewport("plot", 80.0_dp, 24.0_dp, demo_state%v), &
+           viewport("plot", dp(80.0), dp(24.0), demo_state%v), &
            text("status", "Test status line") ])
     
     structure_valid = allocated(ui)
@@ -375,13 +375,13 @@ subroutine test_demo_widget_composition(ui)
     class(ui_element), allocatable, intent(out) :: ui
     
     ! Test the exact widget composition from DESIGN.md
-    ui = column(gap=1.0_dp, children=[ &
-           row(gap=2.0_dp, children=[ &
+    ui = column(gap=dp(1.0), children=[ &
+           row(gap=dp(2.0), children=[ &
              button("zoom_in"), &
              button("zoom_out", "-"), &
              slider("gain", 0.1, 5.0, 0.1, demo_state%gain), &
              checkbox("grid", demo_state%grid) ]), &
-           viewport("plot", 80.0_dp, 24.0_dp, demo_state%v), &
+           viewport("plot", dp(80.0), dp(24.0), demo_state%v), &
            text("status", status_line(demo_state%gain, demo_state%v, demo_state%grid)) ])
     
     if (.not. allocated(ui)) then
@@ -406,11 +406,15 @@ end subroutine test_demo_widget_composition
 
 subroutine test_demo_widget_interactions()
     ! Test button click reactions
+    use fortui_core, only: node
     logical :: zoom_in_result, zoom_out_result
+    type(node) :: zoom_in_node, zoom_out_node
     
     ! Simulate button interactions
-    zoom_in_result = button("zoom_in")
-    zoom_out_result = button("zoom_out", "-")
+    zoom_in_node = button("zoom_in")
+    zoom_out_node = button("zoom_out", "-")
+    zoom_in_result = zoom_in_node%interaction_occurred
+    zoom_out_result = zoom_out_node%interaction_occurred
     
     ! Update state based on button results
     if (zoom_in_result) then

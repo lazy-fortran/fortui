@@ -1154,33 +1154,45 @@ end subroutine test_frame_rate_impact
 ! Mock button implementation functions for testing
 
 logical function mock_button(id) result(clicked)
+    use fortui_core, only: node
     character(*), intent(in) :: id
+    type(node) :: result_node
     
     ! Use the real button implementation
-    clicked = button(id)
+    result_node = button(id)
+    clicked = result_node%interaction_occurred
 end function mock_button
 
 logical function mock_button_with_label(id, label) result(clicked)
+    use fortui_core, only: node
     character(*), intent(in) :: id, label
+    type(node) :: result_node
     
     ! Use the real button implementation with label
-    clicked = button(id, label)
+    result_node = button(id, label)
+    clicked = result_node%interaction_occurred
 end function mock_button_with_label
 
 logical function mock_button_with_dimensions(id, width, height) result(clicked)
+    use fortui_core, only: node
     character(*), intent(in) :: id
     class(*), intent(in) :: width, height
+    type(node) :: result_node
     
     ! Use the real button implementation with dimensions
-    clicked = button(id, width=width, height=height)
+    result_node = button(id, width=width, height=height)
+    clicked = result_node%interaction_occurred
 end function mock_button_with_dimensions
 
 logical function mock_button_full(id, label, width, height) result(clicked)
+    use fortui_core, only: node
     character(*), intent(in) :: id, label
     class(*), intent(in) :: width, height
+    type(node) :: result_node
     
     ! Use the real button implementation with all parameters
-    clicked = button(id, label, width, height)
+    result_node = button(id, label, width, height)
+    clicked = result_node%interaction_occurred
 end function mock_button_full
 
 integer function find_or_create_button_state(id) result(index)
@@ -1236,10 +1248,11 @@ subroutine mock_set_focus(id)
 end subroutine mock_set_focus
 
 real function mock_get_button_width(id, label) result(width)
+    use fortui_core, only: node
     character(*), intent(in) :: id, label
     
     ! First call the button to ensure it's created, then get debug info
-    logical :: dummy
+    type(node) :: dummy
     dummy = button(id, label)
     call get_button_debug_info(id, width_dp=width)
     
@@ -1250,8 +1263,9 @@ real function mock_get_button_width(id, label) result(width)
 end function mock_get_button_width
 
 real function mock_get_button_height(id, label) result(height)
+    use fortui_core, only: node
     character(*), intent(in) :: id, label
-    logical :: dummy
+    type(node) :: dummy
     type(ui_context) :: ctx
     
     ! First call the button to ensure it's created, then get debug info
@@ -2408,34 +2422,42 @@ end subroutine test_text_resource_exhaustion
 ! ===================================================
 
 subroutine mock_text(id, value)
+    use fortui_core, only: node
     character(*), intent(in) :: id, value
+    type(node) :: result_node
     
     ! Use the real text implementation when available
-    call text(id, value)
+    result_node = text(id, value)
 end subroutine mock_text
 
 subroutine mock_text_with_text_size(id, value, text_size_arg)
+    use fortui_core, only: node
     character(*), intent(in) :: id, value
     class(*), intent(in) :: text_size_arg
+    type(node) :: result_node
     
     ! Use the real text implementation with text_size
-    call text(id, value, text_size=text_size_arg)
+    result_node = text(id, value, text_size=text_size_arg)
 end subroutine mock_text_with_text_size
 
 subroutine mock_text_with_dimensions(id, value, width, height)
+    use fortui_core, only: node
     character(*), intent(in) :: id, value
     class(*), intent(in) :: width, height
+    type(node) :: result_node
     
     ! Use the real text implementation with dimensions
-    call text(id, value, width=width, height=height)
+    result_node = text(id, value, width=width, height=height)
 end subroutine mock_text_with_dimensions
 
 subroutine mock_text_full(id, value, text_size_arg, width, height)
+    use fortui_core, only: node
     character(*), intent(in) :: id, value
     class(*), intent(in) :: text_size_arg, width, height
+    type(node) :: result_node
     
     ! Use the real text implementation with all parameters
-    call text(id, value, text_size=text_size_arg, width=width, height=height)
+    result_node = text(id, value, text_size=text_size_arg, width=width, height=height)
 end subroutine mock_text_full
 
 ! Text validation and measurement helper functions
@@ -3782,32 +3804,41 @@ end subroutine test_slider_memory_efficiency
 ! ============================================================================
 
 logical function mock_slider(id, min_val, max_val, step_val, value) result(value_changed)
+    use fortui_core, only: node
     character(*), intent(in) :: id
     real, intent(in) :: min_val, max_val, step_val
     real, intent(inout) :: value
+    type(node) :: result_node
     
     ! Use the real slider implementation
-    value_changed = slider(id, min_val, max_val, step_val, value)
+    result_node = slider(id, min_val, max_val, step_val, value)
+    value_changed = result_node%interaction_occurred
 end function mock_slider
 
 logical function mock_slider_with_dimensions(id, min_val, max_val, step_val, value, width, height) result(value_changed)
+    use fortui_core, only: node
     character(*), intent(in) :: id
     real, intent(in) :: min_val, max_val, step_val
     real, intent(inout) :: value
     class(*), intent(in) :: width, height
+    type(node) :: result_node
     
     ! Use the real slider implementation with dimensions
-    value_changed = slider(id, min_val, max_val, step_val, value, width, height)
+    result_node = slider(id, min_val, max_val, step_val, value, width, height)
+    value_changed = result_node%interaction_occurred
 end function mock_slider_with_dimensions
 
 logical function mock_slider_full(id, min_val, max_val, step_val, value, width, height) result(value_changed)
+    use fortui_core, only: node
     character(*), intent(in) :: id
     real, intent(in) :: min_val, max_val, step_val
     real, intent(inout) :: value
     class(*), intent(in) :: width, height
+    type(node) :: result_node
     
     ! Use the real slider implementation with all parameters
-    value_changed = slider(id, min_val, max_val, step_val, value, width, height)
+    result_node = slider(id, min_val, max_val, step_val, value, width, height)
+    value_changed = result_node%interaction_occurred
 end function mock_slider_full
 
 logical function mock_slider_behavior(id, min_val, max_val, step_val, value) result(value_changed)
@@ -5118,40 +5149,48 @@ end subroutine test_checkbox_rendering_performance
 
 subroutine mock_checkbox(id, checked)
     ! Mock checkbox implementation for testing
+    use fortui_core, only: node
     character(*), intent(in) :: id
     logical, intent(inout) :: checked
+    type(node) :: result_node
     
     ! Call the actual checkbox widget implementation
-    call checkbox(id, checked)
+    result_node = checkbox(id, checked)
 end subroutine mock_checkbox
 
 subroutine mock_checkbox_with_label(id, checked, label)
     ! Call real checkbox with label implementation for testing
+    use fortui_core, only: node
     character(*), intent(in) :: id, label
     logical, intent(inout) :: checked
+    type(node) :: result_node
     
     ! Call the actual checkbox widget with label
-    call checkbox(id, checked, label=label)
+    result_node = checkbox(id, checked, label=label)
 end subroutine mock_checkbox_with_label
 
 subroutine mock_checkbox_with_dimensions(id, checked, width, height)
     ! Call real checkbox with dimensions implementation for testing
+    use fortui_core, only: node
     character(*), intent(in) :: id
     logical, intent(inout) :: checked
     class(*), intent(in) :: width, height
+    type(node) :: result_node
     
     ! Call the actual checkbox widget with dimensions
-    call checkbox(id, checked, width=width, height=height)
+    result_node = checkbox(id, checked, width=width, height=height)
 end subroutine mock_checkbox_with_dimensions
 
 subroutine mock_checkbox_full(id, checked, label, width, height)
     ! Call real checkbox with all parameters implementation for testing
+    use fortui_core, only: node
     character(*), intent(in) :: id, label
     logical, intent(inout) :: checked
     class(*), intent(in) :: width, height
+    type(node) :: result_node
     
     ! Call the actual checkbox widget with all parameters
-    call checkbox(id, checked, label=label, width=width, height=height)
+    result_node = checkbox(id, checked, label=label, width=width, height=height)
 end subroutine mock_checkbox_full
 
 ! Testing utility functions for checkbox interaction simulation
