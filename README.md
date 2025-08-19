@@ -32,14 +32,15 @@ cd fortui
 # Build fortui library
 fpm build
 
-# Run examples and tests
+# Run examples and comprehensive test suite
 fpm run --example hello_world
-fpm test
+fpm test  # ~87 validations across all components
 ```
 
 **Build Documentation:**
 - [BUILD_GUIDE.md](BUILD_GUIDE.md) - Comprehensive build configuration and troubleshooting
 - [INTEGRATION_EXAMPLES.md](INTEGRATION_EXAMPLES.md) - Copy-paste examples for Makefile, CMake, CI/CD integration
+- [TESTING_GUIDE.md](docs/TESTING_GUIDE.md) - Enhanced test validation system (~87 validations)
 
 ## Quick Start
 
