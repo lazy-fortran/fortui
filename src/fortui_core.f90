@@ -687,38 +687,38 @@ recursive subroutine render_node_to_buffer(tree, offset_x_dp, offset_y_dp)
     current_offset_x_dp = offset_x_dp
     current_offset_y_dp = offset_y_dp
     
-    ! Render children based on layout type - check if children array is allocated first
-    if (.not. allocated(tree%children)) return
-    
-    select case (trim(tree%layout_type))
-    case ("column")
-        ! Vertical layout - children stacked vertically
-        do i = 1, size(tree%children)
-            call render_node_to_buffer(tree%children(i), current_offset_x_dp, current_offset_y_dp)
-            ! Move down for next child (placeholder - would need proper sizing)
-            current_offset_y_dp = current_offset_y_dp + 32.0  ! Basic row height in dp
-            if (tree%gap_dp > 0.0) then
-                current_offset_y_dp = current_offset_y_dp + tree%gap_dp
-            end if
-        end do
-        
-    case ("row")
-        ! Horizontal layout - children placed side by side
-        do i = 1, size(tree%children)
-            call render_node_to_buffer(tree%children(i), current_offset_x_dp, current_offset_y_dp)
-            ! Move right for next child (placeholder - would need proper sizing)
-            current_offset_x_dp = current_offset_x_dp + 64.0  ! Basic column width in dp
-            if (tree%gap_dp > 0.0) then
-                current_offset_x_dp = current_offset_x_dp + tree%gap_dp
-            end if
-        end do
-        
-    case default
-        ! No specific layout - render children at same position (overlay)
-        do i = 1, size(tree%children)
-            call render_node_to_buffer(tree%children(i), current_offset_x_dp, current_offset_y_dp)
-        end do
-    end select
+    ! Only process children if the array is allocated
+    if (allocated(tree%children)) then
+        select case (trim(tree%layout_type))
+        case ("column")
+            ! Vertical layout - children stacked vertically
+            do i = 1, size(tree%children)
+                call render_node_to_buffer(tree%children(i), current_offset_x_dp, current_offset_y_dp)
+                ! Move down for next child (placeholder - would need proper sizing)
+                current_offset_y_dp = current_offset_y_dp + 32.0  ! Basic row height in dp
+                if (tree%gap_dp > 0.0) then
+                    current_offset_y_dp = current_offset_y_dp + tree%gap_dp
+                end if
+            end do
+            
+        case ("row")
+            ! Horizontal layout - children placed side by side
+            do i = 1, size(tree%children)
+                call render_node_to_buffer(tree%children(i), current_offset_x_dp, current_offset_y_dp)
+                ! Move right for next child (placeholder - would need proper sizing)
+                current_offset_x_dp = current_offset_x_dp + 64.0  ! Basic column width in dp
+                if (tree%gap_dp > 0.0) then
+                    current_offset_x_dp = current_offset_x_dp + tree%gap_dp
+                end if
+            end do
+            
+        case default
+            ! No specific layout - render children at same position (overlay)
+            do i = 1, size(tree%children)
+                call render_node_to_buffer(tree%children(i), current_offset_x_dp, current_offset_y_dp)
+            end do
+        end select
+    end if
     
     ! Render this node's content (placeholder for widget rendering)
     call render_node_content(tree, offset_x_dp, offset_y_dp)
