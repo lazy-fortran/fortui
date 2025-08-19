@@ -7,6 +7,7 @@ use test_units_system
 use test_layout_constructors
 use test_tui_backend
 use test_termbox2_interface
+use test_widgets
 implicit none
 
 ! Given: Test suite execution
@@ -47,6 +48,9 @@ subroutine run_fortran_tests()
     
     ! Termbox2 C interface tests with memory management and error handling
     call test_all_termbox2_interface()
+    
+    ! Widget system tests with button implementation and immediate-mode interaction
+    call test_all_widgets()
     
     print *, "✓ All Fortran unit tests completed"
     print *, ""
