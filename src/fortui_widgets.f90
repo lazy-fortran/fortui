@@ -13,6 +13,7 @@ public :: button, text
 ! Testing helper functions (for test suite only)
 public :: simulate_button_click, simulate_key_press, set_button_focus
 public :: get_button_debug_info, reset_button_system
+public :: get_text_debug_info, reset_text_system
 
 ! Internal state management types
 type :: button_state_t
@@ -29,11 +30,32 @@ type :: button_state_t
     character(len=256) :: id = ""
 end type button_state_t
 
+! Internal state management types for text widgets
+type :: text_state_t
+    real :: text_size_dp = 14.0      ! Font size in dp
+    real :: width_dp = 0.0           ! Widget width in dp (0 = auto-size)
+    real :: height_dp = 0.0          ! Widget height in dp (0 = auto-size)
+    real :: x_dp = 0.0               ! Widget position x
+    real :: y_dp = 0.0               ! Widget position y
+    character(len=1024) :: value = ""  ! Text content
+    character(len=256) :: id = ""      ! Widget identifier
+    integer :: line_count = 1         ! Number of text lines
+    logical :: needs_wrapping = .false. ! Text requires wrapping
+    logical :: is_clipped = .false.    ! Text is clipped at boundaries
+    integer :: last_frame = 0         ! Last frame accessed
+end type text_state_t
+
 ! Global state storage for all buttons
 integer, parameter :: MAX_BUTTONS = 1000
 type(button_state_t), save :: button_states(MAX_BUTTONS)
 integer, save :: button_count = 0
 integer, save :: current_frame = 0
+
+! Global text state storage
+integer, parameter :: MAX_TEXT_WIDGETS = 500
+type(text_state_t), save :: text_states(MAX_TEXT_WIDGETS)
+integer, save :: text_count = 0
+integer, save :: text_frame_counter = 0
 
 ! Mouse and keyboard state tracking
 type :: input_state_t
@@ -490,24 +512,347 @@ subroutine ensure_button_exists_for_testing(id)
     end if
 end subroutine ensure_button_exists_for_testing
 
-! Text Widget Implementation (Placeholder for Issue #4)
-! =====================================================
+! Text Widget Implementation 
+! =========================
 
 subroutine text(id, value, text_size, width, height)
-    ! Placeholder text widget implementation for testing
-    ! Full implementation will be done by sergei-perfectionist-coder in Phase 5
+    ! Immediate-mode text widget with unified class(*) interface
+    ! Displays text content with auto-sizing and cross-backend support
     character(*), intent(in) :: id, value
     class(*), intent(in), optional :: text_size, width, height
     
-    ! Placeholder - just validate parameters don't crash
+    integer :: state_index
+    real :: widget_width_dp, widget_height_dp, widget_text_size_dp
+    type(ui_context) :: ctx
+    
+    ! Increment frame counter for immediate-mode behavior
+    text_frame_counter = text_frame_counter + 1
+    
+    ! Validate ID parameter
     if (len_trim(id) == 0) then
-        print *, "text: Warning - Empty text ID provided"
+        print *, "text: Warning - Empty text ID provided, using fallback"
         return
     end if
     
-    ! For now, just print basic information for testing
-    ! This will be replaced with full text rendering implementation
-    ! print *, "TEXT:", trim(id), "->", trim(value)
+    ! Get or create text state
+    state_index = find_or_create_text_state(id)
+    if (state_index <= 0) then
+        return
+    end if
+    
+    ! Store text content
+    text_states(state_index)%value = value
+    
+    ! Get current UI context
+    call ui_get_context(ctx)
+    
+    ! Calculate text size - either explicit or use default
+    if (present(text_size)) then
+        widget_text_size_dp = convert_to_dp(text_size, ctx)
+        ! Apply minimum text size constraint for readability
+        widget_text_size_dp = max(widget_text_size_dp, 8.0)
+    else
+        ! Use default text size based on context
+        widget_text_size_dp = max(ctx%em_dp, 12.0)
+    end if
+    
+    ! Calculate dimensions - either explicit or auto-sized
+    if (present(width)) then
+        widget_width_dp = convert_to_dp(width, ctx)
+        ! Apply minimum width constraint
+        widget_width_dp = max(widget_width_dp, 10.0)
+    else
+        ! Auto-size width based on text content
+        widget_width_dp = calculate_text_auto_width(value, widget_text_size_dp, ctx)
+    end if
+    
+    if (present(height)) then
+        widget_height_dp = convert_to_dp(height, ctx)
+        ! Apply minimum height constraint
+        widget_height_dp = max(widget_height_dp, 12.0)
+    else
+        ! Auto-size height based on text content and size
+        widget_height_dp = calculate_text_auto_height(value, widget_text_size_dp, widget_width_dp, ctx)
+    end if
+    
+    ! Update text state with current parameters
+    text_states(state_index)%text_size_dp = widget_text_size_dp
+    text_states(state_index)%width_dp = widget_width_dp  
+    text_states(state_index)%height_dp = widget_height_dp
+    text_states(state_index)%last_frame = text_frame_counter
+    
+    ! Process text content (wrapping, clipping, line counting)
+    call process_text_content(state_index, value, widget_width_dp, widget_text_size_dp, ctx)
+    
+    ! Render text (would be handled by presentation system in full implementation)
+    call render_text_placeholder(state_index)
 end subroutine text
+
+integer function find_or_create_text_state(id) result(index)
+    ! Find existing text state or create new one
+    character(*), intent(in) :: id
+    integer :: i
+    
+    ! Search for existing state
+    do i = 1, text_count
+        if (trim(text_states(i)%id) == trim(id)) then
+            index = i
+            return
+        end if
+    end do
+    
+    ! Create new state if space available
+    if (text_count < MAX_TEXT_WIDGETS) then
+        text_count = text_count + 1
+        index = text_count
+        
+        ! Initialize new text state
+        text_states(index) = text_state_t()
+        text_states(index)%id = id
+        text_states(index)%last_frame = text_frame_counter
+    else
+        ! Handle overflow - reuse oldest slot
+        print *, "text: Warning - Maximum text widget limit reached, reusing slot"
+        index = MAX_TEXT_WIDGETS
+        text_states(index) = text_state_t()
+        text_states(index)%id = id
+        text_states(index)%last_frame = text_frame_counter
+    end if
+end function find_or_create_text_state
+
+real function calculate_text_auto_width(content, text_size_dp, ctx) result(width_dp)
+    ! Calculate automatic text width based on content and font size
+    character(*), intent(in) :: content
+    real, intent(in) :: text_size_dp
+    type(ui_context), intent(in) :: ctx
+    
+    real, parameter :: CHAR_WIDTH_RATIO = 0.6  ! Typical character width to font size ratio
+    real, parameter :: PADDING_DP = 8.0        ! Horizontal padding
+    real, parameter :: MIN_WIDTH_DP = 20.0     ! Minimum text width
+    
+    integer :: content_length, max_line_length
+    real :: text_width_dp
+    character(len=len(content)) :: line
+    integer :: line_start, line_end, newline_pos
+    
+    ! Calculate the maximum line length for multiline content
+    max_line_length = 0
+    line_start = 1
+    
+    do while (line_start <= len(content))
+        ! Find next newline or end of string
+        newline_pos = index(content(line_start:), char(10))  ! ASCII newline
+        if (newline_pos > 0) then
+            line_end = line_start + newline_pos - 2
+        else
+            line_end = len_trim(content)
+        end if
+        
+        ! Get length of this line
+        if (line_end >= line_start) then
+            content_length = line_end - line_start + 1
+            max_line_length = max(max_line_length, content_length)
+        end if
+        
+        ! Move to next line
+        if (newline_pos > 0) then
+            line_start = line_start + newline_pos
+        else
+            exit
+        end if
+    end do
+    
+    ! Use content length if no newlines found
+    if (max_line_length == 0) then
+        max_line_length = len_trim(content)
+    end if
+    
+    ! Calculate text width based on font metrics
+    text_width_dp = real(max_line_length) * text_size_dp * CHAR_WIDTH_RATIO
+    
+    ! Add padding and enforce minimum size
+    width_dp = max(text_width_dp + PADDING_DP, MIN_WIDTH_DP)
+    
+    ! Handle empty content
+    if (max_line_length == 0) then
+        width_dp = MIN_WIDTH_DP
+    end if
+end function calculate_text_auto_width
+
+real function calculate_text_auto_height(content, text_size_dp, width_dp, ctx) result(height_dp)
+    ! Calculate automatic text height based on content, font size and available width
+    character(*), intent(in) :: content
+    real, intent(in) :: text_size_dp, width_dp
+    type(ui_context), intent(in) :: ctx
+    
+    real, parameter :: LINE_HEIGHT_RATIO = 1.3  ! Line height to font size ratio
+    real, parameter :: PADDING_DP = 4.0         ! Vertical padding
+    real, parameter :: MIN_HEIGHT_DP = 16.0     ! Minimum text height
+    
+    integer :: line_count, estimated_wrapped_lines
+    real :: line_height_dp, content_height_dp
+    
+    ! Count explicit newlines
+    line_count = count_text_newlines(content) + 1
+    
+    ! Estimate additional lines from wrapping (simple approximation)
+    estimated_wrapped_lines = estimate_wrapped_lines(content, text_size_dp, width_dp)
+    line_count = max(line_count, estimated_wrapped_lines)
+    
+    ! Calculate line height from font size
+    line_height_dp = text_size_dp * LINE_HEIGHT_RATIO
+    
+    ! Calculate total content height
+    content_height_dp = real(line_count) * line_height_dp
+    
+    ! Add padding and enforce minimum size
+    height_dp = max(content_height_dp + PADDING_DP, MIN_HEIGHT_DP)
+end function calculate_text_auto_height
+
+integer function count_text_newlines(text) result(count)
+    ! Count newline characters in text
+    character(*), intent(in) :: text
+    integer :: i
+    
+    count = 0
+    do i = 1, len(text)
+        if (iachar(text(i:i)) == 10) then  ! ASCII newline
+            count = count + 1
+        end if
+    end do
+end function count_text_newlines
+
+integer function estimate_wrapped_lines(content, text_size_dp, width_dp) result(lines)
+    ! Estimate number of lines needed for text wrapping
+    character(*), intent(in) :: content
+    real, intent(in) :: text_size_dp, width_dp
+    
+    real, parameter :: CHAR_WIDTH_RATIO = 0.6
+    integer :: chars_per_line, content_length
+    
+    ! Calculate approximate characters per line
+    chars_per_line = max(1, int(width_dp / (text_size_dp * CHAR_WIDTH_RATIO)))
+    
+    ! Get content length (excluding newlines for this calculation)
+    content_length = len_trim(content)
+    
+    ! Estimate lines needed
+    if (content_length > 0) then
+        lines = (content_length + chars_per_line - 1) / chars_per_line
+    else
+        lines = 1
+    end if
+    
+    lines = max(lines, 1)  ! At least one line
+end function estimate_wrapped_lines
+
+subroutine process_text_content(state_index, content, width_dp, text_size_dp, ctx)
+    ! Process text content for rendering (wrapping, clipping, analysis)
+    integer, intent(in) :: state_index
+    character(*), intent(in) :: content
+    real, intent(in) :: width_dp, text_size_dp
+    type(ui_context), intent(in) :: ctx
+    
+    real, parameter :: CHAR_WIDTH_RATIO = 0.6
+    integer :: chars_per_line, content_length
+    
+    ! Update line count
+    text_states(state_index)%line_count = count_text_newlines(content) + 1
+    
+    ! Check if wrapping is needed
+    chars_per_line = max(1, int(width_dp / (text_size_dp * CHAR_WIDTH_RATIO)))
+    content_length = len_trim(content)
+    
+    if (content_length > chars_per_line) then
+        text_states(state_index)%needs_wrapping = .true.
+    else
+        text_states(state_index)%needs_wrapping = .false.
+    end if
+    
+    ! Check if clipping might be needed (simple heuristic)
+    if (text_states(state_index)%line_count * text_size_dp * 1.3 > text_states(state_index)%height_dp) then
+        text_states(state_index)%is_clipped = .true.
+    else
+        text_states(state_index)%is_clipped = .false.
+    end if
+end subroutine process_text_content
+
+subroutine render_text_placeholder(state_index)
+    ! Placeholder for text rendering - would integrate with backend rendering system
+    integer, intent(in) :: state_index
+    
+    ! This is a placeholder for the actual rendering implementation
+    ! In the full system, this would:
+    ! 1. Convert dp coordinates to backend-specific coordinates
+    ! 2. Render text content with proper font size and wrapping
+    ! 3. Handle clipping at widget boundaries
+    ! 4. Support Unicode character rendering
+    ! 5. Apply text styling and alignment
+    
+    ! For testing, set up reasonable text positions
+    if (text_states(state_index)%x_dp == 0.0 .and. text_states(state_index)%y_dp == 0.0) then
+        text_states(state_index)%x_dp = 0.0
+        text_states(state_index)%y_dp = 0.0
+    end if
+end subroutine render_text_placeholder
+
+! Text widget utilities and debug functions
+
+subroutine cleanup_unused_text_states()
+    ! Clean up text states that haven't been accessed recently
+    integer :: i, active_count
+    integer, parameter :: FRAME_TIMEOUT = 300  ! Remove after 300 frames of inactivity
+    
+    active_count = 0
+    
+    do i = 1, text_count
+        if (text_frame_counter - text_states(i)%last_frame < FRAME_TIMEOUT) then
+            active_count = active_count + 1
+            ! Move active state to beginning of array if needed
+            if (active_count < i) then
+                text_states(active_count) = text_states(i)
+            end if
+        end if
+    end do
+    
+    ! Update count to reflect active text widgets only
+    text_count = active_count
+end subroutine cleanup_unused_text_states
+
+subroutine reset_text_system()
+    ! Reset the entire text widget system (useful for testing)
+    text_count = 0
+    text_frame_counter = 0
+    text_states = text_state_t()  ! Initialize all to default
+end subroutine reset_text_system
+
+subroutine get_text_debug_info(id, width_dp, height_dp, text_size_dp)
+    ! Get debug information for testing
+    character(*), intent(in) :: id
+    real, intent(out), optional :: width_dp, height_dp, text_size_dp
+    
+    integer :: state_index
+    
+    state_index = find_text_state_by_id(id)
+    if (state_index <= 0) return
+    
+    if (present(width_dp)) width_dp = text_states(state_index)%width_dp
+    if (present(height_dp)) height_dp = text_states(state_index)%height_dp  
+    if (present(text_size_dp)) text_size_dp = text_states(state_index)%text_size_dp
+end subroutine get_text_debug_info
+
+integer function find_text_state_by_id(id) result(index)
+    ! Find text state by ID (returns 0 if not found)
+    character(*), intent(in) :: id
+    integer :: i
+    
+    index = 0
+    do i = 1, text_count
+        if (trim(text_states(i)%id) == trim(id)) then
+            index = i
+            return
+        end if
+    end do
+end function find_text_state_by_id
 
 end module fortui_widgets

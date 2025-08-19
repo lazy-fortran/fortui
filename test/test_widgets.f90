@@ -2562,18 +2562,6 @@ subroutine test_text_high_dpi_scaling(id, content)
     end if
 end subroutine test_text_high_dpi_scaling
 
-! Text debug and testing utilities (placeholder interfaces)
-! ========================================================
-
-subroutine get_text_debug_info(id, width_dp, height_dp, text_size_dp)
-    character(*), intent(in) :: id
-    real, intent(out), optional :: width_dp, height_dp, text_size_dp
-    
-    ! Placeholder for text widget debug information
-    ! In real implementation, this would get internal text state
-    if (present(width_dp)) width_dp = 0.0    ! Signal auto-sizing needed
-    if (present(height_dp)) height_dp = 0.0  ! Signal auto-sizing needed
-    if (present(text_size_dp)) text_size_dp = 14.0  ! Default text size
-end subroutine get_text_debug_info
+! Text debug and testing utilities implemented in fortui_widgets module
 
 end module test_widgets
