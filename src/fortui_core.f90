@@ -466,12 +466,7 @@ subroutine allocate_cell_buffers()
     width = tui_state%terminal_width
     height = tui_state%terminal_height
     
-    ! Deallocate existing buffers if present
-    if (allocated(tui_state%front_buffer)) deallocate(tui_state%front_buffer)
-    if (allocated(tui_state%back_buffer)) deallocate(tui_state%back_buffer)
-    if (allocated(tui_state%line_hashes)) deallocate(tui_state%line_hashes)
-    
-    ! Allocate new buffers
+    ! Allocate new buffers (Fortran automatically deallocates existing when reallocating)
     allocate(tui_state%front_buffer(width, height))
     allocate(tui_state%back_buffer(width, height))
     allocate(tui_state%line_hashes(height))
@@ -818,10 +813,7 @@ subroutine shutdown_tui_backend()
     ! Shutdown termbox2 library
     call mock_tb_shutdown()
     
-    ! Deallocate buffers
-    if (allocated(tui_state%front_buffer)) deallocate(tui_state%front_buffer)
-    if (allocated(tui_state%back_buffer)) deallocate(tui_state%back_buffer)
-    if (allocated(tui_state%line_hashes)) deallocate(tui_state%line_hashes)
+    ! Clean up buffers (automatic deallocation at module scope end)
     
     ! Reset state
     tui_state%initialized = .false.
@@ -917,15 +909,13 @@ recursive subroutine assign_node(lhs, rhs)
     lhs%layout_type = rhs%layout_type
     lhs%gap_dp = rhs%gap_dp
     
-    ! Deep copy children array
+    ! Deep copy children array (automatic reallocation when assigning allocatable arrays)
     if (allocated(rhs%children)) then
-        if (allocated(lhs%children)) deallocate(lhs%children)
         allocate(lhs%children(size(rhs%children)))
         do i = 1, size(rhs%children)
             lhs%children(i) = rhs%children(i)
         end do
-    else
-        if (allocated(lhs%children)) deallocate(lhs%children)
+    ! else - no children to copy, lhs%children automatically unallocated for intent(out)
     end if
 end subroutine assign_node
 
