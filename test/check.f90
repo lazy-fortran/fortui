@@ -8,6 +8,8 @@ use test_layout_constructors
 use test_tui_backend
 use test_termbox2_interface
 use test_widgets
+use test_demo_application
+use test_demo_integration
 implicit none
 
 ! Given: Test suite execution
@@ -52,6 +54,12 @@ subroutine run_fortran_tests()
     ! Widget system tests with button implementation and immediate-mode interaction
     call test_all_widgets()
     
+    ! Demo application tests for complete widget foundation integration
+    call run_demo_application_tests()
+    
+    ! Demo integration tests for application lifecycle and multi-widget interactions  
+    call run_demo_integration_tests()
+    
     print *, "✓ All Fortran unit tests completed"
     print *, ""
 end subroutine run_fortran_tests
@@ -82,6 +90,15 @@ subroutine run_build_script_tests()
         print *, "✓ Build script integration tests: PASSED"
     else
         print *, "✗ Build script integration tests: FAILED" 
+    end if
+    
+    ! Execute demo application build system tests
+    call execute_command_line("cd test && ./test_demo_build_system.sh", exitstat=status)
+    
+    if (status == 0) then
+        print *, "✓ Demo application build system tests: PASSED"
+    else
+        print *, "✗ Demo application build system tests: FAILED"
     end if
     
     print *, ""
