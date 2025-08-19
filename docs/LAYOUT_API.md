@@ -369,7 +369,8 @@ The layout constructors create deep copies of child arrays, so source arrays can
 ### Invalid Context
 ```fortran
 ! Negative or zero context values handled gracefully:
-ctx = ui_context(dpi_scale=0.0, em_dp=-1.0)  ! Will use safe defaults
+ctx = ui_context(dpi_scale=0.0, em_dp=-1.0, text_scale=1.0, &
+                 cell_w_dp=8.0, cell_h_dp=16.0)  ! Will use safe defaults
 call ui_set_context(ctx)
 layout = column(gap=em(1.0))  ! Converted safely
 ```
