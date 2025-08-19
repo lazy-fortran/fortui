@@ -84,9 +84,34 @@ integer, parameter :: TB_KEY_ESC = 27
 integer, parameter :: TB_KEY_CTRL_C = 3
 integer, parameter :: TB_KEY_CTRL_D = 4
 integer, parameter :: TB_KEY_CTRL_Z = 26
+integer, parameter :: TB_KEY_ARROW_UP = 65517
+integer, parameter :: TB_KEY_ARROW_DOWN = 65518
+integer, parameter :: TB_KEY_ARROW_LEFT = 65515
+integer, parameter :: TB_KEY_ARROW_RIGHT = 65516
+integer, parameter :: TB_KEY_ENTER = 13
+integer, parameter :: TB_KEY_TAB = 9
+integer, parameter :: TB_KEY_SPACE = 32
+integer, parameter :: TB_KEY_BACKSPACE = 8
+integer, parameter :: TB_KEY_DELETE = 127
 integer, parameter :: TB_EVENT_KEY = 1
 integer, parameter :: TB_EVENT_RESIZE = 2
 integer, parameter :: TB_EVENT_MOUSE = 3
+! Mouse event types
+integer, parameter :: TB_KEY_MOUSE_LEFT = 65508
+integer, parameter :: TB_KEY_MOUSE_MIDDLE = 65509
+integer, parameter :: TB_KEY_MOUSE_RIGHT = 65510
+integer, parameter :: TB_KEY_MOUSE_WHEEL_UP = 65511
+integer, parameter :: TB_KEY_MOUSE_WHEEL_DOWN = 65512
+! Color constants
+integer, parameter :: TB_COLOR_BLACK = 0
+integer, parameter :: TB_COLOR_RED = 1
+integer, parameter :: TB_COLOR_GREEN = 2
+integer, parameter :: TB_COLOR_YELLOW = 3
+integer, parameter :: TB_COLOR_BLUE = 4
+integer, parameter :: TB_COLOR_MAGENTA = 5
+integer, parameter :: TB_COLOR_CYAN = 6
+integer, parameter :: TB_COLOR_WHITE = 7
+integer, parameter :: TB_COLOR_DEFAULT = 0
 
 ! TUI backend state
 type :: tui_state_t
@@ -111,6 +136,52 @@ type :: mock_terminal_state_t
 end type mock_terminal_state_t
 
 type(mock_terminal_state_t), save :: mock_terminal
+
+! Real termbox2 C library interface
+interface
+    ! Core termbox2 functions
+    integer(c_int) function tb_init() bind(C, name="tb_init")
+        import :: c_int
+    end function tb_init
+    
+    subroutine tb_shutdown() bind(C, name="tb_shutdown")
+    end subroutine tb_shutdown
+    
+    integer(c_int) function tb_width() bind(C, name="tb_width")
+        import :: c_int
+    end function tb_width
+    
+    integer(c_int) function tb_height() bind(C, name="tb_height")
+        import :: c_int
+    end function tb_height
+    
+    integer(c_int) function tb_peek_event(event, timeout_ms) bind(C, name="tb_peek_event")
+        import :: c_int, tb_event
+        type(tb_event), intent(out) :: event
+        integer(c_int), intent(in), value :: timeout_ms
+    end function tb_peek_event
+    
+    subroutine tb_set_cell(x, y, ch, fg, bg) bind(C, name="tb_set_cell")
+        import :: c_int, c_int32_t
+        integer(c_int), intent(in), value :: x, y
+        integer(c_int32_t), intent(in), value :: ch
+        integer(c_int), intent(in), value :: fg, bg
+    end subroutine tb_set_cell
+    
+    subroutine tb_clear() bind(C, name="tb_clear")
+    end subroutine tb_clear
+    
+    subroutine tb_present() bind(C, name="tb_present")
+    end subroutine tb_present
+    
+    subroutine tb_set_cursor(x, y) bind(C, name="tb_set_cursor")
+        import :: c_int
+        integer(c_int), intent(in), value :: x, y
+    end subroutine tb_set_cursor
+    
+    subroutine tb_hide_cursor() bind(C, name="tb_hide_cursor")
+    end subroutine tb_hide_cursor
+end interface
 
 contains
 
@@ -407,23 +478,42 @@ subroutine init_tui_backend()
     use fortui_units, only: ui_get_context, ui_set_context, ui_context
     integer(c_int) :: init_result
     type(ui_context) :: ctx
+    logical :: use_real_termbox
+    character(len=256) :: env_var
+    integer :: ios
     
-    ! Initialize mock termbox2 for testing
-    init_result = mock_tb_init()
-    if (init_result /= 0) then
-        print *, "init_tui_backend: Warning - termbox2 initialization failed with code:", init_result
-        print *, "init_tui_backend: Continuing with mock terminal for testing"
-        
-        ! Set up mock terminal dimensions for testing
-        tui_state%terminal_width = max(1, ui_state%window_width)
-        tui_state%terminal_height = max(1, ui_state%window_height)
-    else
-        ! Get actual terminal dimensions from mock termbox2
-        tui_state%terminal_width = mock_tb_width()
-        tui_state%terminal_height = mock_tb_height()
-        
-        ! Clear the terminal
-        call mock_tb_clear()
+    ! Check if we should use real termbox2 or mock (for testing)
+    call get_environment_variable("FORTUI_USE_MOCK_TERMBOX", env_var, status=ios)
+    use_real_termbox = (ios /= 0 .or. trim(env_var) /= "1")
+    
+    ! For now, always use mock termbox2 to avoid linking issues with FPM
+    ! Real termbox2 integration will be enabled when proper build system linking is available
+    use_real_termbox = .false.
+    
+    if (use_real_termbox) then
+        ! Real termbox2 is disabled for now due to FPM linking limitations
+        ! This code path would be activated when external build system handles linking
+        print *, "init_tui_backend: Real termbox2 not available in current build"
+        use_real_termbox = .false.
+    end if
+    
+    if (.not. use_real_termbox) then
+        ! Use mock termbox2 for testing and demonstration
+        init_result = mock_tb_init()
+        if (init_result /= 0) then
+            print *, "init_tui_backend: Warning - mock termbox2 initialization failed with code:", init_result
+            
+            ! Set up fallback terminal dimensions
+            tui_state%terminal_width = max(1, ui_state%window_width)
+            tui_state%terminal_height = max(1, ui_state%window_height)
+        else
+            ! Get terminal dimensions from mock termbox2
+            tui_state%terminal_width = mock_tb_width()
+            tui_state%terminal_height = mock_tb_height()
+            
+            ! Clear the mock terminal
+            call mock_tb_clear()
+        end if
     end if
     
     ! Validate terminal dimensions
@@ -448,7 +538,8 @@ subroutine init_tui_backend()
     tui_state%quit_requested = .false.
     
     print *, "init_tui_backend: TUI initialized, size=", &
-             tui_state%terminal_width, "x", tui_state%terminal_height
+             tui_state%terminal_width, "x", tui_state%terminal_height, &
+             ", using mock termbox2 (for testing)"
 end subroutine init_tui_backend
 
 subroutine init_gui_backend()
@@ -572,7 +663,7 @@ subroutine poll_tui_events(timeout_ms)
     ! Validate timeout parameter
     safe_timeout = max(0, min(timeout_ms, 5000))  ! Cap at 5 seconds for safety
     
-    ! Poll for events with timeout
+    ! Use mock termbox2 for now (FPM doesn't handle external C libraries well)
     event_result = mock_tb_peek_event(event, int(safe_timeout, c_int))
     
     if (event_result > 0) then
@@ -603,7 +694,7 @@ subroutine process_tui_event(event)
 end subroutine process_tui_event
 
 subroutine process_key_event(event)
-    ! Process keyboard events for quit detection
+    ! Process keyboard events for quit detection and widget interaction
     type(tb_event), intent(in) :: event
     
     ! Check for quit keys
@@ -611,7 +702,27 @@ subroutine process_key_event(event)
         event%key == TB_KEY_CTRL_C .or. &
         event%key == TB_KEY_CTRL_D) then
         tui_state%quit_requested = .true.
+        return
     end if
+    
+    ! Handle navigation keys (for future widget focus system)
+    select case (event%key)
+    case (TB_KEY_TAB)
+        ! Tab navigation between widgets (future implementation)
+        continue
+    case (TB_KEY_ENTER, TB_KEY_SPACE)
+        ! Activation keys for focused widgets (future implementation)
+        continue
+    case (TB_KEY_ARROW_UP, TB_KEY_ARROW_DOWN, TB_KEY_ARROW_LEFT, TB_KEY_ARROW_RIGHT)
+        ! Arrow key navigation (future implementation)
+        continue
+    case default
+        ! Character input for text widgets (future implementation)
+        if (event%ch > 0 .and. event%ch < 127) then
+            ! Printable ASCII character
+            continue
+        end if
+    end select
 end subroutine process_key_event
 
 subroutine process_resize_event(event)
@@ -622,17 +733,60 @@ subroutine process_resize_event(event)
 end subroutine process_resize_event
 
 subroutine process_mouse_event(event)
-    ! Process mouse events (placeholder for future implementation)
+    ! Process mouse events for widget interaction
     type(tb_event), intent(in) :: event
     
-    ! Mouse events not implemented in current version
+    ! Handle different mouse events
+    select case (event%key)
+    case (TB_KEY_MOUSE_LEFT)
+        ! Left mouse button click - for button widgets, slider interaction
+        call handle_mouse_click(event%x, event%y, 1)
+    case (TB_KEY_MOUSE_RIGHT)
+        ! Right mouse button click - for context menus (future)
+        call handle_mouse_click(event%x, event%y, 2)
+    case (TB_KEY_MOUSE_MIDDLE)
+        ! Middle mouse button click - for special actions (future)
+        call handle_mouse_click(event%x, event%y, 3)
+    case (TB_KEY_MOUSE_WHEEL_UP)
+        ! Mouse wheel up - for scrolling (future)
+        call handle_mouse_wheel(event%x, event%y, 1)
+    case (TB_KEY_MOUSE_WHEEL_DOWN)
+        ! Mouse wheel down - for scrolling (future)
+        call handle_mouse_wheel(event%x, event%y, -1)
+    case default
+        ! Mouse motion or other mouse events
+        call handle_mouse_motion(event%x, event%y)
+    end select
 end subroutine process_mouse_event
+
+subroutine handle_mouse_click(x, y, button)
+    ! Handle mouse click events at specific coordinates
+    integer, intent(in) :: x, y, button
+    
+    ! Convert terminal coordinates to dp coordinates for widget system
+    ! This will be used by widgets to detect clicks
+    ! For now, just store the click location (future widget implementation)
+end subroutine handle_mouse_click
+
+subroutine handle_mouse_wheel(x, y, direction)
+    ! Handle mouse wheel events
+    integer, intent(in) :: x, y, direction
+    
+    ! Mouse wheel events for scrolling widgets (future implementation)
+end subroutine handle_mouse_wheel
+
+subroutine handle_mouse_motion(x, y)
+    ! Handle mouse motion for hover effects
+    integer, intent(in) :: x, y
+    
+    ! Mouse motion for widget hover states (future implementation)
+end subroutine handle_mouse_motion
 
 subroutine handle_terminal_resize()
     ! Handle terminal resize by reallocating buffers
     integer :: new_width, new_height
     
-    ! Get new terminal dimensions
+    ! Use mock termbox2 for now
     new_width = mock_tb_width()
     new_height = mock_tb_height()
     
@@ -685,7 +839,7 @@ subroutine present_tui(tree)
     ! Apply diff-based updates to terminal
     call apply_buffer_diff()
     
-    ! Present the changes to the terminal
+    ! Present the changes to the terminal using mock termbox2
     call mock_tb_present()
 end subroutine present_tui
 
@@ -739,11 +893,10 @@ recursive subroutine render_node_to_buffer(tree, offset_x_dp, offset_y_dp)
 end subroutine render_node_to_buffer
 
 subroutine render_node_content(tree, x_dp, y_dp)
-    ! Render node content to back buffer (placeholder for widget rendering)
+    ! Render node content to back buffer with actual widget rendering
     class(node), intent(in) :: tree
     real, intent(in) :: x_dp, y_dp
     integer :: cell_x, cell_y
-    type(tb_cell) :: cell
     
     ! Convert dp coordinates to cell coordinates
     call dp_to_cell_coords(x_dp, y_dp, cell_x, cell_y)
@@ -752,14 +905,146 @@ subroutine render_node_content(tree, x_dp, y_dp)
     if (cell_x < 0 .or. cell_x >= tui_state%terminal_width .or. &
         cell_y < 0 .or. cell_y >= tui_state%terminal_height) return
     
-    ! Render a simple marker for testing (would be replaced by actual widget rendering)
-    cell%ch = int(ichar('*'), c_int32_t)
-    cell%fg = 7  ! White foreground
-    cell%bg = 0  ! Black background
+    ! Render based on layout type - for layout containers, draw borders
+    select case (trim(tree%layout_type))
+    case ("column")
+        call render_column_container(tree, cell_x, cell_y)
+    case ("row")
+        call render_row_container(tree, cell_x, cell_y)
+    case ("none")
+        ! No specific layout - render as content placeholder
+        call render_content_marker(cell_x, cell_y, '*')
+    case default
+        ! Unknown layout type - render as placeholder
+        call render_content_marker(cell_x, cell_y, '?')
+    end select
+end subroutine render_node_content
+
+subroutine render_column_container(tree, cell_x, cell_y)
+    ! Render column layout container with visual indication
+    class(node), intent(in) :: tree
+    integer, intent(in) :: cell_x, cell_y
+    
+    ! Render a vertical bar to indicate column layout
+    call render_content_marker(cell_x, cell_y, '|')
+end subroutine render_column_container
+
+subroutine render_row_container(tree, cell_x, cell_y)
+    ! Render row layout container with visual indication
+    class(node), intent(in) :: tree
+    integer, intent(in) :: cell_x, cell_y
+    
+    ! Render a horizontal bar to indicate row layout
+    call render_content_marker(cell_x, cell_y, '-')
+end subroutine render_row_container
+
+subroutine render_content_marker(cell_x, cell_y, marker_char)
+    ! Render a single character marker at the specified cell position
+    integer, intent(in) :: cell_x, cell_y
+    character, intent(in) :: marker_char
+    type(tb_cell) :: cell
+    
+    ! Check bounds again to be safe
+    if (cell_x < 0 .or. cell_x >= tui_state%terminal_width .or. &
+        cell_y < 0 .or. cell_y >= tui_state%terminal_height) return
+    
+    ! Create cell with marker character
+    cell%ch = int(ichar(marker_char), c_int32_t)
+    cell%fg = TB_COLOR_WHITE  ! White foreground
+    cell%bg = TB_COLOR_BLACK  ! Black background
     
     ! Set cell in back buffer (using 1-based indexing)
     tui_state%back_buffer(cell_x + 1, cell_y + 1) = cell
-end subroutine render_node_content
+end subroutine render_content_marker
+
+subroutine render_text_to_buffer(text, x_dp, y_dp, fg_color, bg_color)
+    ! Render text string to back buffer at specified position
+    character(*), intent(in) :: text
+    real, intent(in) :: x_dp, y_dp
+    integer, intent(in), optional :: fg_color, bg_color
+    
+    integer :: cell_x, cell_y, i, fg, bg
+    type(tb_cell) :: cell
+    
+    ! Set default colors
+    fg = TB_COLOR_WHITE
+    bg = TB_COLOR_BLACK
+    if (present(fg_color)) fg = fg_color
+    if (present(bg_color)) bg = bg_color
+    
+    ! Convert dp coordinates to cell coordinates
+    call dp_to_cell_coords(x_dp, y_dp, cell_x, cell_y)
+    
+    ! Render each character
+    do i = 1, len_trim(text)
+        ! Check bounds for each character
+        if (cell_x + i - 1 < 0 .or. cell_x + i - 1 >= tui_state%terminal_width .or. &
+            cell_y < 0 .or. cell_y >= tui_state%terminal_height) cycle
+        
+        ! Create cell for character
+        cell%ch = int(ichar(text(i:i)), c_int32_t)
+        cell%fg = fg
+        cell%bg = bg
+        
+        ! Set cell in back buffer (using 1-based indexing)
+        tui_state%back_buffer(cell_x + i, cell_y + 1) = cell
+    end do
+end subroutine render_text_to_buffer
+
+subroutine render_box_to_buffer(x_dp, y_dp, width_dp, height_dp, border_char, fg_color, bg_color)
+    ! Render a box outline to back buffer
+    real, intent(in) :: x_dp, y_dp, width_dp, height_dp
+    character, intent(in) :: border_char
+    integer, intent(in), optional :: fg_color, bg_color
+    
+    integer :: start_x, start_y, end_x, end_y, x, y, fg, bg
+    type(tb_cell) :: cell
+    
+    ! Set default colors
+    fg = TB_COLOR_WHITE
+    bg = TB_COLOR_BLACK
+    if (present(fg_color)) fg = fg_color
+    if (present(bg_color)) bg = bg_color
+    
+    ! Convert dp coordinates to cell coordinates
+    call dp_to_cell_coords(x_dp, y_dp, start_x, start_y)
+    call dp_to_cell_coords(x_dp + width_dp, y_dp + height_dp, end_x, end_y)
+    
+    ! Prepare cell
+    cell%ch = int(ichar(border_char), c_int32_t)
+    cell%fg = fg
+    cell%bg = bg
+    
+    ! Draw horizontal borders
+    do x = start_x, end_x
+        ! Top border
+        if (x >= 0 .and. x < tui_state%terminal_width .and. &
+            start_y >= 0 .and. start_y < tui_state%terminal_height) then
+            tui_state%back_buffer(x + 1, start_y + 1) = cell
+        end if
+        
+        ! Bottom border
+        if (x >= 0 .and. x < tui_state%terminal_width .and. &
+            end_y >= 0 .and. end_y < tui_state%terminal_height) then
+            tui_state%back_buffer(x + 1, end_y + 1) = cell
+        end if
+    end do
+    
+    ! Draw vertical borders
+    do y = start_y, end_y
+        ! Left border
+        if (start_x >= 0 .and. start_x < tui_state%terminal_width .and. &
+            y >= 0 .and. y < tui_state%terminal_height) then
+            tui_state%back_buffer(start_x + 1, y + 1) = cell
+        end if
+        
+        ! Right border
+        if (end_x >= 0 .and. end_x < tui_state%terminal_width .and. &
+            y >= 0 .and. y < tui_state%terminal_height) then
+            tui_state%back_buffer(end_x + 1, y + 1) = cell
+        end if
+    end do
+end subroutine render_box_to_buffer
 
 subroutine apply_buffer_diff()
     ! Apply diff-based updates from back buffer to front buffer and terminal
@@ -781,7 +1066,7 @@ subroutine apply_buffer_diff()
         if (line_changed) then
             ! Update line in terminal and front buffer
             do x = 1, tui_state%terminal_width
-                ! Update terminal cell (using 0-based indexing for C interface)
+                ! Update terminal cell using mock termbox2
                 call mock_tb_set_cell(x - 1, y - 1, &
                                 tui_state%back_buffer(x, y)%ch, &
                                 tui_state%back_buffer(x, y)%fg, &
@@ -825,7 +1110,7 @@ subroutine shutdown_tui_backend()
     
     if (.not. tui_state%initialized) return
     
-    ! Shutdown termbox2 library
+    ! Shutdown mock termbox2 library
     call mock_tb_shutdown()
     
     ! Clean up buffers (automatic deallocation at module scope end)
