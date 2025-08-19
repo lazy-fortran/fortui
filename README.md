@@ -160,6 +160,26 @@ layout = column(gap=16.0)       ! bare real (treated as dp)
 
 **Complete Documentation:** [Layout API Guide](docs/LAYOUT_API.md)
 
+## Button Widget
+
+Interactive button with click detection and auto-sizing:
+
+```fortran
+use fortui_widgets
+
+! Basic usage - returns true when clicked
+if (button("save_btn", label="Save")) then
+    print *, "Save button clicked!"
+end if
+
+! Custom size with units
+if (button("big_btn", width=dp(80.0), height=dp(40.0))) then
+    ! Handle click
+end if
+```
+
+**Complete Documentation:** [Button Widget API](docs/BUTTON_WIDGET.md)
+
 ### Units System
 fortui provides a comprehensive units system for cross-backend consistency:
 
@@ -298,7 +318,7 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 ✅ **fortui_core module**: Complete with `node` and `view` types, lifecycle management, layout constructors  
 ✅ **fortui_units module**: Complete with comprehensive cross-backend units system
 ✅ **Layout system**: `column()` and `row()` functions with gap parameters and children arrays - **PRODUCTION READY**
-🚧 **fortui_widgets module**: In development (interactive widgets)  
+✅ **fortui_widgets module**: Button widget implemented with click detection  
 ✅ **Backend selection**: TUI/GUI conditional compilation working  
 ✅ **Build system**: Automatic dependency detection and configuration
 
@@ -313,7 +333,7 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 
 - **fortui_core**: ✅ Lifecycle management, core types, frame handling  
 - **fortui_units**: ✅ Cross-backend units system with dp, em, sp, px, cw, ch support
-- **fortui_widgets**: 🚧 Layout containers and interactive controls (coming soon)
+- **fortui_widgets**: ✅ Button widget with click detection and auto-sizing
 - **Dual backends**: ✅ termbox2 (TUI) and raylib/raygui (GUI) support
 - **Monospace baseline**: ✅ Ensures pixel-perfect TUI/GUI consistency
 
@@ -321,6 +341,7 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 
 ### Core Documentation
 - **[Layout API Guide](docs/LAYOUT_API.md)**: Complete layout system documentation with examples
+- **[Button Widget API](docs/BUTTON_WIDGET.md)**: Button widget with click detection and auto-sizing
 - **[Units Guide](docs/UNITS_GUIDE.md)**: Complete units system documentation with examples
 - **[Core Types API](docs/CORE_TYPES_API.md)**: Complete `node` and `view` type documentation
 - **[Lifecycle API](docs/LIFECYCLE_API.md)**: UI initialization and frame management
