@@ -6,6 +6,7 @@ program demo
 
   real :: gain = 1.0
   logical :: grid = .false.
+  type(node) :: grid_node, viewport_node, text_node, zoom_in_node, zoom_out_node, slider_node
   type(view) :: v
   type(node) :: ui_root
   logical :: running
@@ -29,29 +30,32 @@ program demo
     !       final implementation will integrate widgets into layout tree
     
     ! Process widgets for interaction (immediate-mode)
-    if (button("zoom_in", "Zoom In")) then
+    zoom_in_node = button("zoom_in", "Zoom In")
+    if (zoom_in_node%interaction_occurred) then
       call zoom(v, 1.2)
       print *, "Frame", frame_count, ": Zoom in clicked! Scale:", v%scale_x
     end if
     
-    if (button("zoom_out", "Zoom Out")) then
+    zoom_out_node = button("zoom_out", "Zoom Out")
+    if (zoom_out_node%interaction_occurred) then
       call zoom(v, 1.0/1.2)
       print *, "Frame", frame_count, ": Zoom out clicked! Scale:", v%scale_x
     end if
     
     ! Slider updates gain directly through immediate-mode interaction
-    if (slider("gain", 0.1, 5.0, 0.1, gain)) then
+    slider_node = slider("gain", 0.1, 5.0, 0.1, gain)
+    if (slider_node%interaction_occurred) then
       print *, "Frame", frame_count, ": Gain changed to:", gain
     end if
     
     ! Checkbox updates grid state directly
-    call checkbox("grid", grid, "Show Grid")
+    grid_node = checkbox("grid", grid, "Show Grid")
     
     ! Viewport manages view state
-    call viewport("plot", dp(80.0), dp(24.0), v)
+    viewport_node = viewport("plot", dp(80.0), dp(24.0), v)
     
     ! Text display with status information
-    call text("status", status_line(gain, v, grid))
+    text_node = text("status", status_line(gain, v, grid))
     
     ! Build layout structure (placeholder nodes for now)
     ui_root = build_demo_layout()

@@ -46,6 +46,8 @@ type, extends(ui_element) :: node
     real :: gap_dp = 0.0                         ! Converted gap in dp units
     ! Children array for tree composition
     type(node), allocatable :: children(:)
+    ! Widget interaction status (for button clicks, checkbox toggles, etc.)
+    logical :: interaction_occurred = .false.
     ! Backend-agnostic design (identical behavior regardless of compilation flags)
 contains
     ! Assignment operator overload for proper memory management
