@@ -466,7 +466,12 @@ subroutine allocate_cell_buffers()
     width = tui_state%terminal_width
     height = tui_state%terminal_height
     
-    ! Allocate new buffers (Fortran automatically deallocates existing when reallocating)
+    ! Deallocate existing buffers if already allocated
+    if (allocated(tui_state%front_buffer)) deallocate(tui_state%front_buffer)
+    if (allocated(tui_state%back_buffer)) deallocate(tui_state%back_buffer)
+    if (allocated(tui_state%line_hashes)) deallocate(tui_state%line_hashes)
+    
+    ! Allocate new buffers
     allocate(tui_state%front_buffer(width, height))
     allocate(tui_state%back_buffer(width, height))
     allocate(tui_state%line_hashes(height))
