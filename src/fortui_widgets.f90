@@ -8,13 +8,14 @@ implicit none
 private
 
 ! Public widget functions
-public :: button, text, slider
+public :: button, text, slider, checkbox
 
 ! Testing helper functions (for test suite only)
 public :: simulate_button_click, simulate_key_press, set_button_focus
 public :: get_button_debug_info, reset_button_system
 public :: get_text_debug_info, reset_text_system
 public :: simulate_slider_interaction, get_slider_debug_info, reset_slider_system
+public :: simulate_checkbox_toggle, get_checkbox_debug_info, reset_checkbox_system
 
 ! Internal state management types
 type :: button_state_t
@@ -63,6 +64,23 @@ type :: slider_state_t
     logical :: focused = .false.    ! Keyboard focus state
 end type slider_state_t
 
+! Internal state management types for checkbox widgets
+type :: checkbox_state_t
+    logical :: checked = .false.    ! Current checkbox state
+    logical :: clicked = .false.    ! Clicked this frame
+    logical :: hovered = .false.    ! Mouse hovering over checkbox
+    logical :: focused = .false.    ! Keyboard focus state
+    real :: width_dp = 0.0          ! Widget width in dp (0 = auto-size)
+    real :: height_dp = 0.0         ! Widget height in dp (0 = auto-size)
+    real :: x_dp = 0.0              ! Widget position x
+    real :: y_dp = 0.0              ! Widget position y
+    character(len=256) :: id = ""   ! Widget identifier
+    character(len=256) :: label = ""! Display label text
+    integer :: toggle_count = 0     ! Number of toggle interactions
+    integer :: last_frame = 0       ! Last frame accessed
+    logical :: state_changed = .false. ! State changed this frame
+end type checkbox_state_t
+
 ! Global state storage for all buttons
 integer, parameter :: MAX_BUTTONS = 1000
 type(button_state_t), save :: button_states(MAX_BUTTONS)
@@ -80,6 +98,12 @@ integer, parameter :: MAX_SLIDERS = 500
 type(slider_state_t), save :: slider_states(MAX_SLIDERS)
 integer, save :: slider_count = 0
 integer, save :: slider_frame_counter = 0
+
+! Global checkbox state storage
+integer, parameter :: MAX_CHECKBOXES = 500
+type(checkbox_state_t), save :: checkbox_states(MAX_CHECKBOXES)
+integer, save :: checkbox_count = 0
+integer, save :: checkbox_frame_counter = 0
 
 ! Mouse and keyboard state tracking
 type :: input_state_t
@@ -721,6 +745,322 @@ logical function slider(id, min_val, max_val, step_val, value, width, height) re
     
 end function slider
 
+subroutine checkbox(id, checked, label, width, height)
+    ! Immediate-mode checkbox widget with unified class(*) interface
+    ! Modifies checked parameter based on toggle interactions
+    character(*), intent(in) :: id
+    logical, intent(inout) :: checked
+    character(*), intent(in), optional :: label
+    class(*), intent(in), optional :: width, height
+    
+    integer :: state_index
+    character(len=256) :: display_label
+    real :: widget_width_dp, widget_height_dp
+    type(ui_context) :: ctx
+    logical :: toggled_this_frame
+    
+    ! Increment frame counter for immediate-mode behavior
+    checkbox_frame_counter = checkbox_frame_counter + 1
+    
+    ! Validate ID parameter
+    if (len_trim(id) == 0) then
+        print *, "checkbox: Warning - Empty checkbox ID provided, using fallback"
+        return
+    end if
+    
+    ! Get or create checkbox state
+    state_index = find_or_create_checkbox_state(id)
+    if (state_index <= 0) then
+        return
+    end if
+    
+    ! Process label parameter (use id as default)
+    if (present(label)) then
+        display_label = label
+    else
+        display_label = id
+    end if
+    
+    ! Store label for rendering
+    call safe_copy_checkbox_label(display_label, checkbox_states(state_index)%label)
+    
+    ! Get current UI context
+    call ui_get_context(ctx)
+    
+    ! Calculate dimensions - either explicit or auto-sized
+    if (present(width)) then
+        widget_width_dp = convert_to_dp(width, ctx)
+        ! Apply minimum width constraint for clickability
+        widget_width_dp = max(widget_width_dp, 16.0)
+    else
+        ! Auto-size width based on checkbox + label content
+        widget_width_dp = calculate_checkbox_auto_width(display_label, ctx)
+    end if
+    
+    if (present(height)) then
+        widget_height_dp = convert_to_dp(height, ctx)
+        ! Apply minimum height constraint for clickability
+        widget_height_dp = max(widget_height_dp, 16.0)
+    else
+        ! Auto-size height based on context - square aspect for checkbox
+        widget_height_dp = calculate_checkbox_auto_height(display_label, ctx)
+    end if
+    
+    ! Update checkbox state with current dimensions
+    checkbox_states(state_index)%width_dp = widget_width_dp
+    checkbox_states(state_index)%height_dp = widget_height_dp
+    checkbox_states(state_index)%last_frame = checkbox_frame_counter
+    
+    ! Process input and determine toggle state
+    toggled_this_frame = process_checkbox_interaction(state_index)
+    
+    ! Update checked parameter and state based on interaction
+    if (toggled_this_frame) then
+        checked = .not. checkbox_states(state_index)%checked
+        checkbox_states(state_index)%checked = checked
+        checkbox_states(state_index)%toggle_count = checkbox_states(state_index)%toggle_count + 1
+        checkbox_states(state_index)%state_changed = .true.
+    else
+        ! Ensure state consistency with input parameter
+        checkbox_states(state_index)%checked = checked
+        checkbox_states(state_index)%state_changed = .false.
+    end if
+    
+    ! Render checkbox (would be handled by presentation system in full implementation)
+    call render_checkbox_placeholder(state_index)
+end subroutine checkbox
+
+integer function find_or_create_checkbox_state(id) result(index)
+    ! Find existing checkbox state or create new one with security-hardened ID handling
+    character(*), intent(in) :: id
+    integer :: i
+    
+    ! Search for existing state
+    do i = 1, checkbox_count
+        if (trim(checkbox_states(i)%id) == trim(id)) then
+            index = i
+            return
+        end if
+    end do
+    
+    ! Create new state if space available
+    if (checkbox_count < MAX_CHECKBOXES) then
+        checkbox_count = checkbox_count + 1
+        index = checkbox_count
+        
+        ! Initialize new checkbox state with bounds checking
+        checkbox_states(index) = checkbox_state_t()
+        
+        ! Safe ID copying to prevent buffer overflow
+        call safe_copy_checkbox_id(id, checkbox_states(index)%id)
+        checkbox_states(index)%last_frame = checkbox_frame_counter
+    else
+        ! Reuse oldest slot if limit reached
+        print *, "checkbox: Warning - Maximum checkbox widget limit reached, reusing slot"
+        index = 1  ! Reuse first slot as fallback
+        checkbox_states(index) = checkbox_state_t()
+        
+        call safe_copy_checkbox_id(id, checkbox_states(index)%id)
+        checkbox_states(index)%last_frame = checkbox_frame_counter
+    end if
+end function find_or_create_checkbox_state
+
+subroutine safe_copy_checkbox_id(source_id, target_id)
+    ! Securely copy checkbox ID with bounds checking to prevent buffer overflow
+    character(*), intent(in) :: source_id
+    character(*), intent(out) :: target_id
+    integer :: copy_length
+    
+    copy_length = min(len(source_id), len(target_id))
+    target_id = source_id(1:copy_length)
+    
+    if (len_trim(source_id) > len(target_id)) then
+        print *, "checkbox: Warning - ID truncated to fit buffer: ", trim(target_id)
+    end if
+end subroutine safe_copy_checkbox_id
+
+subroutine safe_copy_checkbox_label(source_label, target_label)
+    ! Securely copy checkbox label with bounds checking to prevent buffer overflow
+    character(*), intent(in) :: source_label
+    character(*), intent(out) :: target_label
+    integer :: copy_length
+    
+    copy_length = min(len(source_label), len(target_label))
+    target_label = source_label(1:copy_length)
+    
+    if (len_trim(source_label) > len(target_label)) then
+        print *, "checkbox: Warning - Label truncated to fit buffer: ", trim(target_label)
+    end if
+end subroutine safe_copy_checkbox_label
+
+real function calculate_checkbox_auto_width(label, ctx) result(width_dp)
+    ! Calculate automatic checkbox width based on checkbox square + label content
+    character(*), intent(in) :: label
+    type(ui_context), intent(in) :: ctx
+    
+    real, parameter :: CHAR_WIDTH_RATIO = 0.6  ! Typical character width to font size ratio
+    real, parameter :: CHECKBOX_SIZE_DP = 16.0 ! Square checkbox size
+    real, parameter :: SPACING_DP = 8.0        ! Space between checkbox and label
+    real, parameter :: MIN_WIDTH_DP = 24.0     ! Minimum checkbox width
+    
+    integer :: label_length
+    real :: text_width_dp, total_width_dp
+    
+    ! Calculate text width based on font metrics
+    label_length = len_trim(label)
+    
+    ! Use context font size for character width calculation
+    if (ctx%em_dp > 0.0) then
+        text_width_dp = real(label_length) * ctx%em_dp * CHAR_WIDTH_RATIO
+    else
+        ! Fallback calculation with default font size
+        text_width_dp = real(label_length) * 8.0  ! 8dp per character fallback
+    end if
+    
+    ! Calculate total width: checkbox square + spacing + label text
+    if (label_length > 0) then
+        total_width_dp = CHECKBOX_SIZE_DP + SPACING_DP + text_width_dp
+    else
+        total_width_dp = CHECKBOX_SIZE_DP  ! Just checkbox if no label
+    end if
+    
+    ! Enforce minimum size
+    width_dp = max(total_width_dp, MIN_WIDTH_DP)
+end function calculate_checkbox_auto_width
+
+real function calculate_checkbox_auto_height(label, ctx) result(height_dp)
+    ! Calculate automatic checkbox height - square aspect ratio for checkbox element
+    character(*), intent(in) :: label
+    type(ui_context), intent(in) :: ctx
+    
+    real, parameter :: MIN_HEIGHT_DP = 16.0     ! Minimum checkbox height
+    real, parameter :: CHECKBOX_SIZE_DP = 16.0  ! Square checkbox size
+    real, parameter :: TEXT_HEIGHT_RATIO = 1.3  ! Line height to font size ratio
+    
+    real :: checkbox_height_dp, text_height_dp
+    
+    ! Calculate checkbox square size (fixed for consistent appearance)
+    checkbox_height_dp = CHECKBOX_SIZE_DP
+    
+    ! Calculate text height if there's a label
+    if (len_trim(label) > 0 .and. ctx%em_dp > 0.0) then
+        text_height_dp = ctx%em_dp * TEXT_HEIGHT_RATIO
+        ! Use the larger of checkbox or text height for proper alignment
+        height_dp = max(checkbox_height_dp, text_height_dp)
+    else
+        height_dp = checkbox_height_dp
+    end if
+    
+    ! Enforce minimum size
+    height_dp = max(height_dp, MIN_HEIGHT_DP)
+end function calculate_checkbox_auto_height
+
+logical function process_checkbox_interaction(state_index) result(toggled)
+    ! Process mouse and keyboard interaction for checkbox
+    integer, intent(in) :: state_index
+    
+    logical :: mouse_clicked, keyboard_activated
+    
+    ! Update input state (would be updated from actual events in full implementation)
+    call update_input_state()
+    
+    ! Check for mouse interaction
+    mouse_clicked = check_checkbox_mouse_interaction(state_index)
+    
+    ! Check for keyboard activation
+    keyboard_activated = check_checkbox_keyboard_activation(state_index)
+    
+    ! Determine if checkbox was toggled this frame
+    toggled = mouse_clicked .or. keyboard_activated
+    
+    ! Update checkbox state with immediate-mode behavior
+    if (toggled) then
+        checkbox_states(state_index)%clicked = .true.
+        
+        ! Reset input state after consuming interaction to prevent multiple toggles
+        input_state%mouse_clicked = .false.
+        input_state%enter_pressed = .false.
+        input_state%space_pressed = .false.
+    else
+        ! Reset click state for immediate-mode behavior
+        checkbox_states(state_index)%clicked = .false.
+    end if
+    
+    ! Update hover state
+    checkbox_states(state_index)%hovered = check_checkbox_mouse_hover(state_index)
+end function process_checkbox_interaction
+
+logical function check_checkbox_mouse_interaction(state_index) result(clicked)
+    ! Check if mouse click occurred within checkbox bounds
+    integer, intent(in) :: state_index
+    
+    clicked = .false.
+    
+    ! Only check if mouse was clicked this frame
+    if (.not. input_state%mouse_clicked) return
+    
+    ! Check if mouse position is within checkbox bounds
+    if (input_state%mouse_x >= checkbox_states(state_index)%x_dp .and. &
+        input_state%mouse_x <= checkbox_states(state_index)%x_dp + &
+                                checkbox_states(state_index)%width_dp .and. &
+        input_state%mouse_y >= checkbox_states(state_index)%y_dp .and. &
+        input_state%mouse_y <= checkbox_states(state_index)%y_dp + &
+                                checkbox_states(state_index)%height_dp) then
+        clicked = .true.
+    end if
+end function check_checkbox_mouse_interaction
+
+logical function check_checkbox_mouse_hover(state_index) result(hovered)
+    ! Check if mouse is hovering over checkbox
+    integer, intent(in) :: state_index
+    
+    hovered = .false.
+    
+    ! Check if mouse position is within checkbox bounds
+    if (input_state%mouse_x >= checkbox_states(state_index)%x_dp .and. &
+        input_state%mouse_x <= checkbox_states(state_index)%x_dp + &
+                                checkbox_states(state_index)%width_dp .and. &
+        input_state%mouse_y >= checkbox_states(state_index)%y_dp .and. &
+        input_state%mouse_y <= checkbox_states(state_index)%y_dp + &
+                                checkbox_states(state_index)%height_dp) then
+        hovered = .true.
+    end if
+end function check_checkbox_mouse_hover
+
+logical function check_checkbox_keyboard_activation(state_index) result(activated)
+    ! Check for keyboard activation (Enter/Space keys)
+    integer, intent(in) :: state_index
+    
+    activated = .false.
+    
+    ! Only activate if this checkbox has focus
+    if (trim(input_state%focused_button_id) /= trim(checkbox_states(state_index)%id)) return
+    
+    ! Check for activation keys (space or enter)
+    if (input_state%enter_pressed .or. input_state%space_pressed) then
+        activated = .true.
+    end if
+end function check_checkbox_keyboard_activation
+
+subroutine render_checkbox_placeholder(state_index)
+    ! Placeholder for checkbox rendering - would integrate with backend rendering system
+    integer, intent(in) :: state_index
+    
+    ! This is a placeholder for the actual rendering implementation
+    ! In the full system, this would:
+    ! 1. Convert dp coordinates to backend-specific coordinates
+    ! 2. Render checkbox square (empty or with checkmark/X based on checked state)
+    ! 3. Render associated label text with proper alignment
+    ! 4. Apply visual state (normal/hovered/focused)
+    ! 5. Handle cross-backend visual consistency (TUI: [X]/[ ], GUI: graphical checkbox)
+    
+    ! For testing, set up reasonable checkbox positions
+    if (checkbox_states(state_index)%x_dp == 0.0 .and. checkbox_states(state_index)%y_dp == 0.0) then
+        checkbox_states(state_index)%x_dp = 0.0
+        checkbox_states(state_index)%y_dp = 0.0
+    end if
+end subroutine render_checkbox_placeholder
+
 integer function find_or_create_slider_state(id) result(index)
     ! Find existing slider state or create new one with security-hardened ID handling
     character(*), intent(in) :: id
@@ -1238,5 +1578,102 @@ integer function find_slider_state_by_id(id) result(index)
         end if
     end do
 end function find_slider_state_by_id
+
+! Checkbox widget testing and debug functions
+
+subroutine simulate_checkbox_toggle(id)
+    ! Simulate checkbox toggle interaction for testing framework
+    character(*), intent(in) :: id
+    integer :: state_index
+    
+    ! Set up toggle state for the checkbox
+    input_state%mouse_clicked = .true.
+    
+    ! Position mouse at checkbox center for click simulation
+    state_index = find_checkbox_state_by_id(id)
+    if (state_index > 0) then
+        input_state%mouse_x = checkbox_states(state_index)%x_dp + &
+                               checkbox_states(state_index)%width_dp/2.0
+        input_state%mouse_y = checkbox_states(state_index)%y_dp + &
+                               checkbox_states(state_index)%height_dp/2.0
+    else
+        ! Create minimal checkbox for testing if it doesn't exist
+        call ensure_checkbox_exists_for_testing(id)
+        state_index = find_checkbox_state_by_id(id)
+        if (state_index > 0) then
+            input_state%mouse_x = checkbox_states(state_index)%x_dp + &
+                                   checkbox_states(state_index)%width_dp/2.0
+            input_state%mouse_y = checkbox_states(state_index)%y_dp + &
+                                   checkbox_states(state_index)%height_dp/2.0
+        end if
+    end if
+    
+    ! Set focus for keyboard interaction testing
+    input_state%focused_button_id = id
+end subroutine simulate_checkbox_toggle
+
+subroutine get_checkbox_debug_info(id, checked, width_dp, height_dp, toggle_count, &
+                                   hovered, focused, clicked)
+    ! Get debug information about a checkbox state for testing validation
+    character(*), intent(in) :: id
+    logical, intent(out), optional :: checked, hovered, focused, clicked
+    real, intent(out), optional :: width_dp, height_dp
+    integer, intent(out), optional :: toggle_count
+    integer :: state_index
+    
+    state_index = find_checkbox_state_by_id(id)
+    if (state_index == 0) return
+    
+    if (present(checked)) checked = checkbox_states(state_index)%checked
+    if (present(width_dp)) width_dp = checkbox_states(state_index)%width_dp
+    if (present(height_dp)) height_dp = checkbox_states(state_index)%height_dp
+    if (present(toggle_count)) toggle_count = checkbox_states(state_index)%toggle_count
+    if (present(hovered)) hovered = checkbox_states(state_index)%hovered
+    if (present(focused)) focused = checkbox_states(state_index)%focused
+    if (present(clicked)) clicked = checkbox_states(state_index)%clicked
+end subroutine get_checkbox_debug_info
+
+subroutine reset_checkbox_system()
+    ! Reset the entire checkbox widget system (useful for testing)
+    checkbox_count = 0
+    checkbox_frame_counter = 0
+    checkbox_states = checkbox_state_t()  ! Initialize all to default
+end subroutine reset_checkbox_system
+
+integer function find_checkbox_state_by_id(id) result(index)
+    ! Find checkbox state by ID (returns 0 if not found)
+    character(*), intent(in) :: id
+    integer :: i
+    
+    index = 0
+    do i = 1, checkbox_count
+        if (trim(checkbox_states(i)%id) == trim(id)) then
+            index = i
+            return
+        end if
+    end do
+end function find_checkbox_state_by_id
+
+subroutine ensure_checkbox_exists_for_testing(id)
+    ! Create a minimal checkbox state for testing if it doesn't exist
+    character(*), intent(in) :: id
+    integer :: state_index
+    logical :: dummy_checked
+    
+    state_index = find_checkbox_state_by_id(id)
+    if (state_index <= 0) then
+        ! Create checkbox by calling it once
+        dummy_checked = .false.
+        call checkbox(id, dummy_checked)
+        state_index = find_checkbox_state_by_id(id)
+        if (state_index > 0) then
+            ! Set up reasonable test position and size
+            checkbox_states(state_index)%x_dp = 0.0
+            checkbox_states(state_index)%y_dp = 0.0
+            checkbox_states(state_index)%width_dp = max(checkbox_states(state_index)%width_dp, 32.0)
+            checkbox_states(state_index)%height_dp = max(checkbox_states(state_index)%height_dp, 16.0)
+        end if
+    end if
+end subroutine ensure_checkbox_exists_for_testing
 
 end module fortui_widgets
