@@ -29,12 +29,12 @@ program demo
     !       final implementation will integrate widgets into layout tree
     
     ! Process widgets for interaction (immediate-mode)
-    if (button("zoom_in")) then
+    if (button("zoom_in", "Zoom In")) then
       call zoom(v, 1.2)
       print *, "Frame", frame_count, ": Zoom in clicked! Scale:", v%scale_x
     end if
     
-    if (button("zoom_out", "-")) then
+    if (button("zoom_out", "Zoom Out")) then
       call zoom(v, 1.0/1.2)
       print *, "Frame", frame_count, ": Zoom out clicked! Scale:", v%scale_x
     end if
@@ -45,7 +45,7 @@ program demo
     end if
     
     ! Checkbox updates grid state directly
-    call checkbox("grid", grid)
+    call checkbox("grid", grid, "Show Grid")
     
     ! Viewport manages view state
     call viewport("plot", dp(80.0), dp(24.0), v)

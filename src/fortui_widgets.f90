@@ -231,14 +231,14 @@ integer function find_or_create_button_state(id) result(index)
         
         ! Initialize new button state
         button_states(index) = button_state_t()
-        button_states(index)%id = id
+        call safe_copy_id(id, button_states(index)%id)
         button_states(index)%last_frame = current_frame
     else
         ! Handle overflow - reuse oldest slot
         print *, "button: Warning - Maximum button limit reached, reusing slot"
         index = MAX_BUTTONS
         button_states(index) = button_state_t()
-        button_states(index)%id = id
+        call safe_copy_id(id, button_states(index)%id)
         button_states(index)%last_frame = current_frame
     end if
 end function find_or_create_button_state
