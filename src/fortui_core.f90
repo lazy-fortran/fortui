@@ -928,10 +928,15 @@ recursive subroutine assign_node(lhs, rhs)
     
     ! Deep copy children array (automatic reallocation when assigning allocatable arrays)
     if (allocated(rhs%children)) then
-        allocate(lhs%children(size(rhs%children)))
-        do i = 1, size(rhs%children)
-            lhs%children(i) = rhs%children(i)
-        end do
+        if (size(rhs%children) > 0) then
+            allocate(lhs%children(size(rhs%children)))
+            do i = 1, size(rhs%children)
+                lhs%children(i) = rhs%children(i)
+            end do
+        else
+            ! Allocate empty array for consistency
+            allocate(lhs%children(0))
+        end if
     ! else - no children to copy, lhs%children automatically unallocated for intent(out)
     end if
 end subroutine assign_node
