@@ -746,8 +746,8 @@ logical function slider(id, min_val, max_val, step_val, value, width, height) re
 end function slider
 
 subroutine checkbox(id, checked, label, width, height)
-    ! Immediate-mode checkbox widget with unified class(*) interface
-    ! Modifies checked parameter based on toggle interactions
+    ! Immediate-mode checkbox widget with unified class(*) interface and cross-backend support
+    ! Returns toggle interaction status and modifies checked parameter based on user interactions
     character(*), intent(in) :: id
     logical, intent(inout) :: checked
     character(*), intent(in), optional :: label
