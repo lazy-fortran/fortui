@@ -1320,6 +1320,474 @@ end module fortui
 
 ⸻
 
+## Backend Abstraction Layer (Issue #60)
+
+### Problem Statement
+
+The current architecture has a critical circular dependency:
+- `fortui_core` directly imports `fortui_gui` module for backend functions
+- `fortui_gui` is conditionally compiled with `#ifdef ENABLE_GUI`
+- When GUI is disabled, `fortui_gui` module doesn't exist, causing undefined module errors
+- This violates Dependency Inversion, Single Responsibility, and Open/Closed principles
+
+### Architecture Solution: Backend Registry Pattern
+
+Implement a backend abstraction layer using a registration pattern where backends register themselves with the core, rather than core importing backends directly. This eliminates compile-time dependencies and enables runtime backend selection.
+
+#### Backend Interface Definition
+```fortran
+! src/fortui_backend.f90 - Backend abstraction layer
+module fortui_backend
+  implicit none
+  private
+  
+  ! Public interface for backend operations
+  public :: backend_interface, register_backend, get_backend
+  public :: backend_capability
+  
+  ! Backend capability flags
+  type :: backend_capability
+    logical :: graphics = .false.      ! Can render graphics
+    logical :: colors = .false.        ! Supports colors
+    logical :: mouse = .false.         ! Mouse input support
+    logical :: unicode = .false.       ! Unicode support
+    logical :: async_events = .false.  ! Async event handling
+  end type backend_capability
+  
+  ! Abstract interface that all backends must implement
+  type, abstract :: backend_interface
+    type(backend_capability) :: capabilities
+  contains
+    procedure(init_proc), deferred :: init
+    procedure(shutdown_proc), deferred :: shutdown
+    procedure(begin_frame_proc), deferred :: begin_frame
+    procedure(present_proc), deferred :: present
+    procedure(is_available_proc), deferred :: is_available
+    procedure(check_quit_proc), deferred :: check_quit
+  end type backend_interface
+  
+  ! Interface definitions for backend procedures
+  abstract interface
+    subroutine init_proc(self, width, height, title, target_fps, vsync)
+      import :: backend_interface
+      class(backend_interface), intent(inout) :: self
+      integer, intent(in) :: width, height
+      character(*), intent(in) :: title
+      integer, intent(in) :: target_fps
+      logical, intent(in) :: vsync
+    end subroutine init_proc
+    
+    subroutine shutdown_proc(self)
+      import :: backend_interface
+      class(backend_interface), intent(inout) :: self
+    end subroutine shutdown_proc
+    
+    subroutine begin_frame_proc(self)
+      import :: backend_interface
+      class(backend_interface), intent(inout) :: self
+    end subroutine begin_frame_proc
+    
+    subroutine present_proc(self)
+      import :: backend_interface
+      class(backend_interface), intent(inout) :: self
+    end subroutine present_proc
+    
+    logical function is_available_proc(self)
+      import :: backend_interface
+      class(backend_interface), intent(in) :: self
+    end function is_available_proc
+    
+    logical function check_quit_proc(self)
+      import :: backend_interface
+      class(backend_interface), intent(inout) :: self
+    end function check_quit_proc
+  end interface
+  
+  ! Backend registry (private to module)
+  type :: backend_entry
+    character(len=32) :: name
+    class(backend_interface), allocatable :: backend
+  end type backend_entry
+  
+  type(backend_entry), allocatable :: registered_backends(:)
+  integer :: num_backends = 0
+  
+contains
+  
+  ! Register a backend implementation
+  subroutine register_backend(name, backend)
+    character(*), intent(in) :: name
+    class(backend_interface), intent(in) :: backend
+    
+    type(backend_entry), allocatable :: temp(:)
+    
+    ! Resize array if needed
+    if (.not. allocated(registered_backends)) then
+      allocate(registered_backends(4))
+    else if (num_backends >= size(registered_backends)) then
+      allocate(temp(size(registered_backends) * 2))
+      temp(1:num_backends) = registered_backends(1:num_backends)
+      call move_alloc(temp, registered_backends)
+    end if
+    
+    ! Add new backend
+    num_backends = num_backends + 1
+    registered_backends(num_backends)%name = name
+    allocate(registered_backends(num_backends)%backend, source=backend)
+  end subroutine register_backend
+  
+  ! Get a registered backend by name
+  function get_backend(name) result(backend)
+    character(*), intent(in) :: name
+    class(backend_interface), pointer :: backend
+    
+    integer :: i
+    
+    backend => null()
+    do i = 1, num_backends
+      if (registered_backends(i)%name == name) then
+        backend => registered_backends(i)%backend
+        exit
+      end if
+    end do
+  end function get_backend
+  
+end module fortui_backend
+```
+
+#### TUI Backend Implementation
+```fortran
+! src/fortui_tui.f90 - TUI backend (always compiled)
+module fortui_tui
+  use fortui_backend
+  use iso_c_binding
+  implicit none
+  private
+  
+  public :: tui_backend_t, register_tui_backend
+  
+  ! TUI backend implementation
+  type, extends(backend_interface) :: tui_backend_t
+    logical :: initialized = .false.
+    ! Add termbox2-specific state here
+  contains
+    procedure :: init => tui_init
+    procedure :: shutdown => tui_shutdown
+    procedure :: begin_frame => tui_begin_frame
+    procedure :: present => tui_present
+    procedure :: is_available => tui_is_available
+    procedure :: check_quit => tui_check_quit
+  end type tui_backend_t
+  
+contains
+  
+  subroutine register_tui_backend()
+    type(tui_backend_t) :: tui
+    
+    ! Set TUI capabilities
+    tui%capabilities%colors = .true.
+    tui%capabilities%mouse = .true.
+    tui%capabilities%unicode = .true.
+    tui%capabilities%async_events = .true.
+    
+    call register_backend("tui", tui)
+  end subroutine register_tui_backend
+  
+  ! Implementation procedures...
+  subroutine tui_init(self, width, height, title, target_fps, vsync)
+    class(tui_backend_t), intent(inout) :: self
+    integer, intent(in) :: width, height
+    character(*), intent(in) :: title
+    integer, intent(in) :: target_fps
+    logical, intent(in) :: vsync
+    
+    ! Initialize termbox2
+    self%initialized = .true.
+  end subroutine tui_init
+  
+  ! ... other procedures implemented similarly
+  
+end module fortui_tui
+```
+
+#### GUI Backend Implementation (Conditional)
+```fortran
+! src/fortui_gui.F90 - GUI backend (conditionally compiled)
+#ifdef ENABLE_GUI
+module fortui_gui
+  use fortui_backend
+  use iso_c_binding
+  implicit none
+  private
+  
+  public :: gui_backend_t, register_gui_backend
+  
+  ! GUI backend implementation
+  type, extends(backend_interface) :: gui_backend_t
+    logical :: initialized = .false.
+    logical :: window_created = .false.
+    integer :: window_width = 800
+    integer :: window_height = 600
+    ! Add raylib-specific state here
+  contains
+    procedure :: init => gui_init
+    procedure :: shutdown => gui_shutdown
+    procedure :: begin_frame => gui_begin_frame
+    procedure :: present => gui_present
+    procedure :: is_available => gui_is_available
+    procedure :: check_quit => gui_check_quit
+  end type gui_backend_t
+  
+contains
+  
+  subroutine register_gui_backend()
+    type(gui_backend_t) :: gui
+    
+    ! Set GUI capabilities
+    gui%capabilities%graphics = .true.
+    gui%capabilities%colors = .true.
+    gui%capabilities%mouse = .true.
+    gui%capabilities%unicode = .true.
+    
+    call register_backend("gui", gui)
+  end subroutine register_gui_backend
+  
+  ! Implementation procedures...
+  subroutine gui_init(self, width, height, title, target_fps, vsync)
+    class(gui_backend_t), intent(inout) :: self
+    integer, intent(in) :: width, height
+    character(*), intent(in) :: title
+    integer, intent(in) :: target_fps
+    logical, intent(in) :: vsync
+    
+    ! Initialize raylib/raygui
+    self%window_width = width
+    self%window_height = height
+    self%initialized = .true.
+    self%window_created = .true.
+  end subroutine gui_init
+  
+  logical function gui_is_available(self)
+    class(gui_backend_t), intent(in) :: self
+    
+    ! Check for display availability
+    character(len=256) :: display_var
+    integer :: ios
+    
+    call get_environment_variable("DISPLAY", display_var, status=ios)
+    gui_is_available = (ios == 0 .and. len_trim(display_var) > 0)
+  end function gui_is_available
+  
+  ! ... other procedures implemented similarly
+  
+end module fortui_gui
+#endif
+```
+
+#### Core Module Updates
+```fortran
+! src/fortui_core.f90 - Updated core without direct backend imports
+module fortui_core
+  use fortui_backend  ! Only import the abstraction layer
+  use fortui_units
+  implicit none
+  
+  ! Core state
+  type :: ui_state_t
+    character(len=32) :: active_backend = "tui"
+    class(backend_interface), pointer :: backend => null()
+    ! ... other state
+  end type ui_state_t
+  
+  type(ui_state_t), save :: ui_state
+  
+contains
+  
+  subroutine ui_init(backend_name, width, height, title, target_fps, vsync)
+    character(*), intent(in) :: backend_name
+    class(*), intent(in) :: width, height
+    character(*), intent(in) :: title
+    integer, intent(in), optional :: target_fps
+    logical, intent(in), optional :: vsync
+    
+    integer :: width_px, height_px
+    character(len=32) :: selected_backend
+    
+    ! Convert units to pixels
+    width_px = convert_to_pixels(width)
+    height_px = convert_to_pixels(height)
+    
+    ! Backend selection logic
+    selected_backend = backend_name
+    if (backend_name == "auto") then
+      selected_backend = select_best_backend()
+    end if
+    
+    ! Get the backend from registry
+    ui_state%backend => get_backend(selected_backend)
+    
+    if (.not. associated(ui_state%backend)) then
+      ! Fallback to TUI if requested backend not available
+      ui_state%backend => get_backend("tui")
+      if (.not. associated(ui_state%backend)) then
+        error stop "FATAL: No backends available"
+      end if
+      print *, "Warning: Requested backend '" // trim(selected_backend) // &
+               "' not available, using TUI"
+    end if
+    
+    ! Check if backend is actually available in current environment
+    if (.not. ui_state%backend%is_available()) then
+      ! Try fallback to TUI
+      ui_state%backend => get_backend("tui")
+      if (associated(ui_state%backend)) then
+        if (ui_state%backend%is_available()) then
+          print *, "Warning: Selected backend not available in environment, using TUI"
+        else
+          error stop "FATAL: No backends available in current environment"
+        end if
+      else
+        error stop "FATAL: TUI backend not registered"
+      end if
+    end if
+    
+    ! Initialize the selected backend
+    ui_state%active_backend = selected_backend
+    call ui_state%backend%init(width_px, height_px, title, &
+                                target_fps_val, vsync_val)
+  end subroutine ui_init
+  
+  function select_best_backend() result(backend_name)
+    character(len=32) :: backend_name
+    class(backend_interface), pointer :: backend
+    
+    ! Try GUI first if available
+    backend => get_backend("gui")
+    if (associated(backend)) then
+      if (backend%is_available()) then
+        backend_name = "gui"
+        return
+      end if
+    end if
+    
+    ! Fallback to TUI
+    backend_name = "tui"
+  end function select_best_backend
+  
+  subroutine ui_begin_frame()
+    if (associated(ui_state%backend)) then
+      call ui_state%backend%begin_frame()
+    end if
+  end subroutine ui_begin_frame
+  
+  subroutine ui_present()
+    if (associated(ui_state%backend)) then
+      call ui_state%backend%present()
+    end if
+  end subroutine ui_present
+  
+  subroutine ui_shutdown()
+    if (associated(ui_state%backend)) then
+      call ui_state%backend%shutdown()
+      ui_state%backend => null()
+    end if
+  end subroutine ui_shutdown
+  
+end module fortui_core
+```
+
+#### Backend Registration at Program Start
+```fortran
+! src/fortui.f90 - Main module with backend registration
+module fortui
+  use fortui_core
+  use fortui_widgets
+  use fortui_units
+  use fortui_backend
+  use fortui_tui      ! Always available
+#ifdef ENABLE_GUI
+  use fortui_gui      ! Conditionally available
+#endif
+  implicit none
+  
+  ! Module initialization
+  logical, save :: backends_registered = .false.
+  
+contains
+  
+  ! Called automatically or explicitly before ui_init
+  subroutine register_backends()
+    if (backends_registered) return
+    
+    ! Always register TUI backend
+    call register_tui_backend()
+    
+#ifdef ENABLE_GUI
+    ! Register GUI backend if compiled in
+    call register_gui_backend()
+#endif
+    
+    backends_registered = .true.
+  end subroutine register_backends
+  
+end module fortui
+```
+
+### Implementation Strategy
+
+#### Phase 1: Backend Abstraction Layer
+1. Create `fortui_backend.f90` with abstract interface and registry
+2. Update `fortui_tui.f90` to implement backend interface
+3. Update `fortui_gui.F90` to implement backend interface
+4. Remove direct backend imports from `fortui_core.f90`
+
+#### Phase 2: Registration System
+1. Implement backend registration in main `fortui.f90` module
+2. Add automatic registration on module load
+3. Update `ui_init` to use registered backends
+
+#### Phase 3: Migration and Testing
+1. Update all backend-specific calls to use interface
+2. Test TUI-only builds
+3. Test GUI+TUI builds
+4. Verify runtime backend selection
+
+### Benefits
+
+**Architectural Improvements**:
+- **Dependency Inversion**: Core depends on abstraction, not concrete implementations
+- **Single Responsibility**: Core only manages lifecycle, backends handle rendering
+- **Open/Closed**: New backends can be added without modifying core
+- **Compile-time Safety**: No undefined module references
+
+**Build System Benefits**:
+- Eliminates circular dependency compilation errors
+- Simplifies conditional compilation logic
+- Enables true modular backend system
+- Fixes Issues #52, #53, #58 by proper module isolation
+
+**Runtime Benefits**:
+- Dynamic backend discovery and selection
+- Graceful fallback when backends unavailable
+- Clear capability reporting
+- Extensible for future backends
+
+### Testing Strategy
+
+1. **Unit Tests**: Test backend registration and retrieval
+2. **Integration Tests**: Test backend selection logic
+3. **Build Tests**: Verify TUI-only and GUI+TUI configurations
+4. **Runtime Tests**: Verify environment detection and fallback
+
+### Impact on Other Issues
+
+- **Issue #58**: GUI initialization will work correctly with proper abstraction
+- **Issue #52-53**: Library paths managed per-backend, no cross-contamination
+- **Issue #11**: GUI backend becomes truly optional add-on
+- **Future**: Easy to add new backends (web, curses, etc.)
+
+⸻
+
 ## GUI Backend Implementation (Issue #11)
 
 ### Overview

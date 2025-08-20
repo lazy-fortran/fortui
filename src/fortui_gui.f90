@@ -2,19 +2,17 @@
 module fortui_gui
 ! GUI backend implementation for raylib/raygui integration
 ! Handles GUI initialization, rendering, and resource management
+use fortui_backend
 use iso_c_binding
 implicit none
 private
 
-! Public procedures for GUI backend
-public :: init_gui_backend_impl, shutdown_gui_backend_impl
-public :: begin_gui_frame_impl, present_gui_impl
-public :: check_gui_quit_impl
-public :: is_gui_available_impl
+! Public types and procedures
+public :: gui_backend_t, register_gui_backend
 public :: gui_render_tree
 
-! GUI backend state
-type :: gui_state_t
+! GUI backend implementation
+type, extends(backend_interface) :: gui_backend_t
     logical :: initialized = .false.
     logical :: window_created = .false.
     integer :: window_width = 800
@@ -31,9 +29,17 @@ type :: gui_state_t
     real :: char_height = 16.0
     ! Rendering context
     logical :: in_frame = .false.
-end type gui_state_t
+contains
+    procedure :: init => gui_init
+    procedure :: shutdown => gui_shutdown
+    procedure :: begin_frame => gui_begin_frame
+    procedure :: present => gui_present
+    procedure :: is_available => gui_is_available
+    procedure :: check_quit => gui_check_quit
+end type gui_backend_t
 
-type(gui_state_t), save :: gui_state
+! Module-level state for rendering (kept for compatibility)
+type(gui_backend_t), save :: gui_state
 
 ! Raylib C interface types and constants
 ! Window configuration flags
@@ -383,35 +389,37 @@ subroutine present_gui_impl(tree)
     end if
     
     ! Check for window close events
-    if (gui_state%window_created) then
+    if (self%window_created) then
         ! Check for window close request from raylib
-        if (gui_state%frame_count > 100) then
-            gui_state%should_close = .true.
+        if (self%frame_count > 100) then
+            self%should_close = .true.
         end if
     end if
-end subroutine present_gui_impl
+end subroutine gui_present
 
 ! Check if GUI should quit
-logical function check_gui_quit_impl()
-    if (.not. gui_state%initialized) then
-        check_gui_quit_impl = .true.
+logical function gui_check_quit(self)
+    class(gui_backend_t), intent(inout) :: self
+    
+    if (.not. self%initialized) then
+        gui_check_quit = .true.
         return
     end if
     
     ! Check window close status
-    if (gui_state%window_created) then
+    if (self%window_created) then
         ! Would check raylib window status
-        ! check_gui_quit_impl = WindowShouldClose() .or. gui_state%should_close
-        check_gui_quit_impl = gui_state%should_close
+        ! gui_check_quit = WindowShouldClose() .or. self%should_close
+        gui_check_quit = self%should_close
     else
-        check_gui_quit_impl = .true.
+        gui_check_quit = .true.
     end if
     
     ! Auto-quit after timeout for demonstration purposes
-    if (gui_state%frame_count > 600) then  ! ~10 seconds at 60 FPS
-        check_gui_quit_impl = .true.
+    if (self%frame_count > 600) then  ! ~10 seconds at 60 FPS
+        gui_check_quit = .true.
     end if
-end function check_gui_quit_impl
+end function gui_check_quit
 
 ! Render widget tree recursively (simplified to avoid circular dependencies)
 recursive subroutine gui_render_tree(tree, x, y)
