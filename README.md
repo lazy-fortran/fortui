@@ -15,39 +15,50 @@ A declarative UI library for modern Fortran with dual backends: terminal (TUI) a
 
 ### Prerequisites
 
+**Required:**
 - Modern Fortran compiler (gfortran 9+ or ifort)
-- **TUI backend**: termbox2 library
-- **GUI backend**: raylib and raygui libraries
+- **TUI backend**: termbox2 library (built automatically)
+
+**Optional (for GUI backend):**
+- **raylib library**: Install via system package manager
+  ```bash
+  sudo apt install libraylib-dev    # Ubuntu/Debian
+  brew install raylib               # macOS  
+  sudo dnf install raylib-devel     # Fedora/RHEL
+  ```
+- **fortran-raygui bindings**: Fetched and built automatically when GUI enabled
 
 ### Build
 
 fortui provides multiple build methods for different workflows:
 
-#### Method 1: Using Make (Recommended)
+#### Method 1: Using FPM with Environment Setup (Recommended)
 ```bash
-# Clone repository
+# Clone repository  
 git clone https://github.com/krystophny/fortui.git
 cd fortui
 
-# Build everything (dependencies + project)
-make
+# Automatic GUI/TUI build (detects raylib)
+source fpm_env.sh         # Builds dependencies, configures FPM
+fpm build                 # GUI+TUI if raylib found, TUI-only otherwise
+fpm test
+fpm run --example gui_demo
+
+# Force TUI-only build
+DISABLE_GUI=1 source fpm_env.sh
+fpm build                 # TUI backend only
+```
+
+#### Method 2: Using Make
+```bash
+# Build everything (dependencies + project)  
+make                      # GUI+TUI if raylib available
 
 # Run tests
 make test
 
 # Build TUI-only version
 DISABLE_GUI=1 make
-```
-
-#### Method 2: Using FPM with Environment Setup
-```bash
-# Set up environment (builds dependencies and configures FPM)
-source fpm_env.sh
-
-# Use standard FPM commands
-fpm build
-fpm test
-fpm run --example layout_demo
 ```
 
 #### Method 3: Direct Build Script + FPM
@@ -462,14 +473,23 @@ call ui_init(backend="tui", width=80, height=25, title="My App")
 
 ### Graphical UI (GUI)  
 ```fortran
-call ui_init(backend="gui", width=100, height=30, title="My App", &
-             target_fps=60, vsync=.true.)
+! Automatic backend selection (recommended)
+call ui_init("auto", 800, 600, "My App")
+
+! Explicit GUI mode with configuration
+call ui_init("gui", 800, 600, "My App", target_fps=60, vsync=.true.)
 call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
+
+! Same widgets work in both TUI and GUI
+clicked = button("save", "Save File", width=120.0, height=40.0)
 ```
-- VSync-aware rendering
-- Configurable frame rate
-- Adaptive idle policies
-- Automatic TUI fallback if GUI unavailable
+
+**GUI Features:**
+- **Conditional compilation**: Builds only when raylib available
+- **Automatic fallback**: Gracefully switches to TUI in headless environments  
+- **Pixel-perfect rendering**: Exact monospace alignment with TUI
+- **Performance optimized**: VSync, configurable FPS, adaptive idle
+- **Cross-platform**: Linux, macOS, Windows with raylib integration
 
 ## Current Implementation Status
 
@@ -505,10 +525,10 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 - **[Lifecycle API](docs/LIFECYCLE_API.md)**: UI initialization and frame management
 
 ### Backend Guides
+- **[GUI Backend Guide](docs/GUI_BACKEND_GUIDE.md)**: Complete graphical UI backend with raylib integration, compilation, and troubleshooting
 - **[TUI Backend Guide](docs/TUI_BACKEND_GUIDE.md)**: Complete terminal UI backend documentation with termbox2 integration
 - **[Event System Guide](docs/EVENT_SYSTEM_GUIDE.md)**: Event-driven model for responsive TUI applications
 - **[Coordinate System Guide](docs/COORDINATE_SYSTEM_GUIDE.md)**: Coordinate conversion and cell-based rendering system
-- **[Backend Selection](docs/BACKEND_SELECTION.md)**: TUI vs GUI compilation and runtime selection guide
 
 ### Integration & Development
 - **[Application Integration](docs/APPLICATION_INTEGRATION.md)**: Complete examples for real applications
