@@ -1530,7 +1530,7 @@ recursive subroutine assign_node(lhs, rhs)
     end if
 end subroutine assign_node
 
-! Mock termbox2 implementations for testing without actual library
+! Mock termbox2 implementations for testing and fallback
 integer(c_int) function mock_tb_init() result(ret)
     ! Mock termbox2 initialization
     mock_terminal%initialized = .true.
