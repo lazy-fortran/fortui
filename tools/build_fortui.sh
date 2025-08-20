@@ -280,8 +280,11 @@ validate_dependency_checksum() {
         ref_hash=$(cd "$repo_dir" && call_git rev-parse "origin/$expected_ref" 2>/dev/null || echo "unknown")
         
         if [[ "$current_hash" != "$ref_hash" ]]; then
-            echo "Warning: $dep_name checksum mismatch. Expected ref: $expected_ref, Current: $current_ref ($current_hash)" >&2
-            [[ "${DEBUG}" == "1" ]] && echo "DEBUG: This may indicate repository corruption or unexpected changes" >&2
+            echo "Warning: $dep_name checksum mismatch." \
+                 "Expected ref: $expected_ref, Current: $current_ref ($current_hash)" >&2
+            [[ "${DEBUG}" == "1" ]] && \
+                echo "DEBUG: This may indicate repository corruption" \
+                     "or unexpected changes" >&2
         elif [[ "${DEBUG}" == "1" ]]; then
             echo "DEBUG: $dep_name checksum valid (detached HEAD at correct commit)" >&2
         fi
@@ -335,7 +338,9 @@ validate_dependency_compatibility() {
         if [[ -n "${RAYLIB_ROOT}" ]]; then
             # Try to extract version from headers
             if [[ -f "${RAYLIB_ROOT}/include/raylib.h" ]]; then
-                raylib_version=$(grep -oE '#define RAYLIB_VERSION "[0-9]+\.[0-9]+\.[0-9]+"' "${RAYLIB_ROOT}/include/raylib.h" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+                raylib_version=$(grep -oE '#define RAYLIB_VERSION "[0-9]+\.[0-9]+\.[0-9]+"' \
+                    "${RAYLIB_ROOT}/include/raylib.h" 2>/dev/null | \
+                    grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
             fi
         elif command -v pkg-config >/dev/null 2>&1 && call_pkg_config --exists raylib; then
             raylib_version=$(call_pkg_config --modversion raylib 2>/dev/null)
@@ -348,7 +353,8 @@ validate_dependency_compatibility() {
             
             # Check if raylib version is compatible (3.0.0+)
             if [[ "$raylib_major" -lt 3 ]]; then
-                echo "Warning: Raylib version $raylib_version may not be compatible with fortran-raygui (requires >=3.0.0)" >&2
+                echo "Warning: Raylib version $raylib_version may not be" \
+                     "compatible with fortran-raygui (requires >=3.0.0)" >&2
                 echo "         Build may fail. Consider upgrading raylib." >&2
             elif [[ "${DEBUG}" == "1" ]]; then
                 echo "DEBUG: Raylib version $raylib_version is compatible with fortran-raygui" >&2
