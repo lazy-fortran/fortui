@@ -1,6 +1,6 @@
 #!/bin/bash
 # fpm_build.sh - Wrapper to properly build with FPM using dependencies
-# Usage: ./fmp_build.sh [fpm_args...]
+# Usage: ./fpm_build.sh [fpm_args...]
 set -e
 
 # Get the directory of this script
