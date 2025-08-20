@@ -26,7 +26,7 @@ A declarative UI library for modern Fortran with dual backends: terminal (TUI) a
 git clone https://github.com/krystophny/fortui.git
 cd fortui
 
-# Build dependencies (termbox2 for TUI, fortran-raygui for GUI)
+# Build dependencies (termbox2 for TUI, fortran-raylib for GUI)
 ./tools/build_fortui.sh build
 
 # Build fortui library
@@ -54,7 +54,7 @@ OFFLINE_MODE=1          # Work with cached dependencies only
 DEBUG=1                 # Enable detailed build diagnostics
 
 # Repository customization
-FRG_URL=https://github.com/user/fortran-raygui.git
+FRG_URL=https://github.com/user/fortran-raylib.git
 FRG_REF=feature-branch
 TERMBOX_URL=https://github.com/user/termbox2.git  
 TERMBOX_REF=custom-ref
