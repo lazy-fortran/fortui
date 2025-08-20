@@ -31,15 +31,24 @@ call ui_shutdown()
 
 ### ui_init
 
-Initialize the UI system with specified backend and window parameters.
+Initialize the UI system with backend selection and window parameters. Supports both integer dimensions (backward compatible) and abstract unit types.
 
 ```fortran
+! Integer dimensions (backward compatible)
 subroutine ui_init(backend, width, height, title, target_fps, vsync)
   character(*), intent(in) :: backend        ! "tui" | "gui" | "auto"
   integer,      intent(in) :: width, height  ! grid units (gu)  
   character(*), intent(in) :: title
   integer,      intent(in), optional :: target_fps   ! gui: default 60; tui: ignored
   logical,      intent(in), optional :: vsync        ! gui: default .true.; tui: ignored
+
+! Abstract unit types (NEW)
+subroutine ui_init(backend, width_unit, height_unit, title, target_fps, vsync)
+  character(*),         intent(in) :: backend            ! "tui" | "gui" | "auto"
+  class(unit_type),     intent(in) :: width_unit, height_unit  ! any abstract unit type
+  character(*),         intent(in) :: title
+  integer,      intent(in), optional :: target_fps       ! gui: default 60; tui: ignored
+  logical,      intent(in), optional :: vsync            ! gui: default .true.; tui: ignored
 ```
 
 **Parameters:**
@@ -47,9 +56,10 @@ subroutine ui_init(backend, width, height, title, target_fps, vsync)
   - `"tui"`: Force terminal UI backend
   - `"gui"`: Force graphical window backend (falls back to TUI if not available)
   - `"auto"`: Automatically select best available backend based on environment
-- `width`, `height`: Window dimensions in grid units (gu)
-  - **TUI**: 1 gu = 1 terminal cell
-  - **GUI**: 1 gu = 1 monospace character width/height
+- `width`, `height` (integer version): Window dimensions in grid units (gu)
+- `width_unit`, `height_unit` (abstract version): Window dimensions as abstract unit types
+  - **Any unit type**: `dp_unit()`, `em_unit()`, `cw_unit()`, `inches_unit()`, etc.
+  - **Context conversion**: Units converted using backend measurement system
 - `title`: Window title displayed in terminal title bar or GUI window
 - `target_fps` (optional): Target frame rate for GUI mode (default: 60, ignored in TUI)
 - `vsync` (optional): Enable VSync for GUI mode (default: true, ignored in TUI)
@@ -57,37 +67,37 @@ subroutine ui_init(backend, width, height, title, target_fps, vsync)
 **Usage Examples:**
 
 ```fortran
+use fortui_unit_types
+
 ! Automatic backend selection (recommended)
-call ui_init(backend="auto", width=80, height=25, title="Smart App")
+call ui_init("auto", cw_unit(80.0), ch_unit(25.0), "Smart App")
 
-! Terminal UI - explicit
-call ui_init(backend="tui", width=80, height=25, title="My TUI App")
+! Abstract units with mixed types
+call ui_init("auto", dp_unit(800.0), em_unit(30.0), "Mixed Units")
 
-! Terminal UI - larger
-call ui_init(backend="tui", width=120, height=40, title="Extended Terminal")
+! Physical units for print layouts
+call ui_init("gui", inches_unit(8.5), cm_unit(21.0), "Paper Size")
 
-! GUI - basic (60 FPS, VSync on)
-call ui_init(backend="gui", width=100, height=30, title="My GUI App")
+! Legacy integer syntax (backward compatible)
+call ui_init("tui", 80, 25, "Terminal App")
 
-! GUI - high performance (120 FPS, VSync off)
-call ui_init(backend="gui", width=150, height=50, title="High FPS App", &
+! GUI with abstract units and options
+call ui_init("gui", dp_unit(1200.0), dp_unit(800.0), "High FPS App", &
              target_fps=120, vsync=.false.)
-
-! GUI - power saving (30 FPS, VSync on)
-call ui_init(backend="gui", width=80, height=25, title="Power Efficient", &
-             target_fps=30, vsync=.true.)
 ```
 
 **Backend Selection Logic:**
 ```fortran
-! Automatic selection based on environment
-call ui_init("auto", 80, 25, "Smart App")  ! Chooses GUI if available, TUI otherwise
+use fortui_unit_types
 
-! TUI mode: direct terminal mapping
-call ui_init("tui", 80, 25, "Standard Terminal")  ! 80 columns × 25 rows
+! Automatic selection with abstract units
+call ui_init("auto", cw_unit(80.0), ch_unit(25.0), "Smart App")
 
-! GUI mode: monospace-equivalent mapping  
-call ui_init("gui", 80, 25, "GUI Window")         ! 80 chars wide × 25 chars tall
+! TUI mode with terminal-friendly units
+call ui_init("tui", cw_unit(80.0), ch_unit(25.0), "Terminal")
+
+! GUI mode with mixed units
+call ui_init("gui", dp_unit(800.0), em_unit(30.0), "GUI Window")
 ```
 
 **Environment Variable Overrides:**
@@ -309,14 +319,15 @@ end subroutine
 ```fortran
 program complete_lifecycle_example
   use fortui_core
+  use fortui_unit_types
   implicit none
   
   type(node) :: ui_root
   logical :: running
   integer :: frame_count = 0
   
-  ! 1. Initialize with automatic backend selection
-  call ui_init(backend="auto", width=80, height=25, title="Lifecycle Demo")
+  ! 1. Initialize with automatic backend selection and abstract units
+  call ui_init("auto", cw_unit(80.0), ch_unit(25.0), "Lifecycle Demo")
   
   ! 2. Optional: Configure for GUI efficiency (ignored in TUI mode)
   call ui_set_idle_policy("adaptive", idle_fps=12)
