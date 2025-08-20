@@ -5,12 +5,13 @@ author = "Christopher Albert"
 maintainer = "albert@tugraz.at"
 copyright = "Copyright 2025, Christopher Albert"
 
-# Examples temporarily disabled due to widget interface changes
-# [[example]]
-# name = "simple_test"
-# source-dir = "examples"
-# main = "simple_test.f90"
-# 
+# Test re-enabling examples one by one
+[[example]]
+name = "simple_test"
+source-dir = "examples"
+main = "simple_test.f90"
+
+# Other examples temporarily disabled due to widget interface changes  
 # [[example]]  
 # name = "layout_demo"
 # source-dir = "examples"

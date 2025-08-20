@@ -11,6 +11,7 @@ public :: init_gui_backend_impl, shutdown_gui_backend_impl
 public :: begin_gui_frame_impl, present_gui_impl
 public :: check_gui_quit_impl
 public :: is_gui_available_impl
+public :: gui_render_tree
 
 ! GUI backend state
 type :: gui_state_t
@@ -22,12 +23,183 @@ type :: gui_state_t
     integer :: target_fps = 60
     logical :: vsync_enabled = .true.
     integer :: frame_count = 0
+    real :: last_frame_time = 0.0
     logical :: should_close = .false.
+    ! Font and text metrics
+    integer :: font_size = 16
+    real :: char_width = 8.0
+    real :: char_height = 16.0
+    ! Rendering context
     logical :: in_frame = .false.
 end type gui_state_t
 
 type(gui_state_t), save :: gui_state
 
+! Raylib C interface types and constants
+! Window configuration flags
+integer(c_int), parameter :: FLAG_VSYNC_HINT = 64
+integer(c_int), parameter :: FLAG_WINDOW_RESIZABLE = 4
+integer(c_int), parameter :: FLAG_WINDOW_UNDECORATED = 8
+integer(c_int), parameter :: FLAG_WINDOW_TRANSPARENT = 16
+
+! Colors (RGBA format)
+type, bind(C) :: Color
+    integer(c_int8_t) :: r, g, b, a
+end type Color
+
+! Vector2 for positions
+type, bind(C) :: Vector2
+    real(c_float) :: x, y
+end type Vector2
+
+! Rectangle for bounds
+type, bind(C) :: Rectangle
+    real(c_float) :: x, y, width, height
+end type Rectangle
+
+! Font structure (simplified)
+type, bind(C) :: Font
+    integer(c_int) :: baseSize
+    integer(c_int) :: glyphCount
+    integer(c_int) :: glyphPadding
+    type(c_ptr) :: texture
+    type(c_ptr) :: recs
+    type(c_ptr) :: glyphs
+end type Font
+
+! Predefined colors (using proper signed int8 values)
+type(Color), parameter :: RAYWHITE = Color(int(-11, c_int8_t), int(-11, c_int8_t), int(-11, c_int8_t), int(-1, c_int8_t))  ! 245,245,245,255
+type(Color), parameter :: BLACK = Color(int(0, c_int8_t), int(0, c_int8_t), int(0, c_int8_t), int(-1, c_int8_t))          ! 0,0,0,255  
+type(Color), parameter :: DARKGRAY = Color(int(80, c_int8_t), int(80, c_int8_t), int(80, c_int8_t), int(-1, c_int8_t))    ! 80,80,80,255
+type(Color), parameter :: GRAY = Color(int(-126, c_int8_t), int(-126, c_int8_t), int(-126, c_int8_t), int(-1, c_int8_t))  ! 130,130,130,255
+type(Color), parameter :: LIGHTGRAY = Color(int(-56, c_int8_t), int(-56, c_int8_t), int(-56, c_int8_t), int(-1, c_int8_t)) ! 200,200,200,255
+type(Color), parameter :: BLUE = Color(int(0, c_int8_t), int(121, c_int8_t), int(-15, c_int8_t), int(-1, c_int8_t))       ! 0,121,241,255
+type(Color), parameter :: GREEN = Color(int(0, c_int8_t), int(-28, c_int8_t), int(48, c_int8_t), int(-1, c_int8_t))       ! 0,228,48,255  
+type(Color), parameter :: RED = Color(int(-26, c_int8_t), int(41, c_int8_t), int(55, c_int8_t), int(-1, c_int8_t))        ! 230,41,55,255
+
+! Raylib C library interface (simplified subset)
+interface
+    ! Window management
+    subroutine InitWindow(width, height, title) bind(C, name="InitWindow")
+        import :: c_int, c_char
+        integer(c_int), intent(in), value :: width, height
+        character(c_char), intent(in) :: title(*)
+    end subroutine InitWindow
+    
+    subroutine CloseWindow() bind(C, name="CloseWindow")
+    end subroutine CloseWindow
+    
+    logical(c_bool) function WindowShouldClose() bind(C, name="WindowShouldClose")
+        import :: c_bool
+    end function WindowShouldClose
+    
+    logical(c_bool) function IsWindowReady() bind(C, name="IsWindowReady")
+        import :: c_bool
+    end function IsWindowReady
+    
+    subroutine SetWindowTitle(title) bind(C, name="SetWindowTitle")
+        import :: c_char
+        character(c_char), intent(in) :: title(*)
+    end subroutine SetWindowTitle
+    
+    subroutine SetWindowSize(width, height) bind(C, name="SetWindowSize")
+        import :: c_int
+        integer(c_int), intent(in), value :: width, height
+    end subroutine SetWindowSize
+    
+    integer(c_int) function GetScreenWidth() bind(C, name="GetScreenWidth")
+        import :: c_int
+    end function GetScreenWidth
+    
+    integer(c_int) function GetScreenHeight() bind(C, name="GetScreenHeight")
+        import :: c_int
+    end function GetScreenHeight
+    
+    ! Timing
+    subroutine SetTargetFPS(fps) bind(C, name="SetTargetFPS")
+        import :: c_int
+        integer(c_int), intent(in), value :: fps
+    end subroutine SetTargetFPS
+    
+    integer(c_int) function GetFPS() bind(C, name="GetFPS")
+        import :: c_int
+    end function GetFPS
+    
+    real(c_float) function GetFrameTime() bind(C, name="GetFrameTime")
+        import :: c_float
+    end function GetFrameTime
+    
+    real(c_double) function GetTime() bind(C, name="GetTime")
+        import :: c_double
+    end function GetTime
+    
+    ! Drawing
+    subroutine BeginDrawing() bind(C, name="BeginDrawing")
+    end subroutine BeginDrawing
+    
+    subroutine EndDrawing() bind(C, name="EndDrawing")
+    end subroutine EndDrawing
+    
+    subroutine ClearBackground(bg_color) bind(C, name="ClearBackground")
+        import :: Color
+        type(Color), intent(in), value :: bg_color
+    end subroutine ClearBackground
+    
+    ! Text drawing
+    subroutine DrawText(text, posX, posY, fontSize, text_color) bind(C, name="DrawText")
+        import :: c_char, c_int, Color
+        character(c_char), intent(in) :: text(*)
+        integer(c_int), intent(in), value :: posX, posY, fontSize
+        type(Color), intent(in), value :: text_color
+    end subroutine DrawText
+    
+    integer(c_int) function MeasureText(text, fontSize) bind(C, name="MeasureText")
+        import :: c_char, c_int
+        character(c_char), intent(in) :: text(*)
+        integer(c_int), intent(in), value :: fontSize
+    end function MeasureText
+    
+    ! Font management
+    type(Font) function GetFontDefault() bind(C, name="GetFontDefault")
+        import :: Font
+    end function GetFontDefault
+    
+    ! Shape drawing
+    subroutine DrawRectangle(posX, posY, width, height, rect_color) &
+        bind(C, name="DrawRectangle")
+        import :: c_int, Color
+        integer(c_int), intent(in), value :: posX, posY, width, height
+        type(Color), intent(in), value :: rect_color
+    end subroutine DrawRectangle
+    
+    subroutine DrawRectangleLines(posX, posY, width, height, line_color) &
+        bind(C, name="DrawRectangleLines")
+        import :: c_int, Color
+        integer(c_int), intent(in), value :: posX, posY, width, height
+        type(Color), intent(in), value :: line_color
+    end subroutine DrawRectangleLines
+    
+    subroutine DrawLine(startPosX, startPosY, endPosX, endPosY, line_color) &
+        bind(C, name="DrawLine")
+        import :: c_int, Color
+        integer(c_int), intent(in), value :: startPosX, startPosY, endPosX, endPosY
+        type(Color), intent(in), value :: line_color
+    end subroutine DrawLine
+    
+    ! Window flags
+    subroutine SetConfigFlags(flags) bind(C, name="SetConfigFlags")
+        import :: c_int
+        integer(c_int), intent(in), value :: flags
+    end subroutine SetConfigFlags
+    
+    logical(c_bool) function IsWindowFocused() bind(C, name="IsWindowFocused")
+        import :: c_bool
+    end function IsWindowFocused
+    
+    logical(c_bool) function IsWindowMinimized() bind(C, name="IsWindowMinimized")
+        import :: c_bool
+    end function IsWindowMinimized
+end interface
 contains
 
 ! Check if GUI backend is available at runtime
@@ -104,19 +276,30 @@ subroutine init_gui_backend_impl(width, height, title, target_fps, vsync)
     integer, intent(in) :: target_fps
     logical, intent(in) :: vsync
     
+    integer :: flags
+    character(len=:), allocatable :: c_title
+    integer :: text_width
     ! Check if already initialized
     if (gui_state%initialized) then
         call shutdown_gui_backend_impl()
     end if
     
     ! Store configuration
-    gui_state%window_width = max(100, width * 8)  ! Convert grid units to pixels
+    gui_state%window_width = max(100, width * 8)  ! Convert grid units to pixels (8px per char)
     gui_state%window_height = max(100, height * 16)  ! 16px line height
     gui_state%window_title = title
     gui_state%target_fps = max(1, target_fps)
     gui_state%vsync_enabled = vsync
     
-    ! Try to initialize GUI
+    ! Set window configuration flags
+    flags = FLAG_WINDOW_RESIZABLE
+    if (vsync) then
+        flags = ior(flags, FLAG_VSYNC_HINT)
+    end if
+    
+    ! Try to initialize raylib window
+    ! Note: In actual implementation, this would link to real raylib
+    ! For testing, we simulate the behavior
     if (is_gui_available_impl()) then
         ! Initialize GUI backend with raylib
         gui_state%window_created = .true.
@@ -125,6 +308,13 @@ subroutine init_gui_backend_impl(width, height, title, target_fps, vsync)
         gui_state%should_close = .false.
         gui_state%in_frame = .false.
         
+        ! Initialize font metrics (monospace assumption)
+        gui_state%font_size = 16
+        gui_state%char_width = 8.0
+        gui_state%char_height = 16.0
+        
+        ! Would set target FPS
+        ! call SetTargetFPS(gui_state%target_fps)
         print *, "init_gui_backend_impl: GUI initialized successfully"
         print *, "  Window size:", gui_state%window_width, "x", gui_state%window_height
         print *, "  Target FPS:", gui_state%target_fps
@@ -141,8 +331,10 @@ end subroutine init_gui_backend_impl
 subroutine shutdown_gui_backend_impl()
     if (.not. gui_state%initialized) return
     
-    ! Close GUI window if created
+    ! Close raylib window if created
     if (gui_state%window_created) then
+        ! Would call raylib cleanup here
+        ! call CloseWindow()
         gui_state%window_created = .false.
     end if
     
@@ -159,9 +351,14 @@ end subroutine shutdown_gui_backend_impl
 subroutine begin_gui_frame_impl()
     if (.not. gui_state%initialized) return
     
-    ! Start GUI frame
+    ! Start raylib drawing
     if (gui_state%window_created) then
+        ! Would call raylib frame begin
+        ! call BeginDrawing()
         gui_state%in_frame = .true.
+        
+        ! Clear background
+        ! call ClearBackground(BLACK)
     end if
     
     ! Update frame counter
@@ -175,8 +372,13 @@ subroutine present_gui_impl(tree)
     if (.not. gui_state%initialized) return
     if (.not. gui_state%in_frame) return
     
-    ! End GUI frame
+    ! Render the widget tree
+    call gui_render_tree(tree, 0.0, 0.0)
+    
+    ! End raylib drawing
     if (gui_state%window_created) then
+        ! Would call raylib frame end
+        ! call EndDrawing()
         gui_state%in_frame = .false.
     end if
     
@@ -198,6 +400,8 @@ logical function check_gui_quit_impl()
     
     ! Check window close status
     if (gui_state%window_created) then
+        ! Would check raylib window status
+        ! check_gui_quit_impl = WindowShouldClose() .or. gui_state%should_close
         check_gui_quit_impl = gui_state%should_close
     else
         check_gui_quit_impl = .true.
@@ -209,5 +413,62 @@ logical function check_gui_quit_impl()
     end if
 end function check_gui_quit_impl
 
+! Render widget tree recursively (simplified to avoid circular dependencies)
+recursive subroutine gui_render_tree(tree, x, y)
+    class(*), intent(in) :: tree
+    real, intent(in) :: x, y
+    
+    if (.not. gui_state%initialized) return
+    
+    ! Simplified rendering - just draw a placeholder for any widget
+    ! In a real implementation, this would properly handle node types
+    ! but we avoid circular dependencies by not importing fortui_core types
+    call gui_draw_text("W", nint(x), nint(y), GREEN)
+end subroutine gui_render_tree
+
+! Helper function to draw text (simulated for testing)
+subroutine gui_draw_text(text, x, y, draw_color)
+    character(*), intent(in) :: text
+    integer, intent(in) :: x, y
+    type(Color), intent(in) :: draw_color
+    
+    ! Would call raylib text drawing here
+    ! call DrawText(trim(text) // c_null_char, x, y, gui_state%font_size, draw_color)
+    
+    ! For testing, just track that drawing occurred
+    if (gui_state%in_frame) then
+        ! Text would be drawn here
+        continue
+    end if
+end subroutine gui_draw_text
+
+! Helper function to draw rectangle (simulated for testing)
+subroutine gui_draw_rect(x, y, width, height, draw_color, filled)
+    integer, intent(in) :: x, y, width, height
+    type(Color), intent(in) :: draw_color
+    logical, intent(in) :: filled
+    
+    if (.not. gui_state%in_frame) return
+    
+    if (filled) then
+        ! Would call raylib rectangle drawing
+        ! call DrawRectangle(x, y, width, height, draw_color)
+    else
+        ! Would call raylib rectangle lines drawing
+        ! call DrawRectangleLines(x, y, width, height, draw_color)
+    end if
+end subroutine gui_draw_rect
+
+! Helper function to measure text width
+integer function gui_measure_text(text, font_size)
+    character(*), intent(in) :: text
+    integer, intent(in) :: font_size
+    
+    ! Would call raylib text measurement
+    ! gui_measure_text = MeasureText(trim(text) // c_null_char, font_size)
+    
+    ! For testing, estimate based on character count
+    gui_measure_text = len_trim(text) * 8  ! Assume 8 pixels per character
+end function gui_measure_text
 end module fortui_gui
 #endif

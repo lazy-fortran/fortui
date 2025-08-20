@@ -38,7 +38,7 @@ subroutine test_viewport_function_signature()
     
     character(len=256) :: id
     type(view) :: test_view
-    type(node) :: result  ! Placeholder implementation returns node
+    logical :: result  ! Current implementation returns logical
     
     print *, "Testing viewport function signature..."
     
@@ -179,7 +179,7 @@ subroutine test_viewport_interaction_state()
     ! Note: Current placeholder maintains view state for testing
     
     type(view) :: test_view
-    type(node) :: result  ! Placeholder implementation returns node
+    logical :: result  ! Current implementation returns logical
     character(len=256) :: id
     
     print *, "Testing viewport interaction state management..."
@@ -220,7 +220,7 @@ subroutine test_viewport_cross_backend_rendering()
     ! Expected: Same viewport produces equivalent visual results in both backends
     
     type(view) :: tui_view, gui_view
-    type(node) :: tui_result, gui_result  ! Placeholder implementation returns node
+    logical :: tui_result, gui_result  ! Current implementation returns logical
     character(len=256) :: id
     
     print *, "Testing viewport cross-backend rendering..."
@@ -331,7 +331,7 @@ subroutine test_viewport_content_integration()
     ! Expected: Content hooks and clipping work correctly
     
     type(view) :: test_view
-    type(node) :: result  ! Placeholder implementation returns node
+    logical :: result  ! Current implementation returns logical
     character(len=256) :: id
     
     print *, "Testing viewport content integration..."
@@ -368,7 +368,7 @@ subroutine test_viewport_error_handling()
     ! Expected: Clear error messages for invalid parameters, graceful degradation
     
     type(view) :: test_view
-    type(node) :: result  ! Placeholder implementation returns node
+    logical :: result  ! Current implementation returns logical
     character(len=256) :: id
     
     print *, "Testing viewport error handling..."

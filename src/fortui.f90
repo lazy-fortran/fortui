@@ -21,7 +21,7 @@ public :: unit_value, ui_context
 public :: dp, em, sp, px, cw, ch
 
 ! Re-export all public functions from fortui_units
-public :: convert_to_dp, ui_get_context, ui_set_context
+public :: convert_to_dp, ui_set_context
 
 ! Re-export all public widget functions from fortui_widgets
 public :: button, text, slider, checkbox, viewport

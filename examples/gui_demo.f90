@@ -11,6 +11,7 @@ real :: volume = 50.0, brightness = 75.0
 integer :: frame_count = 0
 character(len=64) :: status_text
 type(view) :: plot_view
+type(text_node_t) :: title_node, subtitle_node, status_node
 
 print *, "=== fortui GUI Backend Demo ==="
 print *, ""
@@ -36,29 +37,29 @@ do while (running)
     write(status_text, '("Frame: ",I6," | Volume: ",F4.1,"% | Brightness: ",F4.1,"%")') &
         frame_count, volume, brightness
     
-    ! Demo UI with various widgets
-    call text("title", "fortui GUI Backend Demo", text_size=sp(20.0))
-    call text("subtitle", "Cross-platform GUI with raylib integration")
-    call text("status", status_text)
+    ! Demo UI with various widgets  
+    title_node = text("title", "fortui GUI Backend Demo", text_size=20.0)
+    subtitle_node = text("subtitle", "Cross-platform GUI with raylib integration")
+    status_node = text("status", status_text)
     
     ! Interactive controls
-    save_clicked = button("save", "Save Settings", width=dp(120.0), height=dp(35.0))
-    load_clicked = button("load", "Load Settings", width=dp(120.0), height=dp(35.0))
+    save_clicked = button("save", "Save Settings", width=120.0, height=35.0)
+    load_clicked = button("load", "Load Settings", width=120.0, height=35.0)
     
     ! Sliders for numeric input
-    if (slider("volume", 0.0, 100.0, 1.0, volume, width=dp(200.0))) then
+    if (slider("volume", 0.0, 100.0, 1.0, volume, width=200.0)) then
         ! Volume changed - could trigger audio update
     end if
     
-    if (slider("brightness", 0.0, 100.0, 1.0, brightness, width=dp(200.0))) then  
+    if (slider("brightness", 0.0, 100.0, 1.0, brightness, width=200.0)) then  
         ! Brightness changed - could trigger display update
     end if
     
     ! Checkbox for toggles
-    call checkbox("autosave", auto_save, "Enable Auto-Save")
+    auto_save = checkbox("autosave", auto_save, "Enable Auto-Save")
     
     ! Viewport for interactive content
-    if (viewport("demo_plot", dp(400.0), dp(200.0), plot_view)) then
+    if (viewport("demo_plot", 400.0, 200.0, plot_view)) then
         ! View changed - could trigger plot redraw
     end if
     
@@ -76,7 +77,8 @@ do while (running)
         print *, "Settings loaded (reset to defaults)"
     end if
     
-    call ui_present()
+    ! For now, skip ui_present until tree structure is implemented
+    ! call ui_present(tree_root)
     running = .not. ui_should_close()
 end do
 
