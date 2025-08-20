@@ -11,11 +11,20 @@ name = "simple_test"
 source-dir = "example"
 main = "simple_test.f90"
 
-# Other examples temporarily disabled due to widget interface changes  
-# [[example]]  
-# name = "layout_demo"
-# source-dir = "example"
-# main = "layout_demo.f90"
+[[example]]
+name = "button_layout_demo"
+source-dir = "example"
+main = "button_layout_demo.f90"
+
+[[example]]
+name = "layout_demo"
+source-dir = "example"
+main = "layout_demo.f90"
+
+[[example]]
+name = "tui_rendering_demo"
+source-dir = "example"
+main = "tui_rendering_demo.f90"
 
 [build]
 auto-executables = true
