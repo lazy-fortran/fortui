@@ -10,6 +10,7 @@ program demo
   type(view) :: v
   type(node) :: ui_root
   logical :: running
+  logical :: viewport_changed
   integer :: frame_count = 0
 
   print *, "fortui - Comprehensive Widget Demo"
@@ -51,7 +52,13 @@ program demo
     end if
     
     ! Viewport manages view state
-    viewport_node = viewport("plot", 80.0, 24.0, v)
+    viewport_changed = viewport("plot", 80.0, 24.0, v)
+    if (viewport_changed) then
+      print *, "Frame", frame_count, ": Viewport view changed!"
+    end if
+    
+    ! Create viewport node placeholder
+    viewport_node = node()
     
     ! Text display with status information
     ! In full implementation, text would be rendered/displayed
