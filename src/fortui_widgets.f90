@@ -50,7 +50,8 @@ function text(id, value, text_size, width, height) result(widget_node)
     if (present(height)) widget_node%height_dp = height
 end function text
 
-logical function slider(id, min_val, max_val, step_val, value, width, height) result(value_changed)
+logical function slider(id, min_val, max_val, step_val, value, width, height) &
+    result(value_changed)
     character(*), intent(in) :: id
     real, intent(in), optional :: min_val, max_val, step_val
     real, intent(inout), optional :: value

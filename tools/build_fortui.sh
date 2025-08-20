@@ -807,7 +807,8 @@ get_dependency_flags() {
         if [[ -d "${cache_dir}/fortran-raylib" ]]; then
             flags+=" -I${cache_dir}/fortran-raylib/src"
             # Add fortran-raylib library path if it exists
-            local frg_lib_path="${cache_dir}/fortran-raylib/build/gfortran_*/fortran-raylib"
+            local frg_lib_path
+            frg_lib_path="${cache_dir}/fortran-raylib/build/gfortran_*/fortran-raylib"
             if ls ${frg_lib_path}/*.a >/dev/null 2>&1; then
                 flags+=" -L${frg_lib_path} -lfortran-raylib"
             fi

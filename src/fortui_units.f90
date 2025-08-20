@@ -1,6 +1,6 @@
 module fortui_units
-! Comprehensive units system for fortui with function syntax and context-aware conversion
-! Provides ergonomic unit constructor functions (dp(), em(), sp(), px(), cw(), ch()) and cross-backend conversion
+! Comprehensive units system for fortui with function syntax
+! Provides ergonomic unit constructor functions and cross-backend conversion
 implicit none
 private
 
@@ -17,7 +17,7 @@ public :: convert_to_dp, ui_get_context, ui_set_context
 ! Internal unit type for runtime identification
 type :: unit_value
     real :: value                          ! Numeric value
-    character(len=2) :: unit_type         ! Unit identifier: "dp", "em", "sp", "px", "cw", "ch"
+    character(len=2) :: unit_type         ! Unit identifier
 end type unit_value
 
 
@@ -156,7 +156,8 @@ real function convert_to_dp(unit_arg, ctx) result(dp_val)
                     
                 case default
                     ! Unknown unit type - this should not happen with proper operators
-                    print *, "convert_to_dp: Error - Unknown unit type '", trim(unit_arg%unit_type), "'"
+                    print *, "convert_to_dp: Error - Unknown unit type '", &
+                        trim(unit_arg%unit_type), "'"
                     dp_val = unit_arg%value  ! Fallback to raw value
             end select
             
@@ -171,7 +172,7 @@ real function convert_to_dp(unit_arg, ctx) result(dp_val)
         class default
             ! Unsupported type - provide clear error message
             print *, "convert_to_dp: Error - Unsupported type passed to convert_to_dp"
-            print *, "  Supported types: unit_value (from dp(), em(), sp(), px(), cw(), ch()), real, integer"
+            print *, "  Supported types: unit_value, real, integer"
             dp_val = 0.0  ! Safe fallback value
     end select
 end function convert_to_dp
