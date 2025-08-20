@@ -474,7 +474,7 @@ subroutine ui_present(tree)
     
     ! Backend-specific presentation
     if (associated(ui_state%backend)) then
-        call ui_state%backend%present(tree)
+        call ui_state%backend%render(tree)
     else
         print *, "ui_present: Error - No backend available"
     end if
@@ -1320,7 +1320,7 @@ subroutine apply_buffer_diff()
     end do
 end subroutine apply_buffer_diff
 
-! GUI presentation is now handled through backend interface
+! GUI rendering is now handled through backend interface
 
 ! Backend-specific quit detection stubs
 logical function check_tui_quit()

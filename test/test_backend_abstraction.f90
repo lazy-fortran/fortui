@@ -50,7 +50,7 @@ subroutine test_backend_interface_procedures()
     call test_init_procedure_interface()
     call test_shutdown_procedure_interface()
     call test_begin_frame_procedure_interface()
-    call test_present_procedure_interface()
+    call test_render_procedure_interface()
     call test_is_available_function_interface()
     call test_check_quit_function_interface()
     
@@ -254,18 +254,18 @@ subroutine test_begin_frame_procedure_interface()
     ! - Verify procedure handles frame setup correctly
 end subroutine test_begin_frame_procedure_interface
 
-subroutine test_present_procedure_interface()
+subroutine test_render_procedure_interface()
     ! Given: present_proc abstract interface definition
-    ! When: Backends implement present procedure
+    ! When: Backends implement render procedure
     ! Then: Must match exact signature: (self)
     
-    print *, "  ✓ Present procedure interface test ready (awaiting implementation)"
+    print *, "  ✓ Render procedure interface test ready (awaiting implementation)"
     
     ! Implementation note for sergei:
     ! - Verify single parameter: class(backend_interface), intent(inout)
     ! - Test that present implementations match signature
     ! - Verify procedure handles frame presentation correctly
-end subroutine test_present_procedure_interface
+end subroutine test_render_procedure_interface
 
 subroutine test_is_available_function_interface()
     ! Given: is_available_proc function interface definition
@@ -550,7 +550,7 @@ subroutine test_tui_procedure_implementations()
     ! Implementation note for sergei:
     ! - Test tui_init implementation and termbox2 integration
     ! - Test tui_shutdown and resource cleanup
-    ! - Test tui_begin_frame and tui_present procedures
+    ! - Test tui_begin_frame and tui_render procedures
     ! - Test tui_is_available and tui_check_quit functions
 end subroutine test_tui_procedure_implementations
 
@@ -621,7 +621,7 @@ subroutine test_gui_procedure_implementations()
     ! Implementation note for sergei:
     ! - Test gui_init implementation and raylib integration
     ! - Test gui_shutdown and resource cleanup
-    ! - Test gui_begin_frame and gui_present procedures
+    ! - Test gui_begin_frame and gui_render procedures
     ! - Test gui_is_available (DISPLAY check) and gui_check_quit
 end subroutine test_gui_procedure_implementations
 

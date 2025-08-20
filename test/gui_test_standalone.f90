@@ -7,6 +7,7 @@ program gui_test_standalone
     class(backend_interface), pointer :: backend => null()
     logical :: available, quit
     integer :: i
+    integer :: dummy_tree = 0  ! Simple placeholder for tree parameter
     
     print *, "=== GUI Backend Test ==="
     
@@ -27,7 +28,7 @@ program gui_test_standalone
             ! Test frame cycle
             do i = 1, 5
                 call backend%begin_frame()
-                call backend%present()
+                call backend%render(dummy_tree)
                 quit = backend%check_quit()
                 print *, "  Frame", i, "- Quit:", quit
                 if (quit) exit

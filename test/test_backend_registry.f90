@@ -143,7 +143,7 @@ subroutine test_backend_interface_definition()
     !   * init(width, height, title, target_fps, vsync)
     !   * shutdown()
     !   * begin_frame()
-    !   * present()
+    !   * render()
     !   * is_available() -> logical
     !   * check_quit() -> logical
     ! - Verify backend_capability type exists with capability flags

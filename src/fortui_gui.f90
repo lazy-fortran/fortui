@@ -11,7 +11,7 @@ private
 public :: gui_backend_t, register_gui_backend
 public :: gui_render_tree
 ! Export implementation functions for fortui_core direct calls
-public :: begin_gui_frame_impl, check_gui_quit_impl, present_gui_impl
+public :: begin_gui_frame_impl, check_gui_quit_impl, render_gui_impl
 
 ! GUI backend implementation
 type, extends(backend_interface) :: gui_backend_t
@@ -35,7 +35,7 @@ contains
     procedure :: init => gui_init
     procedure :: shutdown => gui_shutdown
     procedure :: begin_frame => gui_begin_frame
-    procedure :: present => gui_present
+    procedure :: render => gui_render
     procedure :: is_available => gui_is_available
     procedure :: check_quit => gui_check_quit
 end type gui_backend_t
@@ -374,7 +374,7 @@ subroutine begin_gui_frame_impl()
 end subroutine begin_gui_frame_impl
 
 ! Present GUI frame with widget tree
-subroutine present_gui_impl(tree)
+subroutine render_gui_impl(tree)
     class(*), intent(in) :: tree
     
     if (.not. gui_state%initialized) return
@@ -397,7 +397,7 @@ subroutine present_gui_impl(tree)
             gui_state%should_close = .true.
         end if
     end if
-end subroutine present_gui_impl
+end subroutine render_gui_impl
 
 ! Check if GUI should quit (module-level state version for fortui_core)
 logical function check_gui_quit_impl()
@@ -573,14 +573,14 @@ subroutine gui_begin_frame(self)
 end subroutine gui_begin_frame
 
 ! Type-bound procedure: Present GUI frame
-subroutine gui_present(self, tree)
+subroutine gui_render(self, tree)
     class(gui_backend_t), intent(inout) :: self
     class(*), intent(in) :: tree
     
     if (.not. self%initialized) return
     
     ! Render the UI tree (delegate to existing implementation)
-    call present_gui_impl(tree)
+    call render_gui_impl(tree)
     ! The actual tree rendering happens through gui_render_tree
     if (self%in_frame .and. self%window_created) then
         ! Would call EndDrawing() here
@@ -591,7 +591,7 @@ subroutine gui_present(self, tree)
     ! Update instance state from module-level state
     self%should_close = gui_state%should_close
     self%in_frame = gui_state%in_frame
-end subroutine gui_present
+end subroutine gui_render
 
 ! Type-bound procedure: Check if GUI is available
 logical function gui_is_available(self)

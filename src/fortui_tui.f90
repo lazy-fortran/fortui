@@ -19,7 +19,7 @@ contains
     procedure :: init => tui_init
     procedure :: shutdown => tui_shutdown
     procedure :: begin_frame => tui_begin_frame
-    procedure :: present => tui_present
+    procedure :: render => tui_render
     procedure :: is_available => tui_is_available
     procedure :: check_quit => tui_check_quit
 end type tui_backend_t
@@ -200,7 +200,7 @@ subroutine tui_begin_frame(self)
     end if
 end subroutine tui_begin_frame
 
-subroutine tui_present(self, tree)
+subroutine tui_render(self, tree)
     class(tui_backend_t), intent(inout) :: self
     class(*), intent(in) :: tree
     
@@ -209,7 +209,7 @@ subroutine tui_present(self, tree)
         call tb_clear()
         call tb_present()
     end if
-end subroutine tui_present
+end subroutine tui_render
 
 logical function tui_is_available(self)
     class(tui_backend_t), intent(in) :: self

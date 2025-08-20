@@ -25,7 +25,7 @@ contains
     procedure(init_proc), deferred :: init
     procedure(shutdown_proc), deferred :: shutdown
     procedure(begin_frame_proc), deferred :: begin_frame
-    procedure(present_proc), deferred :: present
+    procedure(render_proc), deferred :: render
     procedure(is_available_proc), deferred :: is_available
     procedure(check_quit_proc), deferred :: check_quit
 end type backend_interface
@@ -51,11 +51,11 @@ abstract interface
         class(backend_interface), intent(inout) :: self
     end subroutine begin_frame_proc
     
-    subroutine present_proc(self, tree)
+    subroutine render_proc(self, tree)
         import :: backend_interface
         class(backend_interface), intent(inout) :: self
         class(*), intent(in) :: tree
-    end subroutine present_proc
+    end subroutine render_proc
     
     logical function is_available_proc(self)
         import :: backend_interface
