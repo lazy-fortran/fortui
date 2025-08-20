@@ -52,12 +52,14 @@ get_tool_versions() {
     
     # Compiler version (gfortran)
     if command -v gfortran >/dev/null 2>&1; then
-        versions+="gfortran:$(gfortran --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1);"
+        versions+="gfortran:$(gfortran --version | \
+            grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1);"
     fi
     
     # FPM version
     if command -v fpm >/dev/null 2>&1; then
-        versions+="fpm:$(fpm --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1);"
+        versions+="fpm:$(fpm --version 2>/dev/null | \
+            grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1);"
     fi
     
     echo "${versions}build_system:${BUILD_SYSTEM_VERSION}"
@@ -102,7 +104,8 @@ acquire_cache_lock() {
             local lock_pid
             lock_pid=$(cat "$lock_file" 2>/dev/null)
             if [[ -n "$lock_pid" ]] && ! kill -0 "$lock_pid" 2>/dev/null; then
-                [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Removing stale lock (PID $lock_pid)" >&2
+                [[ "${DEBUG}" == "1" ]] && \
+                    echo "DEBUG: Removing stale lock (PID $lock_pid)" >&2
                 rm -f "$lock_file"
                 continue
             fi
@@ -129,7 +132,8 @@ release_cache_lock() {
             rm -f "$lock_file"
             [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Released cache lock: $lock_file" >&2
         else
-            [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Lock owned by different process (PID $lock_pid)" >&2
+            [[ "${DEBUG}" == "1" ]] && \
+                echo "DEBUG: Lock owned by different process (PID $lock_pid)" >&2
         fi
     fi
     return 0
@@ -258,7 +262,8 @@ validate_dependency_checksum() {
     local dep_name="$3"
     
     if [[ ! -d "$repo_dir" ]]; then
-        [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Repository directory does not exist: $repo_dir" >&2
+        [[ "${DEBUG}" == "1" ]] && \
+            echo "DEBUG: Repository directory does not exist: $repo_dir" >&2
         return 1
     fi
     
@@ -266,31 +271,38 @@ validate_dependency_checksum() {
     local current_hash
     current_hash=$(calculate_repo_checksum "$repo_dir")
     
-    if [[ "$current_hash" == "not_a_git_repo" || "$current_hash" == "no_git_hash" ]]; then
-        echo "Warning: Could not validate checksum for $dep_name (not a git repository)" >&2
+    if [[ "$current_hash" == "not_a_git_repo" || \
+          "$current_hash" == "no_git_hash" ]]; then
+        echo "Warning: Could not validate checksum for $dep_name" \
+             "(not a git repository)" >&2
         return 0  # Don't fail build, just warn
     fi
     
     # For git repositories, we validate by checking if we're on the expected ref
     local current_ref
-    current_ref=$(cd "$repo_dir" && call_git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+    current_ref=$(cd "$repo_dir" && \
+        call_git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
     
     if [[ "$current_ref" != "$expected_ref" ]]; then
-        # If we're on a specific commit (detached HEAD), check if it matches expected ref
+        # If we're on a specific commit (detached HEAD), check if it matches
+        # expected ref
         local ref_hash
-        ref_hash=$(cd "$repo_dir" && call_git rev-parse "origin/$expected_ref" 2>/dev/null || echo "unknown")
+        ref_hash=$(cd "$repo_dir" && \
+            call_git rev-parse "origin/$expected_ref" 2>/dev/null || echo "unknown")
         
         if [[ "$current_hash" != "$ref_hash" ]]; then
-            echo "Warning: $dep_name checksum mismatch." \
-                 "Expected ref: $expected_ref, Current: $current_ref ($current_hash)" >&2
+            echo "Warning: $dep_name checksum mismatch. Expected ref:" \
+                 "$expected_ref, Current: $current_ref ($current_hash)" >&2
             [[ "${DEBUG}" == "1" ]] && \
                 echo "DEBUG: This may indicate repository corruption" \
                      "or unexpected changes" >&2
         elif [[ "${DEBUG}" == "1" ]]; then
-            echo "DEBUG: $dep_name checksum valid (detached HEAD at correct commit)" >&2
+            echo "DEBUG: $dep_name checksum valid" \
+                 "(detached HEAD at correct commit)" >&2
         fi
     elif [[ "${DEBUG}" == "1" ]]; then
-        echo "DEBUG: $dep_name checksum valid (on expected ref: $expected_ref)" >&2
+        echo "DEBUG: $dep_name checksum valid" \
+             "(on expected ref: $expected_ref)" >&2
     fi
     
     return 0
@@ -303,7 +315,8 @@ handle_corrupted_dependency() {
     local repo_ref="$3"
     local dep_name="$4"
     
-    echo "Detected corrupted $dep_name repository. Attempting recovery..." >&2
+    echo "Detected corrupted $dep_name repository." \
+         "Attempting recovery..." >&2
     
     # Remove corrupted directory
     if [[ -d "$repo_dir" ]]; then
@@ -312,13 +325,15 @@ handle_corrupted_dependency() {
     
     # Re-clone repository
     if ! call_git clone "$repo_url" "$repo_dir"; then
-        echo "Error: Failed to re-clone $dep_name repository after corruption" >&2
+        echo "Error: Failed to re-clone $dep_name repository" \
+             "after corruption" >&2
         return 1
     fi
     
     # Checkout expected ref
     if ! (cd "$repo_dir" && call_git checkout "$repo_ref"); then
-        echo "Error: Failed to checkout $dep_name ref: $repo_ref after recovery" >&2
+        echo "Error: Failed to checkout $dep_name ref:" \
+             "$repo_ref after recovery" >&2
         return 1
     fi
     
@@ -339,11 +354,13 @@ validate_dependency_compatibility() {
         if [[ -n "${RAYLIB_ROOT}" ]]; then
             # Try to extract version from headers
             if [[ -f "${RAYLIB_ROOT}/include/raylib.h" ]]; then
-                raylib_version=$(grep -oE '#define RAYLIB_VERSION "[0-9]+\.[0-9]+\.[0-9]+"' \
+                raylib_version=$(grep -oE \
+                    '#define RAYLIB_VERSION "[0-9]+\.[0-9]+\.[0-9]+"' \
                     "${RAYLIB_ROOT}/include/raylib.h" 2>/dev/null | \
                     grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
             fi
-        elif command -v pkg-config >/dev/null 2>&1 && call_pkg_config --exists raylib; then
+        elif command -v pkg-config >/dev/null 2>&1 && \
+             call_pkg_config --exists raylib; then
             raylib_version=$(call_pkg_config --modversion raylib 2>/dev/null)
         fi
         
@@ -358,10 +375,12 @@ validate_dependency_compatibility() {
                      "compatible with fortran-raylib (requires >=3.0.0)" >&2
                 echo "         Build may fail. Consider upgrading raylib." >&2
             elif [[ "${DEBUG}" == "1" ]]; then
-                echo "DEBUG: Raylib version $raylib_version is compatible with fortran-raylib" >&2
+                echo "DEBUG: Raylib version $raylib_version is compatible" \
+                     "with fortran-raylib" >&2
             fi
         elif [[ "${DEBUG}" == "1" ]]; then
-            echo "DEBUG: Could not determine raylib version for compatibility check" >&2
+            echo "DEBUG: Could not determine raylib version" \
+                 "for compatibility check" >&2
         fi
     fi
     
@@ -369,7 +388,8 @@ validate_dependency_compatibility() {
     local platform
     platform=$(detect_platform)
     if [[ "$platform" == "windows" && "${DEBUG}" == "1" ]]; then
-        echo "DEBUG: termbox2 may require additional setup on Windows platform" >&2
+        echo "DEBUG: termbox2 may require additional setup" \
+             "on Windows platform" >&2
     fi
     
     return 0
@@ -442,7 +462,8 @@ call_git() {
         case "$1" in
             clone|fetch|pull)
                 if [[ "${OFFLINE_MODE}" == "1" ]]; then
-                    echo "Error: Network operation '$1' not available in offline mode" >&2
+                    echo "Error: Network operation '$1' not available" \
+                         "in offline mode" >&2
                     return 1
                 fi
                 retry_with_backoff call_git_with_timeout "$@"
@@ -465,10 +486,13 @@ detect_raylib() {
     # Check RAYLIB_ROOT if specified
     if [[ -n "${RAYLIB_ROOT}" ]]; then
         if [[ -f "${RAYLIB_ROOT}/include/raylib.h" ]]; then
-            [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Found raylib via RAYLIB_ROOT: ${RAYLIB_ROOT}" >&2
+            [[ "${DEBUG}" == "1" ]] && \
+                echo "DEBUG: Found raylib via RAYLIB_ROOT: ${RAYLIB_ROOT}" >&2
             return 0
         else
-            [[ "${DEBUG}" == "1" ]] && echo "DEBUG: RAYLIB_ROOT specified but raylib.h not found: ${RAYLIB_ROOT}/include/raylib.h" >&2
+            [[ "${DEBUG}" == "1" ]] && \
+                echo "DEBUG: RAYLIB_ROOT specified but raylib.h not found:" \
+                     "${RAYLIB_ROOT}/include/raylib.h" >&2
             return 1
         fi
     fi
@@ -531,12 +555,14 @@ build_termbox2() {
     
     # Check if already built (unless forced rebuild)
     if [[ -f "${build_marker}" && "${FORCE_REBUILD}" != "1" ]]; then
-        [[ "${DEBUG}" == "1" ]] && echo "DEBUG: termbox2 already built (marker exists)" >&2
+        [[ "${DEBUG}" == "1" ]] && \
+            echo "DEBUG: termbox2 already built (marker exists)" >&2
         return 0
     fi
     
     if [[ "${FORCE_REBUILD}" == "1" && -f "${build_marker}" ]]; then
-        [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Force rebuild - removing existing termbox2 build marker" >&2
+        [[ "${DEBUG}" == "1" ]] && \
+            echo "DEBUG: Force rebuild - removing existing termbox2 build marker" >&2
         rm -f "${build_marker}"
     fi
     
@@ -545,20 +571,27 @@ build_termbox2() {
     # Clone or update termbox2
     if [[ -d "${termbox_dir}" ]]; then
         # Validate existing repository before updating
-        if ! validate_dependency_checksum "${termbox_dir}" "${TERMBOX_REF}" "termbox2"; then
+        if ! validate_dependency_checksum "${termbox_dir}" \
+             "${TERMBOX_REF}" "termbox2"; then
             if [[ "${OFFLINE_MODE}" == "1" ]]; then
-                echo "Warning: termbox2 repository validation failed in offline mode, using existing repository" >&2
+                echo "Warning: termbox2 repository validation failed" \
+                     "in offline mode, using existing repository" >&2
             else
-                echo "Warning: termbox2 repository validation failed, attempting recovery..." >&2
-                if ! handle_corrupted_dependency "${termbox_dir}" "${TERMBOX_URL}" "${TERMBOX_REF}" "termbox2"; then
+                echo "Warning: termbox2 repository validation failed," \
+                     "attempting recovery..." >&2
+                if ! handle_corrupted_dependency "${termbox_dir}" \
+                     "${TERMBOX_URL}" "${TERMBOX_REF}" "termbox2"; then
                     return 1
                 fi
             fi
         else
             if [[ "${OFFLINE_MODE}" == "1" ]]; then
-                [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Offline mode - skipping termbox2 repository update" >&2
+                [[ "${DEBUG}" == "1" ]] && \
+                    echo "DEBUG: Offline mode - skipping termbox2" \
+                         "repository update" >&2
             else
-                if ! (cd "${termbox_dir}" && call_git fetch && call_git reset --hard "origin/${TERMBOX_REF}"); then
+                if ! (cd "${termbox_dir}" && call_git fetch && \
+                      call_git reset --hard "origin/${TERMBOX_REF}"); then
                     echo "Error: Failed to update termbox2 repository" >&2
                     return 1
                 fi
@@ -566,8 +599,10 @@ build_termbox2() {
         fi
     else
         if [[ "${OFFLINE_MODE}" == "1" ]]; then
-            echo "Error: termbox2 repository not found and offline mode is enabled" >&2
-            echo "       Please run with OFFLINE_MODE=0 first to download dependencies" >&2
+            echo "Error: termbox2 repository not found and" \
+                 "offline mode is enabled" >&2
+            echo "       Please run with OFFLINE_MODE=0 first to" \
+                 "download dependencies" >&2
             return 1
         fi
         
@@ -582,8 +617,10 @@ build_termbox2() {
     fi
     
     # Final validation after clone/update
-    if ! validate_dependency_checksum "${termbox_dir}" "${TERMBOX_REF}" "termbox2"; then
-        echo "Warning: termbox2 repository validation failed after clone/update" >&2
+    if ! validate_dependency_checksum "${termbox_dir}" \
+         "${TERMBOX_REF}" "termbox2"; then
+        echo "Warning: termbox2 repository validation failed" \
+             "after clone/update" >&2
     fi
     
     # Build termbox2
@@ -604,18 +641,22 @@ build_fortran_raylib() {
     
     # Only build if GUI is enabled
     if ! detect_raylib; then
-        [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Skipping fortran-raylib build (GUI disabled)" >&2
+        [[ "${DEBUG}" == "1" ]] && \
+            echo "DEBUG: Skipping fortran-raylib build (GUI disabled)" >&2
         return 0
     fi
     
     # Check if already built (unless forced rebuild)
     if [[ -f "${build_marker}" && "${FORCE_REBUILD}" != "1" ]]; then
-        [[ "${DEBUG}" == "1" ]] && echo "DEBUG: fortran-raylib already built (marker exists)" >&2
+        [[ "${DEBUG}" == "1" ]] && \
+            echo "DEBUG: fortran-raylib already built (marker exists)" >&2
         return 0
     fi
     
     if [[ "${FORCE_REBUILD}" == "1" && -f "${build_marker}" ]]; then
-        [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Force rebuild - removing existing fortran-raylib build marker" >&2
+        [[ "${DEBUG}" == "1" ]] && \
+            echo "DEBUG: Force rebuild - removing existing" \
+                 "fortran-raylib build marker" >&2
         rm -f "${build_marker}"
     fi
     
@@ -624,20 +665,27 @@ build_fortran_raylib() {
     # Clone or update fortran-raylib
     if [[ -d "${frg_dir}" ]]; then
         # Validate existing repository before updating
-        if ! validate_dependency_checksum "${frg_dir}" "${FRG_REF}" "fortran-raylib"; then
+        if ! validate_dependency_checksum "${frg_dir}" \
+             "${FRG_REF}" "fortran-raylib"; then
             if [[ "${OFFLINE_MODE}" == "1" ]]; then
-                echo "Warning: fortran-raylib repository validation failed in offline mode, using existing repository" >&2
+                echo "Warning: fortran-raylib repository validation failed" \
+                     "in offline mode, using existing repository" >&2
             else
-                echo "Warning: fortran-raylib repository validation failed, attempting recovery..." >&2
-                if ! handle_corrupted_dependency "${frg_dir}" "${FRG_URL}" "${FRG_REF}" "fortran-raylib"; then
+                echo "Warning: fortran-raylib repository validation failed," \
+                     "attempting recovery..." >&2
+                if ! handle_corrupted_dependency "${frg_dir}" \
+                     "${FRG_URL}" "${FRG_REF}" "fortran-raylib"; then
                     return 1
                 fi
             fi
         else
             if [[ "${OFFLINE_MODE}" == "1" ]]; then
-                [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Offline mode - skipping fortran-raylib repository update" >&2
+                [[ "${DEBUG}" == "1" ]] && \
+                    echo "DEBUG: Offline mode - skipping fortran-raylib" \
+                         "repository update" >&2
             else
-                if ! (cd "${frg_dir}" && call_git fetch && call_git reset --hard "origin/${FRG_REF}"); then
+                if ! (cd "${frg_dir}" && call_git fetch && \
+                      call_git reset --hard "origin/${FRG_REF}"); then
                     echo "Error: Failed to update fortran-raylib repository" >&2
                     return 1
                 fi
@@ -645,8 +693,10 @@ build_fortran_raylib() {
         fi
     else
         if [[ "${OFFLINE_MODE}" == "1" ]]; then
-            echo "Error: fortran-raylib repository not found and offline mode is enabled" >&2
-            echo "       Please run with OFFLINE_MODE=0 first to download dependencies" >&2
+            echo "Error: fortran-raylib repository not found and" \
+                 "offline mode is enabled" >&2
+            echo "       Please run with OFFLINE_MODE=0 first to" \
+                 "download dependencies" >&2
             return 1
         fi
         
@@ -661,8 +711,10 @@ build_fortran_raylib() {
     fi
     
     # Final validation after clone/update
-    if ! validate_dependency_checksum "${frg_dir}" "${FRG_REF}" "fortran-raylib"; then
-        echo "Warning: fortran-raylib repository validation failed after clone/update" >&2
+    if ! validate_dependency_checksum "${frg_dir}" \
+         "${FRG_REF}" "fortran-raylib"; then
+        echo "Warning: fortran-raylib repository validation failed" \
+             "after clone/update" >&2
     fi
     
     # Build fortran-raylib (assuming it has a Makefile or fpm build)
@@ -746,7 +798,8 @@ get_dependency_flags() {
         # Add raylib flags
         if [[ -n "${RAYLIB_ROOT}" ]]; then
             flags+=" -I${RAYLIB_ROOT}/include -L${RAYLIB_ROOT}/lib -lraylib"
-        elif command -v pkg-config >/dev/null 2>&1 && call_pkg_config --exists raylib; then
+        elif command -v pkg-config >/dev/null 2>&1 && \
+             call_pkg_config --exists raylib; then
             flags+=" $(call_pkg_config --cflags --libs raylib)"
         fi
         
@@ -754,7 +807,8 @@ get_dependency_flags() {
         if [[ -d "${cache_dir}/fortran-raylib" ]]; then
             flags+=" -I${cache_dir}/fortran-raylib/src"
             # Add fortran-raylib library path if it exists
-            local frg_lib_path="${cache_dir}/fortran-raylib/build/gfortran_*/fortran-raylib"
+            local frg_lib_path="${cache_dir}/fortran-raylib/build/" \
+                              "gfortran_*/fortran-raylib"
             if ls ${frg_lib_path}/*.a >/dev/null 2>&1; then
                 flags+=" -L${frg_lib_path} -lfortran-raylib"
             fi
