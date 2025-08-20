@@ -7,7 +7,7 @@ private
 
 ! Layout dimension constants
 real, parameter :: DEFAULT_ROW_HEIGHT_DP = 32.0  ! Basic row height for vertical layout
-real, parameter :: DEFAULT_COLUMN_WIDTH_DP = 64.0  ! Basic column width for horizontal layout
+real, parameter :: DEFAULT_COLUMN_WIDTH_DP = 64.0  ! Basic column width
 
 ! Public types  
 public :: ui_element, node, view, widget_wrapper
@@ -128,7 +128,7 @@ type :: tui_state_t
     integer, allocatable :: line_hashes(:)  ! For diff optimization
     logical :: resize_pending = .false.
     logical :: quit_requested = .false.
-    logical :: using_real_termbox = .false.  ! Track which termbox2 implementation is active
+    logical :: using_real_termbox = .false.  ! Track termbox2 implementation
 end type tui_state_t
 
 type(tui_state_t), save :: tui_state
@@ -175,7 +175,8 @@ interface
         import :: c_int
     end function tb_height
     
-    integer(c_int) function tb_peek_event(event, timeout_ms) bind(C, name="tb_peek_event")
+    integer(c_int) function tb_peek_event(event, timeout_ms) &
+        bind(C, name="tb_peek_event")
         import :: c_int, tb_event
         type(tb_event), intent(out) :: event
         integer(c_int), intent(in), value :: timeout_ms
@@ -211,7 +212,7 @@ subroutine ui_init(backend, width, height, title, target_fps, vsync)
     integer,      intent(in) :: width, height  ! grid units (gu)
     character(*), intent(in) :: title
     integer,      intent(in), optional :: target_fps   ! gui: default 60; tui: ignored
-    logical,      intent(in), optional :: vsync        ! gui: default .true.; tui: ignored
+    logical,      intent(in), optional :: vsync        ! gui: default .true.
     
     character(len=32) :: resolved_backend
     character(len=256) :: display_var, ssh_client, ci_var
@@ -227,7 +228,8 @@ subroutine ui_init(backend, width, height, title, target_fps, vsync)
     
     ! Validate parameters
     if (width <= 0 .or. height <= 0) then
-        print *, "ui_init: Warning - Invalid dimensions (", width, "x", height, "), using defaults"
+        print *, "ui_init: Warning - Invalid dimensions (", width, "x", height, &
+             "), using defaults"
         ui_state%window_width = max(1, width)
         ui_state%window_height = max(1, height)
     else
@@ -273,7 +275,8 @@ subroutine ui_set_idle_policy(mode, idle_fps)        ! gui only
     case ("steady", "adaptive")
         ui_state%idle_mode = trim(mode)
     case default
-        print *, "ui_set_idle_policy: Warning - Invalid mode '", trim(mode), "', using 'adaptive'"
+        print *, "ui_set_idle_policy: Warning - Invalid mode '", trim(mode), &
+             "', using 'adaptive'"
         ui_state%idle_mode = "adaptive"
     end select
     
@@ -409,7 +412,8 @@ function resolve_backend(requested) result(backend)
         end if
     case default
         ! Invalid backend - fall back to TUI
-        print *, "resolve_backend: Warning - Unknown backend '", trim(requested), "', using TUI"
+        print *, "resolve_backend: Warning - Unknown backend '", trim(requested), &
+             "', using TUI"
         backend = "tui"
     end select
     
@@ -492,7 +496,7 @@ logical function is_headless_environment()
     is_headless_environment = .false.
 end function is_headless_environment
 
-! Backend-specific initialization stubs (will be implemented when backend modules available)
+! Backend-specific initialization stubs
 subroutine init_tui_backend()
     ! Initialize TUI backend with termbox2
     use fortui_units, only: ui_get_context, ui_set_context, ui_context
@@ -514,7 +518,7 @@ subroutine init_tui_backend()
         ! Initialize real termbox2 functionality with terminal control
         init_result = real_tb_init()
         if (init_result /= 0) then
-            print *, "init_tui_backend: Warning - real termbox2 initialization failed with code:", init_result
+            print *, "init_tui_backend: Warning - real termbox2 failed:", init_result
             print *, "init_tui_backend: Falling back to mock termbox2"
             use_real_termbox = .false.
         else
@@ -534,7 +538,7 @@ subroutine init_tui_backend()
         ! Use mock termbox2 for testing and demonstration
         init_result = mock_tb_init()
         if (init_result /= 0) then
-            print *, "init_tui_backend: Warning - mock termbox2 initialization failed with code:", init_result
+            print *, "init_tui_backend: Warning - mock termbox2 failed:", init_result
             
             ! Set up fallback terminal dimensions
             tui_state%terminal_width = max(1, ui_state%window_width)
@@ -920,7 +924,8 @@ recursive subroutine render_node_to_buffer(tree, offset_x_dp, offset_y_dp)
         case ("column")
             ! Vertical layout - children stacked vertically
             do i = 1, size(tree%children)
-                call render_node_to_buffer(tree%children(i), current_offset_x_dp, current_offset_y_dp)
+                call render_node_to_buffer(tree%children(i), current_offset_x_dp, &
+                    current_offset_y_dp)
                 ! Move down for next child (placeholder - would need proper sizing)
                 current_offset_y_dp = current_offset_y_dp + DEFAULT_ROW_HEIGHT_DP
                 if (tree%gap_dp > 0.0) then
@@ -931,7 +936,8 @@ recursive subroutine render_node_to_buffer(tree, offset_x_dp, offset_y_dp)
         case ("row")
             ! Horizontal layout - children placed side by side
             do i = 1, size(tree%children)
-                call render_node_to_buffer(tree%children(i), current_offset_x_dp, current_offset_y_dp)
+                call render_node_to_buffer(tree%children(i), current_offset_x_dp, &
+                    current_offset_y_dp)
                 ! Move right for next child (placeholder - would need proper sizing)
                 current_offset_x_dp = current_offset_x_dp + DEFAULT_COLUMN_WIDTH_DP
                 if (tree%gap_dp > 0.0) then
@@ -942,7 +948,8 @@ recursive subroutine render_node_to_buffer(tree, offset_x_dp, offset_y_dp)
         case default
             ! No specific layout - render children at same position (overlay)
             do i = 1, size(tree%children)
-                call render_node_to_buffer(tree%children(i), current_offset_x_dp, current_offset_y_dp)
+                call render_node_to_buffer(tree%children(i), current_offset_x_dp, &
+                    current_offset_y_dp)
             end do
             end select
         end if
@@ -1075,7 +1082,8 @@ subroutine render_text_to_buffer(text, x_dp, y_dp, fg_color, bg_color)
     end do
 end subroutine render_text_to_buffer
 
-subroutine render_box_to_buffer(x_dp, y_dp, width_dp, height_dp, border_char, fg_color, bg_color)
+subroutine render_box_to_buffer(x_dp, y_dp, width_dp, height_dp, border_char, &
+    fg_color, bg_color)
     ! Render a box outline to back buffer
     real, intent(in) :: x_dp, y_dp, width_dp, height_dp
     character, intent(in) :: border_char
@@ -1387,7 +1395,8 @@ integer(c_int) function real_tb_init() result(ret)
     
     ! Initialize screen buffer
     if (allocated(real_terminal%screen_buffer)) deallocate(real_terminal%screen_buffer)
-    allocate(character(len=real_terminal%width * real_terminal%height) :: real_terminal%screen_buffer)
+    allocate(character(len=real_terminal%width * real_terminal%height) :: &
+        real_terminal%screen_buffer)
     real_terminal%screen_buffer = repeat(' ', len(real_terminal%screen_buffer))
     
     ! Enter alternate screen mode for clean rendering
@@ -1472,7 +1481,8 @@ subroutine real_tb_set_cell(x, y, ch, fg, bg)
     if (.not. real_terminal%initialized) return
     
     ! Validate coordinates
-    if (x < 0 .or. x >= real_terminal%width .or. y < 0 .or. y >= real_terminal%height) return
+    if (x < 0 .or. x >= real_terminal%width .or. y < 0 .or. &
+        y >= real_terminal%height) return
     
     ! Convert character code to character
     ch_char = char(ch)

@@ -1,6 +1,6 @@
 program demo
   use fortui_core
-  use fortui_widgets
+  use fortui_widgets, only: button, slider, checkbox, text, viewport, text_node_t
   use fortui_units
   implicit none
 
@@ -46,13 +46,20 @@ program demo
     end if
     
     ! Checkbox updates grid state directly
-    call checkbox("grid", grid, "Show Grid")
+    if (checkbox("grid", grid, "Show Grid")) then
+      ! State was toggled
+    end if
     
     ! Viewport manages view state
     viewport_node = viewport("plot", 80.0, 24.0, v)
     
     ! Text display with status information
-    call text("status", status_line(gain, v, grid))
+    ! In full implementation, text would be rendered/displayed
+    ! For now, just call the function to avoid compiler error
+    block
+      type(text_node_t) :: status_text
+      status_text = text("status", status_line(gain, v, grid))
+    end block
     
     ! Build layout structure (placeholder nodes for now)
     ui_root = build_demo_layout()
