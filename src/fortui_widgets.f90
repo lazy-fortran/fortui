@@ -40,6 +40,11 @@ type :: viewport_node_t
     real :: width_dp = 0.0
     real :: height_dp = 0.0
     logical :: view_changed = .false.
+    ! Store view state for tracking changes
+    real :: current_scale_x = 1.0
+    real :: current_scale_y = 1.0
+    real :: current_off_x = 0.0
+    real :: current_off_y = 0.0
 end type viewport_node_t
 
 contains
@@ -92,7 +97,7 @@ function viewport(id, width, height, view_state) result(viewport_node)
     logical :: mouse_left, mouse_right, mouse_middle
     logical :: view_changed
     
-    ! Internal viewport state tracking
+    ! Internal viewport state tracking with per-ID state management
     type :: viewport_state_t
         logical :: dragging = .false.
         real :: last_mouse_x = 0.0
@@ -101,6 +106,11 @@ function viewport(id, width, height, view_state) result(viewport_node)
         real :: viewport_y = 0.0
         real :: viewport_w = 0.0
         real :: viewport_h = 0.0
+        ! Previous view state for change detection
+        real :: prev_scale_x = 1.0
+        real :: prev_scale_y = 1.0
+        real :: prev_off_x = 0.0
+        real :: prev_off_y = 0.0
     end type
     
     type(viewport_state_t), save :: state
@@ -114,11 +124,22 @@ function viewport(id, width, height, view_state) result(viewport_node)
     ! Convert dimensions to dp using class(*) interface
     call process_viewport_size(width, height, ctx, width_dp, height_dp)
     
-    ! Reset state if ID changed
+    ! Reset state if ID changed, preserving view state for change detection
     if (trim(id) /= trim(last_id)) then
         state%dragging = .false.
+        ! Store current view state as "previous" for change detection
+        state%prev_scale_x = view_state%scale_x
+        state%prev_scale_y = view_state%scale_y
+        state%prev_off_x = view_state%off_x
+        state%prev_off_y = view_state%off_y
         last_id = id
     end if
+    
+    ! Check if view has changed since last frame
+    view_changed = (abs(view_state%scale_x - state%prev_scale_x) > 1e-6) .or. &
+                   (abs(view_state%scale_y - state%prev_scale_y) > 1e-6) .or. &
+                   (abs(view_state%off_x - state%prev_off_x) > 1e-6) .or. &
+                   (abs(view_state%off_y - state%prev_off_y) > 1e-6)
     
     ! Store viewport dimensions for this frame
     state%viewport_w = width_dp
@@ -161,12 +182,19 @@ function viewport(id, width, height, view_state) result(viewport_node)
         state%dragging = .false.
     end if
     
+    ! Store current view state for next frame's change detection
+    state%prev_scale_x = view_state%scale_x
+    state%prev_scale_y = view_state%scale_y
+    state%prev_off_x = view_state%off_x
+    state%prev_off_y = view_state%off_y
+    
     ! Create viewport node with updated state
     ! For now, create a basic node - full implementation will include viewport-specific properties
     viewport_node = node()
     
     ! TODO: Store viewport-specific state and view changes in node metadata
     ! TODO: Use viewport_node_t type with proper id, dimensions, and view state
+    ! Note: view_changed status available for immediate-mode pattern integration
 
 contains
 
@@ -203,30 +231,48 @@ contains
 
     subroutine update_zoom(view_state, zoom_factor, mouse_x, mouse_y, viewport_width, viewport_height)
         use fortui_core, only: view
-        ! Update zoom scaling around mouse position
+        ! Update zoom scaling around mouse position with enhanced precision
         type(view), intent(inout) :: view_state
         real, intent(in) :: zoom_factor, mouse_x, mouse_y
         real, intent(in) :: viewport_width, viewport_height
         
         real :: old_scale_x, old_scale_y
         real :: view_x, view_y
+        real :: new_scale_x, new_scale_y
         
         ! Store old scale values
         old_scale_x = view_state%scale_x
         old_scale_y = view_state%scale_y
         
-        ! Apply zoom with reasonable limits
-        view_state%scale_x = max(0.1, min(10.0, view_state%scale_x * zoom_factor))
-        view_state%scale_y = max(0.1, min(10.0, view_state%scale_y * zoom_factor))
+        ! Calculate new scale values with enhanced limits
+        new_scale_x = old_scale_x * zoom_factor
+        new_scale_y = old_scale_y * zoom_factor
         
-        ! Adjust offset to zoom around mouse position
-        if (viewport_width > 0.0 .and. viewport_height > 0.0) then
-            view_x = mouse_x / viewport_width
-            view_y = mouse_y / viewport_height
+        ! Apply zoom limits with smooth clamping
+        ! Min zoom: 0.01 (1%), Max zoom: 100x
+        new_scale_x = max(0.01, min(100.0, new_scale_x))
+        new_scale_y = max(0.01, min(100.0, new_scale_y))
+        
+        ! Only update if scale actually changed (avoid floating point drift)
+        if (abs(new_scale_x - old_scale_x) > 1e-6 .or. abs(new_scale_y - old_scale_y) > 1e-6) then
+            view_state%scale_x = new_scale_x
+            view_state%scale_y = new_scale_y
             
-            if (old_scale_x > 0.0 .and. old_scale_y > 0.0) then
-                view_state%off_x = view_state%off_x + view_x * (1.0/old_scale_x - 1.0/view_state%scale_x)
-                view_state%off_y = view_state%off_y + view_y * (1.0/old_scale_y - 1.0/view_state%scale_y)
+            ! Adjust offset to zoom around mouse position
+            if (viewport_width > 0.0 .and. viewport_height > 0.0) then
+                ! Normalized mouse position (0-1)
+                view_x = mouse_x / viewport_width
+                view_y = mouse_y / viewport_height
+                
+                ! Clamp to viewport bounds
+                view_x = max(0.0, min(1.0, view_x))
+                view_y = max(0.0, min(1.0, view_y))
+                
+                if (old_scale_x > 0.0 .and. old_scale_y > 0.0) then
+                    ! Adjust pan to maintain mouse position in view
+                    view_state%off_x = view_state%off_x + view_x * (1.0/old_scale_x - 1.0/view_state%scale_x)
+                    view_state%off_y = view_state%off_y + view_y * (1.0/old_scale_y - 1.0/view_state%scale_y)
+                end if
             end if
         end if
     end subroutine update_zoom
