@@ -21,7 +21,7 @@ do while (running .and. frame < 10)
     ! Application settings  
     call checkbox("auto_save", auto_save, label="Auto-save Documents")
     call checkbox("dark_mode", dark_mode, label="Dark Theme", &
-                  width=dp(150.0))
+                  width=150.0)
     
     ! Display current settings
     print *, "Sound:", sound_enabled, "| Notifications:", notifications

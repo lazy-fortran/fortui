@@ -15,8 +15,8 @@ do i = 1, 5
     ! Basic button with ID and default label
     btn1_clicked = button("test_button")
     
-    ! Button with custom label and size
-    btn2_clicked = button("custom_btn", label="Click Me!", width=dp(80.0), height=dp(30.0))
+    ! Button with custom label and size (using real dp values for safety)
+    btn2_clicked = button("custom_btn", label="Click Me!", width=80.0, height=30.0)
     
     ! Test interaction detection
     if (btn1_clicked) print *, "Frame", i, ": Test button clicked!"

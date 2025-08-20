@@ -141,12 +141,12 @@ type(input_state_t), save :: input_state
 contains
 
 logical function button(id, label, width, height) result(clicked)
-    ! Immediate-mode button widget with unified class(*) interface
+    ! Immediate-mode button widget with safe real optionals
     ! Returns true when button is clicked, false otherwise
     character(*), intent(in) :: id
     character(*), intent(in), optional :: label
-    class(*), intent(in), optional :: width
-    class(*), intent(in), optional :: height
+    real, intent(in), optional :: width
+    real, intent(in), optional :: height
     
     integer :: state_index
     character(len=256) :: display_label
@@ -182,7 +182,8 @@ logical function button(id, label, width, height) result(clicked)
     
     ! Calculate dimensions - either explicit or auto-sized
     if (present(width)) then
-        button_width_dp = convert_to_dp(width, ctx)
+        ! Treat real values as dp units for safety
+        button_width_dp = width
         ! Apply minimum width constraint for clickability
         button_width_dp = max(button_width_dp, 20.0)
     else
@@ -191,7 +192,8 @@ logical function button(id, label, width, height) result(clicked)
     end if
     
     if (present(height)) then
-        button_height_dp = convert_to_dp(height, ctx)
+        ! Treat real values as dp units for safety
+        button_height_dp = height
         ! Apply minimum height constraint for clickability
         button_height_dp = max(button_height_dp, 16.0)
     else
@@ -588,10 +590,10 @@ end subroutine ensure_button_exists_for_testing
 ! =========================
 
 subroutine text(id, value, text_size, width, height)
-    ! Immediate-mode text widget with unified class(*) interface
+    ! Immediate-mode text widget with safe real optionals
     ! Displays text content with auto-sizing and cross-backend support
     character(*), intent(in) :: id, value
-    class(*), intent(in), optional :: text_size, width, height
+    real, intent(in), optional :: text_size, width, height
     
     integer :: state_index
     real :: widget_width_dp, widget_height_dp, widget_text_size_dp
@@ -627,7 +629,8 @@ subroutine text(id, value, text_size, width, height)
     
     ! Calculate text size - either explicit or use default
     if (present(text_size)) then
-        widget_text_size_dp = convert_to_dp(text_size, ctx)
+        ! Treat real values as dp units for safety
+        widget_text_size_dp = text_size
         ! Apply minimum text size constraint for readability
         widget_text_size_dp = max(widget_text_size_dp, 8.0)
     else
@@ -637,7 +640,8 @@ subroutine text(id, value, text_size, width, height)
     
     ! Calculate dimensions - either explicit or auto-sized
     if (present(width)) then
-        widget_width_dp = convert_to_dp(width, ctx)
+        ! Treat real values as dp units for safety
+        widget_width_dp = width
         ! Apply minimum width constraint
         widget_width_dp = max(widget_width_dp, 10.0)
     else
@@ -646,7 +650,8 @@ subroutine text(id, value, text_size, width, height)
     end if
     
     if (present(height)) then
-        widget_height_dp = convert_to_dp(height, ctx)
+        ! Treat real values as dp units for safety
+        widget_height_dp = height
         ! Apply minimum height constraint
         widget_height_dp = max(widget_height_dp, 12.0)
     else
@@ -668,12 +673,12 @@ subroutine text(id, value, text_size, width, height)
 end subroutine text
 
 logical function slider(id, min_val, max_val, step_val, value, width, height) result(changed)
-    ! Immediate-mode slider widget with unified class(*) interface and value management
+    ! Immediate-mode slider widget with safe real optionals and value management
     ! Returns true when slider value changes, false otherwise
     character(*), intent(in) :: id
     real, intent(in) :: min_val, max_val, step_val  
     real, intent(inout) :: value
-    class(*), intent(in), optional :: width, height
+    real, intent(in), optional :: width, height
     
     integer :: state_index
     real :: widget_width_dp, widget_height_dp
@@ -736,7 +741,8 @@ logical function slider(id, min_val, max_val, step_val, value, width, height) re
     
     ! Calculate dimensions
     if (present(width)) then
-        widget_width_dp = convert_to_dp(width, ctx)
+        ! Treat real values as dp units for safety
+        widget_width_dp = width
         ! Apply minimum width constraints for usability
         widget_width_dp = max(widget_width_dp, 50.0)
     else
@@ -745,7 +751,8 @@ logical function slider(id, min_val, max_val, step_val, value, width, height) re
     end if
     
     if (present(height)) then  
-        widget_height_dp = convert_to_dp(height, ctx)
+        ! Treat real values as dp units for safety
+        widget_height_dp = height
         ! Apply minimum height constraints for usability
         widget_height_dp = max(widget_height_dp, 16.0)
     else
@@ -770,12 +777,12 @@ logical function slider(id, min_val, max_val, step_val, value, width, height) re
 end function slider
 
 subroutine checkbox(id, checked, label, width, height)
-    ! Immediate-mode checkbox widget with unified class(*) interface and cross-backend support
+    ! Immediate-mode checkbox widget with safe real optionals and cross-backend support
     ! Modifies checked parameter based on user interactions
     character(*), intent(in) :: id
     logical, intent(inout) :: checked
     character(*), intent(in), optional :: label
-    class(*), intent(in), optional :: width, height
+    real, intent(in), optional :: width, height
     
     integer :: state_index
     character(len=256) :: display_label
@@ -813,7 +820,8 @@ subroutine checkbox(id, checked, label, width, height)
     
     ! Calculate dimensions - either explicit or auto-sized
     if (present(width)) then
-        widget_width_dp = convert_to_dp(width, ctx)
+        ! Treat real values as dp units for safety
+        widget_width_dp = width
         ! Apply minimum width constraint for clickability
         widget_width_dp = max(widget_width_dp, 16.0)
     else
@@ -822,7 +830,8 @@ subroutine checkbox(id, checked, label, width, height)
     end if
     
     if (present(height)) then
-        widget_height_dp = convert_to_dp(height, ctx)
+        ! Treat real values as dp units for safety
+        widget_height_dp = height
         ! Apply minimum height constraint for clickability
         widget_height_dp = max(widget_height_dp, 16.0)
     else
@@ -858,7 +867,7 @@ type(node) function viewport(id, width, height, v) result(n)
     ! Immediate-mode viewport widget for pan/zoom display areas
     ! Manages pan/zoom state through view parameter and processes mouse interactions
     character(*), intent(in) :: id
-    class(*), intent(in) :: width, height
+    real, intent(in) :: width, height
     type(view), intent(inout) :: v
     
     integer :: state_index
@@ -884,9 +893,9 @@ type(node) function viewport(id, width, height, v) result(n)
     ! Get current UI context
     call ui_get_context(ctx)
     
-    ! Calculate dimensions
-    widget_width_dp = convert_to_dp(width, ctx)
-    widget_height_dp = convert_to_dp(height, ctx)
+    ! Calculate dimensions - treat real values as dp units for safety
+    widget_width_dp = width
+    widget_height_dp = height
     
     ! Apply minimum size constraints for usability
     widget_width_dp = max(widget_width_dp, 32.0)

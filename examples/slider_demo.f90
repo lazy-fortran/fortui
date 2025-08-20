@@ -17,18 +17,18 @@ do while (running .and. frame < 10)
     frame = frame + 1
     print *, "Frame", frame
     
-    ! Volume slider (0-100, step 5)
-    volume_changed = slider("volume", 0.0, 100.0, 5.0, volume, width=dp(120.0))
+    ! Volume slider (0-100, step 5) with explicit width
+    volume_changed = slider("volume", 0.0, 100.0, 5.0, volume, width=120.0)
     if (volume_changed) print *, "Volume changed to:", volume
     print *, "Volume:", volume
     
-    ! Brightness slider (0-100, step 1) 
+    ! Brightness slider (0-100, step 1) - auto-sized
     brightness_changed = slider("brightness", 0.0, 100.0, 1.0, brightness)
     if (brightness_changed) print *, "Brightness changed to:", brightness
     print *, "Brightness:", brightness
     
-    ! Temperature slider (15-30°C, continuous)
-    temp_changed = slider("temperature", 15.0, 30.0, 0.0, temperature, width=cw(15.0))
+    ! Temperature slider (15-30°C, continuous) with compact width
+    temp_changed = slider("temperature", 15.0, 30.0, 0.0, temperature, width=120.0)
     if (temp_changed) print *, "Temperature changed to:", temperature, "°C"
     print *, "Temperature:", temperature, "°C"
     
