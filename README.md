@@ -93,6 +93,7 @@ TERMBOX_REF=custom-ref
 program layout_example
   use fortui_core
   use fortui_units
+  use fortui_unit_types
   implicit none
 
   type(node) :: ui, inner_layout
@@ -100,8 +101,8 @@ program layout_example
   logical :: running
   integer :: frame = 0
 
-  ! Automatic backend selection - uses GUI if available, TUI otherwise
-  call ui_init(backend="auto", width=60, height=20, title="Layout Demo")
+  ! Automatic backend selection with abstract units
+  call ui_init("auto", cw_unit(60.0), ch_unit(20.0), "Layout Demo")
   
   running = .true.
   do while (running)
@@ -292,35 +293,53 @@ notif_widget = checkbox("notifications", enabled, label="Email Notifications")
 - [Checkbox Widget API](docs/CHECKBOX_WIDGET.md)
 
 ### Units System
-fortui provides a comprehensive units system for cross-backend consistency:
+
+fortui provides abstract unit types with polymorphic dispatch for precise cross-backend sizing:
 
 ```fortran
-use fortui_units
+use fortui_core
+use fortui_unit_types
 
-! Unit constructor functions
-width = dp(40.0)      ! density-independent pixels
-gap = em(2.5)         ! relative to font size  
-text_size = sp(14.0)  ! scaled pixels (accessibility)
-border = px(2.0)      ! physical pixels
-cols = cw(10.0)       ! cell widths (TUI-friendly)
-rows = ch(3.0)        ! cell heights (TUI-friendly)
+! Abstract unit types - polymorphic dispatch
+call ui_init("auto", dp_unit(800.0), em_unit(30.0), "My App")
+call ui_init("gui", inches_unit(8.5), cm_unit(21.0), "Mixed Units")
 
-! Bare real values default to dp
-width = 40.0          ! equivalent to dp(40.0)
+! All unit types supported
+width = dp_unit(40.0)      ! density-independent pixels
+gap = em_unit(2.5)         ! relative to font size  
+text_size = sp_unit(14.0)  ! scaled pixels (accessibility)
+border = px_unit(2.0)      ! physical pixels
+cols = cw_unit(10.0)       ! cell widths (TUI-friendly)
+rows = ch_unit(3.0)        ! cell heights (TUI-friendly)
+
+! Physical units with DPI awareness
+paper_width = inches_unit(8.5)     ! physical inches
+paper_height = cm_unit(21.0)       ! physical centimeters
+border_size = mm_unit(5.0)         ! millimeters
+font_size = points_unit(12.0)      ! typography points
+
+! Legacy constructor functions still supported
+width = dp(40.0)           ! equivalent to dp_unit(40.0)
+gap = em(2.5)              ! equivalent to em_unit(2.5)
 ```
 
-**Cross-backend behavior:**
-- **TUI**: Units snap to cell boundaries for perfect terminal alignment
-- **GUI**: Subpixel precision maintained for smooth graphics
+**Abstract Type Integration:**
+- **Polymorphic dispatch**: `class(unit_type)` parameters work throughout API
+- **Context-aware conversion**: Each unit type converts via backend measurement
+- **Type safety**: NO `class(*)` usage - only abstract `unit_type`
 
 ## API Reference
 
 ### Lifecycle Management
 
 ```fortran
-! Initialize UI system with automatic backend selection
+! Initialize UI system - integer units (backward compatible)
 call ui_init(backend, width, height, title [, target_fps, vsync])
+
+! Initialize UI system - abstract units (NEW)
+call ui_init(backend, width_unit, height_unit, title [, target_fps, vsync])
 ! backend: "auto" | "tui" | "gui" ("auto" recommended)
+! width_unit, height_unit: class(unit_type) - any abstract unit type
 
 ! Optional: Configure GUI idle policy (ignored in TUI mode)
 call ui_set_idle_policy(mode [, idle_fps])  ! "adaptive" | "steady"
@@ -354,6 +373,7 @@ plot_view%off_x = 100.0    ! Pan right by 100 units
 ```fortran
 program core_types_demo  
   use fortui_core
+  use fortui_unit_types
   implicit none
 
   type(view) :: plot_view
@@ -361,8 +381,8 @@ program core_types_demo
   logical :: running
   integer :: frame_count = 0
 
-  ! Automatic backend selection - GUI if available, TUI otherwise
-  call ui_init(backend="auto", width=80, height=25, title="Core Types Demo")
+  ! Automatic backend selection with mixed abstract units
+  call ui_init("auto", cw_unit(80.0), ch_unit(25.0), "Core Types Demo")
   
   ! Optional: Configure power-saving for GUI mode (ignored in TUI)
   call ui_set_idle_policy("adaptive", idle_fps=12)

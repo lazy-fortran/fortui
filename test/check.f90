@@ -7,6 +7,9 @@ use test_units_system
 use test_layout_constructors
 use test_tui_backend
 use test_termbox2_interface
+use test_ui_context_integration
+use test_abstract_unit_types
+use test_platform_measurement
 ! use test_widgets  ! Temporarily disabled due to API mismatch
 ! use test_demo_application  ! Temporarily disabled due to API mismatch
 ! use test_demo_integration  ! Temporarily disabled due to API mismatch
@@ -50,6 +53,15 @@ subroutine run_fortran_tests()
     
     ! Termbox2 C interface tests with memory management and error handling
     call test_all_termbox2_interface()
+    
+    ! UI context integration tests with backend measurement (RED phase)
+    call test_all_ui_context_integration()
+    
+    ! Abstract unit types integration tests (RED phase)
+    call test_all_abstract_unit_types()
+    
+    ! Platform measurement system tests (RED phase)
+    call test_all_platform_measurement()
     
     ! Widget system tests with button implementation and immediate-mode interaction
     ! call test_all_widgets()  ! Temporarily disabled due to API mismatch

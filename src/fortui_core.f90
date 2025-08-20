@@ -36,6 +36,12 @@ end type ui_state_t
 
 type(ui_state_t), save :: ui_state
 
+! Interface for ui_init to support both integer and abstract unit parameters
+interface ui_init
+    module procedure ui_init_integer
+    module procedure ui_init_abstract
+end interface
+
 ! Abstract UI element hierarchy for tree construction
 type, abstract :: ui_element
     ! Abstract base for all UI elements (nodes, widgets, layouts)
@@ -209,7 +215,7 @@ end interface
 contains
 
 ! Lifecycle & pacing procedures
-subroutine ui_init(backend, width, height, title, target_fps, vsync)
+subroutine ui_init_integer(backend, width, height, title, target_fps, vsync)
     character(*), intent(in) :: backend        ! "tui" | "gui" | "auto"
     integer,      intent(in) :: width, height  ! grid units (gu)
     character(*), intent(in) :: title
@@ -266,7 +272,73 @@ subroutine ui_init(backend, width, height, title, target_fps, vsync)
     ! Debug output for tests
     print *, "ui_init: backend=", trim(ui_state%active_backend), " size=", &
              ui_state%window_width, "x", ui_state%window_height
-end subroutine ui_init
+end subroutine ui_init_integer
+
+subroutine ui_init_abstract(backend, width, height, title, target_fps, vsync)
+    ! UI initialization with abstract unit type support
+    use fortui_unit_types, only: unit_type
+    use fortui_units, only: ui_context, ui_get_context
+    use fortui_platform_measurement, only: validate_context
+    
+    character(*), intent(in) :: backend
+    class(unit_type), intent(in) :: width, height  ! Abstract unit types
+    character(*), intent(in) :: title
+    integer, intent(in), optional :: target_fps
+    logical, intent(in), optional :: vsync
+    
+    type(ui_context) :: ctx
+    real :: width_dp, height_dp
+    integer :: width_int, height_int
+    
+    ! Get current context for unit conversion
+    call ui_get_context(ctx)
+    
+    ! Convert abstract units to dp using polymorphic interface
+    width_dp = width%to_dp(ctx)
+    height_dp = height%to_dp(ctx)
+    
+    ! Convert dp to integer grid units for backend initialization
+    width_int = nint(width_dp / ctx%cell_w_dp)
+    height_int = nint(height_dp / ctx%cell_h_dp)
+    
+    ! Ensure minimum dimensions
+    width_int = max(1, width_int)
+    height_int = max(1, height_int)
+    
+    ! Call integer-based initialization
+    call ui_init_integer(backend, width_int, height_int, title, target_fps, vsync)
+    
+    ! Update context with enhanced measurement if backend supports it
+    call setup_enhanced_context(backend, ctx)
+end subroutine ui_init_abstract
+
+subroutine setup_enhanced_context(backend, ctx)
+    ! Setup enhanced context with backend-specific measurement
+    use fortui_units, only: ui_context, ui_set_context
+    use fortui_platform_measurement, only: measure_terminal_cells, detect_system_dpi, &
+                                           measure_font_metrics, detect_text_scaling, &
+                                           validate_context
+    
+    character(*), intent(in) :: backend
+    type(ui_context), intent(inout) :: ctx
+    
+    select case (trim(backend))
+    case ("tui")
+        ! Enhanced TUI context setup with terminal measurement
+        call measure_terminal_cells(ctx%cell_w_dp, ctx%cell_h_dp)
+        ctx%dpi_scale = 1.0  ! TUI always uses 1.0 DPI scale
+        
+    case ("gui")
+        ! Enhanced GUI context setup with system measurement
+        call detect_system_dpi(ctx%dpi_scale)
+        call measure_font_metrics(ctx%em_dp)
+        call detect_text_scaling(ctx%text_scale)
+    end select
+    
+    ! Validate and apply enhanced context
+    call validate_context(ctx)
+    call ui_set_context(ctx)
+end subroutine setup_enhanced_context
 
 subroutine ui_set_idle_policy(mode, idle_fps)        ! gui only
     character(*), intent(in) :: mode                   ! "steady" | "adaptive"
@@ -502,6 +574,7 @@ end function is_headless_environment
 subroutine init_tui_backend()
     ! Initialize TUI backend with termbox2
     use fortui_units, only: ui_get_context, ui_set_context, ui_context
+    use fortui_platform_measurement, only: measure_terminal_cells, validate_context
     integer(c_int) :: init_result
     type(ui_context) :: ctx
     logical :: use_real_termbox
@@ -565,11 +638,11 @@ subroutine init_tui_backend()
     ! Initialize cell buffers for front/back buffer system
     call allocate_cell_buffers()
     
-    ! Update UI context with terminal cell dimensions
+    ! Update UI context with enhanced terminal cell measurement
     call ui_get_context(ctx)
-    ctx%cell_w_dp = 8.0   ! Standard terminal cell width in dp
-    ctx%cell_h_dp = 16.0  ! Standard terminal cell height in dp
+    call measure_terminal_cells(ctx%cell_w_dp, ctx%cell_h_dp)
     ctx%dpi_scale = 1.0   ! TUI always uses 1.0 DPI scale
+    call validate_context(ctx)
     call ui_set_context(ctx)
     
     tui_state%initialized = .true.
@@ -588,10 +661,24 @@ subroutine init_tui_backend()
 end subroutine init_tui_backend
 
 subroutine init_gui_backend()
-    ! Initialize GUI backend
+    ! Initialize GUI backend with enhanced measurement
+    use fortui_units, only: ui_get_context, ui_set_context, ui_context
+    use fortui_platform_measurement, only: detect_system_dpi, measure_font_metrics, &
+                                           detect_text_scaling, validate_context
+    
+    type(ui_context) :: ctx
+    
 #ifdef ENABLE_GUI
     ! TODO: Initialize raylib when GUI module available
 #endif
+    
+    ! Setup enhanced GUI context with system measurement
+    call ui_get_context(ctx)
+    call detect_system_dpi(ctx%dpi_scale)
+    call measure_font_metrics(ctx%em_dp)
+    call detect_text_scaling(ctx%text_scale)
+    call validate_context(ctx)
+    call ui_set_context(ctx)
 end subroutine init_gui_backend
 
 ! TUI backend helper functions
@@ -662,17 +749,17 @@ integer function calculate_line_hash(line_cells) result(hash)
 end function calculate_line_hash
 
 subroutine dp_to_cell_coords(dp_x, dp_y, cell_x, cell_y)
-    ! Convert dp coordinates to cell coordinates with snapping
+    ! Convert dp coordinates to cell coordinates with context-aware snapping
     use fortui_units, only: ui_get_context, ui_context
+    use fortui_platform_measurement, only: dp_to_cell_coords_with_context
     real, intent(in) :: dp_x, dp_y
     integer, intent(out) :: cell_x, cell_y
     type(ui_context) :: ctx
     
     call ui_get_context(ctx)
     
-    ! Convert to cell coordinates and snap to cell boundaries
-    cell_x = nint(dp_x / ctx%cell_w_dp)
-    cell_y = nint(dp_y / ctx%cell_h_dp)
+    ! Use context-aware conversion with enhanced measurement
+    call dp_to_cell_coords_with_context(dp_x, dp_y, cell_x, cell_y, ctx)
     
     ! Clamp to terminal boundaries
     cell_x = max(0, min(cell_x, tui_state%terminal_width - 1))
@@ -836,8 +923,13 @@ subroutine handle_mouse_motion(x, y)
 end subroutine handle_mouse_motion
 
 subroutine handle_terminal_resize()
-    ! Handle terminal resize by reallocating buffers
+    ! Handle terminal resize by reallocating buffers and updating context
+    use fortui_units, only: ui_get_context, ui_set_context, ui_context
+    use fortui_platform_measurement, only: measure_terminal_cells, validate_context, &
+                                           invalidate_layout
+    
     integer :: new_width, new_height
+    type(ui_context) :: ctx
     
     ! Get dimensions from appropriate termbox2 implementation
     if (tui_state%using_real_termbox) then
@@ -857,6 +949,15 @@ subroutine handle_terminal_resize()
     
     ! Reallocate buffers
     call allocate_cell_buffers()
+    
+    ! Update context with new terminal measurements
+    call ui_get_context(ctx)
+    call measure_terminal_cells(ctx%cell_w_dp, ctx%cell_h_dp)
+    call validate_context(ctx)
+    call ui_set_context(ctx)
+    
+    ! Invalidate layout to trigger recalculation
+    call invalidate_layout()
     
     print *, "handle_terminal_resize: resized to ", new_width, "x", new_height
 end subroutine handle_terminal_resize
