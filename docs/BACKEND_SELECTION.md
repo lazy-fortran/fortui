@@ -1,41 +1,74 @@
 # fortui Backend Selection Guide
 
-Complete guide to choosing and configuring TUI vs GUI backends in fortui applications.
+Complete guide to the Backend Registry Pattern with automatic backend selection and graceful fallback.
 
 ## Overview
 
-fortui provides a unified API that works with two backends:
-- **TUI Backend**: Terminal-based UI using termbox2
-- **GUI Backend**: Graphical window using raylib/raygui
+fortui uses a **Backend Registry Pattern** for runtime backend selection:
+- **TUI Backend**: Terminal-based UI using termbox2 (always available)
+- **GUI Backend**: Graphical window using raylib/raygui (conditional compilation)
+- **Automatic Selection**: GUI preferred → TUI fallback → Clear error message
+- **Runtime Detection**: Environment-based availability checking
 
-Your application code remains identical - only compilation and initialization change.
+Your application code is identical across backends - the system handles backend selection transparently.
+
+## Backend Registry Architecture
+
+### Runtime Registration System
+- **Abstract Interface**: All backends implement `backend_interface` with deferred procedures
+- **Dynamic Registry**: Backends register themselves at runtime using `register_backend()`  
+- **Capability System**: Each backend declares supported features (`graphics`, `colors`, `mouse`, etc.)
+- **Availability Detection**: Backends check environment (display, libraries, permissions)
+
+### Selection Priority
+1. **Environment Override**: `FORTUI_BACKEND=tui|gui` forces specific backend
+2. **GUI Preferred**: If available and not in headless environment
+3. **TUI Fallback**: Always available as backup option
+4. **Clear Error**: Descriptive message if no backend available
+
+### Graceful Fallback Examples
+```fortran
+! In desktop environment with GUI libraries
+call ui_init("auto", 80, 25, "App")  ! → GUI backend selected
+
+! In SSH session  
+call ui_init("auto", 80, 25, "App")  ! → TUI backend selected
+
+! In CI environment
+call ui_init("auto", 80, 25, "App")  ! → TUI backend selected
+
+! With explicit override
+export FORTUI_BACKEND=tui
+call ui_init("auto", 80, 25, "App")  ! → TUI backend forced
+```
 
 ## Quick Start
 
 ```fortran
-! Recommended: Let fortui choose the best backend automatically
-program smart_app
+! Recommended: Backend Registry Pattern with automatic selection
+program registry_demo
   use fortui_core
   implicit none
   
+  ! GUI preferred → TUI fallback → Clear error message
   call ui_init(backend="auto", width=80, height=25, title="My App")
   
-  ! ... rest of application is identical ...
+  ! ... rest of application works in both TUI and GUI ...
   call ui_shutdown()
 end program
 ```
 
 ```fortran
-! Alternative: Explicit backend selection
+! Alternative: Explicit backend selection (still uses registry)
 program explicit_app
   use fortui_core
   implicit none
   
-  call ui_init(backend="tui", width=80, height=25, title="My App")
-  ! OR
-  call ui_init(backend="gui", width=80, height=25, title="My App")
+  call ui_init(backend="tui", width=80, height=25, title="TUI App")
+  ! OR (if compiled with GUI support)
+  call ui_init(backend="gui", width=800, height=600, title="GUI App")
   
-  ! ... rest of application is identical ...
+  ! ... same application logic in both cases ...
   call ui_shutdown()
 end program
 ```
