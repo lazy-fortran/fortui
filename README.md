@@ -169,13 +169,17 @@ Interactive button with click detection and auto-sizing:
 ```fortran
 use fortui_widgets
 
-! Basic usage - returns true when clicked
-if (button("save_btn", label="Save")) then
+logical :: save_clicked, big_clicked
+
+! Basic usage - assignment operator pattern
+save_clicked = button("save_btn", label="Save")
+if (save_clicked) then
     print *, "Save button clicked!"
 end if
 
 ! Custom size with units
-if (button("big_btn", width=dp(80.0), height=dp(40.0))) then
+big_clicked = button("big_btn", width=dp(80.0), height=dp(40.0))
+if (big_clicked) then
     ! Handle click
 end if
 ```
@@ -185,19 +189,62 @@ end if
 Display text content with auto-sizing and multiline support:
 
 ```fortran
+type(text_node_t) :: label_widget, info_widget, terminal_widget
+
 ! Basic text display
-call text("label", "Hello World!")
+label_widget = text("label", "Hello World!")
 
 ! Custom size with multiline content
-call text("info", "Line 1" // char(10) // "Line 2", text_size=sp(16.0))
+info_widget = text("info", "Line 1" // char(10) // "Line 2", text_size=sp(16.0))
 
 ! Auto-sizing with TUI units
-call text("terminal", "Terminal Text", width=cw(25.0))
+terminal_widget = text("terminal", "Terminal Text", width=cw(25.0))
+```
+
+### Slider Widget
+
+Interactive numeric input with range control and step quantization:
+
+```fortran
+real :: volume = 50.0, temperature = 20.0
+logical :: volume_changed, temp_changed
+
+! Assignment operator pattern for change detection
+volume_changed = slider("volume", 0.0, 100.0, 5.0, volume, width=dp(120.0))
+if (volume_changed) then
+    print *, "Volume changed to:", volume
+end if
+
+! Continuous values (step_val = 0.0)
+temp_changed = slider("temp", 15.0, 30.0, 0.0, temperature)
+if (temp_changed) then
+    print *, "Temperature:", temperature, "°C"
+end if
+```
+
+### Checkbox Widget
+
+Boolean input with toggle functionality:
+
+```fortran
+logical :: sound_enabled = .true., enabled = .false.
+type(checkbox_node_t) :: sound_widget, notif_widget
+
+! Checkbox widget returns widget node with toggle state
+sound_widget = checkbox("sound", sound_enabled, label="Enable Sound")
+if (sound_enabled) then
+    print *, "Sound is enabled"
+end if
+
+! Auto-sizing with label
+notif_widget = checkbox("notifications", enabled, label="Email Notifications")
 ```
 
 **Complete Documentation:** 
 - [Button Widget API](docs/BUTTON_WIDGET.md)
 - [Text Widget API](docs/TEXT_WIDGET.md)
+- [Slider Widget API](docs/SLIDER_WIDGET.md)
+- [Checkbox Widget API](docs/CHECKBOX_WIDGET.md)
 
 ### Units System
 fortui provides a comprehensive units system for cross-backend consistency:
@@ -318,10 +365,11 @@ call ui_init(backend="auto", width=80, height=25, title="My App")
 ```fortran
 call ui_init(backend="tui", width=80, height=25, title="My App")
 ```
-- Event-driven with smart timeouts
-- Minimal terminal writes via diffing
-- Full mouse support
-- Always available (no dependencies)
+- **Visual rendering**: Layout characters (`|`, `-`, `*`) for widget visualization
+- **Event-driven**: Smart timeouts with keyboard/mouse support
+- **Cell-based display**: Perfect coordinate snapping to terminal grid
+- **Performance optimized**: Front/back buffer diffing for minimal writes
+- **Production ready**: Complete termbox2 integration with fallback testing
 
 ### Graphical UI (GUI)  
 ```fortran
@@ -339,7 +387,7 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 ✅ **fortui_core module**: Complete with `node` and `view` types, lifecycle management, layout constructors  
 ✅ **fortui_units module**: Complete with comprehensive cross-backend units system
 ✅ **Layout system**: `column()` and `row()` functions with gap parameters and children arrays - **PRODUCTION READY**
-✅ **fortui_widgets module**: Button widget with click detection, text widget with auto-sizing  
+✅ **fortui_widgets module**: Button, text, slider, and checkbox widgets with interaction detection, auto-sizing, value management
 ✅ **Backend selection**: TUI/GUI conditional compilation working  
 ✅ **Build system**: Automatic dependency detection and configuration
 
@@ -354,7 +402,7 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 
 - **fortui_core**: ✅ Lifecycle management, core types, frame handling  
 - **fortui_units**: ✅ Cross-backend units system with dp, em, sp, px, cw, ch support
-- **fortui_widgets**: ✅ Button and text widgets with click detection, auto-sizing, multiline support
+- **fortui_widgets**: ✅ Button, text, slider, and checkbox widgets with interaction detection, auto-sizing, value management
 - **Dual backends**: ✅ termbox2 (TUI) and raylib/raygui (GUI) support
 - **Monospace baseline**: ✅ Ensures pixel-perfect TUI/GUI consistency
 

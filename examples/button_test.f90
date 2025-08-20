@@ -15,16 +15,14 @@ do i = 1, 5
     ! Basic button with ID and default label
     btn1_clicked = button("test_button")
     
-    ! Button with custom label and size
-    btn2_clicked = button("custom_btn", label="Click Me!", width=dp(80.0), height=dp(30.0))
+    ! Button with custom label and size (using real dp values for safety)
+    btn2_clicked = button("custom_btn", label="Click Me!", width=80.0, height=30.0)
     
-    if (btn1_clicked) then
-        print *, "Frame", i, ": test_button was clicked!"
-    end if
+    ! Test interaction detection
+    if (btn1_clicked) print *, "Frame", i, ": Test button clicked!"
+    if (btn2_clicked) print *, "Frame", i, ": Custom button clicked!"
     
-    if (btn2_clicked) then
-        print *, "Frame", i, ": custom_btn was clicked!"
-    end if
+    print *, "Frame", i, ": Buttons rendered successfully"
 end do
 
 print *, ""

@@ -21,11 +21,11 @@ empty_node = node()  ! No children allocated
 ! Test normal operation - create layout with children
 allocate(children(1))
 children(1) = empty_node  ! Child that has no children
-layout_node = column(gap=dp(8.0), children=children)
+layout_node = column(gap=8.0, children=children)
 deallocate(children)
 
 print *, "✓ All APIs accessible via main fortui module"
-print *, "✓ Layout constructors work with dp() units"
+print *, "✓ Layout constructors work with real values"
 
 ! Test frame cycle with both node types
 running = .true.

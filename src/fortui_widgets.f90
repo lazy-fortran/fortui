@@ -2,18 +2,89 @@ module fortui_widgets
 ! Widget system for fortui - immediate-mode UI with ID-based state management
 ! Implements button widget with unified class(*) interface and cross-backend support
 use iso_c_binding
-use fortui_core, only: ui_element, node, view
+use fortui_core, only: ui_element, node, view, widget_wrapper
 use fortui_units, only: ui_context, convert_to_dp, ui_get_context
 implicit none
 private
 
-! Public widget functions
-public :: button, text
+! Public widget functions - dual interface support
+public :: button, text, slider, checkbox
+public :: assignment(=)  ! Make assignment operators public
+public :: operator(.logical.)  ! Make logical operators public
+
+! Polymorphic widget helper functions for layout construction
+public :: widget, viewport
+
+! Public widget node types for direct usage
+public :: button_node_t, text_node_t, slider_node_t, checkbox_node_t
+
+! Assignment operators for logical context usage
+interface assignment(=)
+    module procedure assign_button_to_logical
+    module procedure assign_checkbox_to_logical
+    module procedure assign_slider_to_logical
+end interface
+
+! Logical operators for direct logical context usage (IF statements)
+interface operator(.logical.)
+    module procedure button_to_logical_op
+    module procedure checkbox_to_logical_op
+    module procedure slider_to_logical_op
+end interface
+
+! Single widget functions that return interactive ui_element types
+! These support both layout construction and interaction detection
+
+! Polymorphic widget construction helpers
+! These functions return class(ui_element) for use in layout arrays
 
 ! Testing helper functions (for test suite only)
 public :: simulate_button_click, simulate_key_press, set_button_focus
 public :: get_button_debug_info, reset_button_system
 public :: get_text_debug_info, reset_text_system
+public :: simulate_slider_interaction, get_slider_debug_info, reset_slider_system
+public :: simulate_checkbox_toggle, get_checkbox_debug_info, reset_checkbox_system
+
+! Widget node types for layout construction with interaction state
+type, extends(ui_element) :: button_node_t
+    character(len=256) :: id = ""
+    character(len=256) :: label = ""
+    real :: width_dp = 0.0
+    real :: height_dp = 0.0
+    logical :: clicked = .false.  ! Interaction state
+contains
+    procedure :: to_logical => button_to_logical
+end type button_node_t
+
+type, extends(ui_element) :: text_node_t
+    character(len=256) :: id = ""
+    character(len=1024) :: value = ""
+    real :: text_size_dp = 14.0
+    real :: width_dp = 0.0
+    real :: height_dp = 0.0
+end type text_node_t
+
+type, extends(ui_element) :: slider_node_t
+    character(len=256) :: id = ""
+    real :: min_val = 0.0
+    real :: max_val = 100.0
+    real :: step_val = 1.0
+    real :: width_dp = 0.0
+    real :: height_dp = 0.0
+    logical :: value_changed = .false.  ! Interaction state
+contains
+    procedure :: to_logical => slider_to_logical
+end type slider_node_t
+
+type, extends(ui_element) :: checkbox_node_t
+    character(len=256) :: id = ""
+    character(len=256) :: label = ""
+    real :: width_dp = 0.0
+    real :: height_dp = 0.0
+    logical :: toggled = .false.  ! Interaction state
+contains
+    procedure :: to_logical => checkbox_to_logical
+end type checkbox_node_t
 
 ! Internal state management types
 type :: button_state_t
@@ -45,6 +116,39 @@ type :: text_state_t
     integer :: last_frame = 0         ! Last frame accessed
 end type text_state_t
 
+! Internal state management types for slider widgets
+type :: slider_state_t
+    real :: value = 0.0              ! Current slider value
+    real :: min_val = 0.0           ! Minimum value
+    real :: max_val = 100.0         ! Maximum value  
+    real :: step_val = 1.0          ! Step size (0 for continuous)
+    real :: width_dp = 0.0          ! Widget width in dp (0 = auto-size)
+    real :: height_dp = 0.0         ! Widget height in dp (0 = auto-size)
+    real :: x_dp = 0.0              ! Widget position x
+    real :: y_dp = 0.0              ! Widget position y
+    character(len=256) :: id = ""   ! Widget identifier
+    logical :: dragging = .false.   ! Currently being dragged
+    logical :: hovered = .false.    ! Mouse hovering over slider
+    integer :: last_frame = 0       ! Last frame accessed
+    logical :: focused = .false.    ! Keyboard focus state
+end type slider_state_t
+
+! Internal state management types for checkbox widgets
+type :: checkbox_state_t
+    logical :: checked = .false.    ! Current checkbox state
+    logical :: clicked = .false.    ! Clicked this frame
+    logical :: hovered = .false.    ! Mouse hovering over checkbox
+    logical :: focused = .false.    ! Keyboard focus state
+    real :: width_dp = 0.0          ! Widget width in dp (0 = auto-size)
+    real :: height_dp = 0.0         ! Widget height in dp (0 = auto-size)
+    real :: x_dp = 0.0              ! Widget position x
+    real :: y_dp = 0.0              ! Widget position y
+    character(len=256) :: id = ""   ! Widget identifier
+    character(len=256) :: label = ""! Display label text
+    integer :: toggle_count = 0     ! Number of toggle interactions
+    integer :: last_frame = 0       ! Last frame accessed
+    logical :: state_changed = .false. ! State changed this frame
+end type checkbox_state_t
 ! Global state storage for all buttons
 integer, parameter :: MAX_BUTTONS = 1000
 type(button_state_t), save :: button_states(MAX_BUTTONS)
@@ -57,6 +161,17 @@ type(text_state_t), save :: text_states(MAX_TEXT_WIDGETS)
 integer, save :: text_count = 0
 integer, save :: text_frame_counter = 0
 
+! Global slider state storage
+integer, parameter :: MAX_SLIDERS = 500
+type(slider_state_t), save :: slider_states(MAX_SLIDERS)
+integer, save :: slider_count = 0
+integer, save :: slider_frame_counter = 0
+
+! Global checkbox state storage
+integer, parameter :: MAX_CHECKBOXES = 500
+type(checkbox_state_t), save :: checkbox_states(MAX_CHECKBOXES)
+integer, save :: checkbox_count = 0
+integer, save :: checkbox_frame_counter = 0
 ! Mouse and keyboard state tracking
 type :: input_state_t
     real :: mouse_x = 0.0
@@ -71,18 +186,20 @@ type(input_state_t), save :: input_state
 
 contains
 
-logical function button(id, label, width, height) result(clicked)
-    ! Immediate-mode button widget with unified class(*) interface
-    ! Returns true only on the frame when button is clicked
+function button(id, label, width, height) result(widget_node)
+    ! Immediate-mode button widget with unified interface
+    ! Returns ui_element for layout construction with interaction state
     character(*), intent(in) :: id
     character(*), intent(in), optional :: label
     class(*), intent(in), optional :: width
     class(*), intent(in), optional :: height
+    type(button_node_t) :: widget_node
     
     integer :: state_index
     character(len=256) :: display_label
     real :: button_width_dp, button_height_dp
     type(ui_context) :: ctx
+    logical :: clicked
     
     ! Increment frame counter for immediate-mode behavior
     current_frame = current_frame + 1
@@ -137,6 +254,13 @@ logical function button(id, label, width, height) result(clicked)
     
     ! Process input and determine click state
     clicked = process_button_interaction(state_index, display_label)
+    
+    ! Create widget node with layout and interaction data
+    widget_node%id = id
+    widget_node%label = display_label
+    widget_node%width_dp = button_width_dp
+    widget_node%height_dp = button_height_dp
+    widget_node%clicked = clicked
     
     ! Render button (would be handled by presentation system in full implementation)
     call render_button_placeholder(state_index, display_label)
@@ -495,7 +619,7 @@ subroutine ensure_button_exists_for_testing(id)
     ! Create a minimal button state for testing if it doesn't exist
     character(*), intent(in) :: id
     integer :: state_index
-    logical :: dummy
+    type(button_node_t) :: dummy
     
     state_index = find_button_state_by_id(id)
     if (state_index <= 0) then
@@ -515,11 +639,12 @@ end subroutine ensure_button_exists_for_testing
 ! Text Widget Implementation 
 ! =========================
 
-subroutine text(id, value, text_size, width, height)
-    ! Immediate-mode text widget with unified class(*) interface
-    ! Displays text content with auto-sizing and cross-backend support
+function text(id, value, text_size, width, height) result(widget_node)
+    ! Immediate-mode text widget with unified interface
+    ! Returns ui_element for layout construction
     character(*), intent(in) :: id, value
     class(*), intent(in), optional :: text_size, width, height
+    type(text_node_t) :: widget_node
     
     integer :: state_index
     real :: widget_width_dp, widget_height_dp, widget_text_size_dp
@@ -591,9 +716,731 @@ subroutine text(id, value, text_size, width, height)
     ! Process text content (wrapping, clipping, line counting)
     call process_text_content(state_index, value, widget_width_dp, widget_text_size_dp, ctx)
     
+    ! Create widget node with layout data
+    widget_node%id = id
+    if (len_trim(value) <= len(widget_node%value)) then
+        widget_node%value = value
+    else
+        widget_node%value = value(1:len(widget_node%value))
+    end if
+    widget_node%text_size_dp = widget_text_size_dp
+    widget_node%width_dp = widget_width_dp
+    widget_node%height_dp = widget_height_dp
+    
     ! Render text (would be handled by presentation system in full implementation)
     call render_text_placeholder(state_index)
-end subroutine text
+end function text
+
+function slider(id, min_val, max_val, step_val, value, width, height) result(widget_node)
+    ! Immediate-mode slider widget with unified interface
+    ! Returns ui_element for layout construction with interaction state
+    character(*), intent(in) :: id
+    real, intent(in) :: min_val, max_val, step_val  
+    real, intent(inout) :: value
+    class(*), intent(in), optional :: width, height
+    type(slider_node_t) :: widget_node
+    
+    integer :: state_index
+    real :: widget_width_dp, widget_height_dp
+    real :: previous_value, clamped_value
+    logical :: value_changed
+    type(ui_context) :: ctx
+    
+    ! Security validation - verify parameters
+    if (len_trim(id) == 0) then
+        print *, "slider: Warning - Empty slider ID provided, using fallback"
+        value_changed = .false.
+        return  
+    end if
+    
+    ! Validate range parameters
+    if (min_val >= max_val) then
+        print *, "slider: Error - Invalid range: min_val must be less than max_val"
+        value_changed = .false.
+        return
+    end if
+    
+    ! Validate step parameter  
+    if (step_val < 0.0) then
+        print *, "slider: Error - Invalid step: step_val must be non-negative"
+        value_changed = .false.
+        return
+    end if
+    
+    ! Get or create slider state
+    state_index = find_or_create_slider_state(id)
+    if (state_index <= 0) then
+        value_changed = .false.
+        return
+    end if
+    
+    ! Store previous value for change detection
+    previous_value = slider_states(state_index)%value
+    
+    ! Update slider range parameters
+    slider_states(state_index)%min_val = min_val
+    slider_states(state_index)%max_val = max_val
+    slider_states(state_index)%step_val = step_val
+    
+    ! Apply range clamping to input value
+    clamped_value = max(min_val, min(max_val, value))
+    
+    ! Apply step quantization if step > 0
+    if (step_val > 0.0) then
+        clamped_value = min_val + step_val * nint((clamped_value - min_val) / step_val)
+        ! Ensure quantized value is still within range (handles floating point precision issues)
+        clamped_value = max(min_val, min(max_val, clamped_value))
+    end if
+    
+    ! Update value parameter and state
+    value = clamped_value
+    slider_states(state_index)%value = clamped_value
+    
+    ! Get current UI context for dimensions
+    call ui_get_context(ctx)
+    slider_frame_counter = slider_frame_counter + 1
+    
+    ! Calculate dimensions
+    if (present(width)) then
+        widget_width_dp = convert_to_dp(width, ctx)
+        ! Apply minimum width constraints for usability
+        widget_width_dp = max(widget_width_dp, 50.0)
+    else
+        ! Auto-size width for slider - default to reasonable size
+        widget_width_dp = max(ctx%em_dp * 8.0, 120.0)
+    end if
+    
+    if (present(height)) then  
+        widget_height_dp = convert_to_dp(height, ctx)
+        ! Apply minimum height constraints for usability
+        widget_height_dp = max(widget_height_dp, 16.0)
+    else
+        ! Auto-size height for slider - compact but usable
+        widget_height_dp = max(ctx%em_dp * 1.5, 24.0)
+    end if
+    
+    ! Update slider state with current parameters
+    slider_states(state_index)%width_dp = widget_width_dp
+    slider_states(state_index)%height_dp = widget_height_dp  
+    slider_states(state_index)%last_frame = slider_frame_counter
+    
+    ! Handle interaction simulation for testing
+    call handle_slider_interaction(state_index)
+    
+    ! Detect value change (immediate-mode behavior)
+    value_changed = abs(clamped_value - previous_value) > 0.0001
+    
+    ! Create widget node with layout and interaction data
+    widget_node%id = id
+    widget_node%min_val = min_val
+    widget_node%max_val = max_val
+    widget_node%step_val = step_val
+    widget_node%width_dp = widget_width_dp
+    widget_node%height_dp = widget_height_dp
+    widget_node%value_changed = value_changed
+    
+    ! Render slider (would be handled by presentation system in full implementation)
+    call render_slider_placeholder(state_index)
+    
+end function slider
+
+function checkbox(id, checked, label, width, height) result(widget_node)
+    ! Immediate-mode checkbox widget with unified interface
+    ! Returns ui_element for layout construction with interaction state
+    character(*), intent(in) :: id
+    logical, intent(inout) :: checked
+    character(*), intent(in), optional :: label
+    class(*), intent(in), optional :: width, height
+    type(checkbox_node_t) :: widget_node
+    
+    integer :: state_index
+    character(len=256) :: display_label
+    real :: widget_width_dp, widget_height_dp
+    type(ui_context) :: ctx
+    logical :: toggled_this_frame
+    
+    ! Increment frame counter for immediate-mode behavior
+    checkbox_frame_counter = checkbox_frame_counter + 1
+    
+    ! Validate ID parameter
+    if (len_trim(id) == 0) then
+        print *, "checkbox: Warning - Empty checkbox ID provided, using fallback"
+        return
+    end if
+    
+    ! Get or create checkbox state
+    state_index = find_or_create_checkbox_state(id)
+    if (state_index <= 0) then
+        return
+    end if
+    
+    ! Process label parameter (use id as default)
+    if (present(label)) then
+        display_label = label
+    else
+        display_label = id
+    end if
+    
+    ! Store label for rendering
+    call safe_copy_checkbox_label(display_label, checkbox_states(state_index)%label)
+    
+    ! Get current UI context
+    call ui_get_context(ctx)
+    
+    ! Calculate dimensions - either explicit or auto-sized
+    if (present(width)) then
+        widget_width_dp = convert_to_dp(width, ctx)
+        ! Apply minimum width constraint for clickability
+        widget_width_dp = max(widget_width_dp, 16.0)
+    else
+        ! Auto-size width based on checkbox + label content
+        widget_width_dp = calculate_checkbox_auto_width(display_label, ctx)
+    end if
+    
+    if (present(height)) then
+        widget_height_dp = convert_to_dp(height, ctx)
+        ! Apply minimum height constraint for clickability
+        widget_height_dp = max(widget_height_dp, 16.0)
+    else
+        ! Auto-size height based on context - square aspect for checkbox
+        widget_height_dp = calculate_checkbox_auto_height(display_label, ctx)
+    end if
+    
+    ! Update checkbox state with current dimensions
+    checkbox_states(state_index)%width_dp = widget_width_dp
+    checkbox_states(state_index)%height_dp = widget_height_dp
+    checkbox_states(state_index)%last_frame = checkbox_frame_counter
+    
+    ! Process input and determine toggle state
+    toggled_this_frame = process_checkbox_interaction(state_index)
+    
+    ! Update checked parameter and state based on interaction
+    if (toggled_this_frame) then
+        checked = .not. checkbox_states(state_index)%checked
+        checkbox_states(state_index)%checked = checked
+        checkbox_states(state_index)%toggle_count = checkbox_states(state_index)%toggle_count + 1
+        checkbox_states(state_index)%state_changed = .true.
+    else
+        ! Ensure state consistency with input parameter
+        checkbox_states(state_index)%checked = checked
+        checkbox_states(state_index)%state_changed = .false.
+    end if
+    
+    ! Create widget node with layout and interaction data
+    widget_node%id = id
+    widget_node%label = display_label
+    widget_node%width_dp = widget_width_dp
+    widget_node%height_dp = widget_height_dp
+    widget_node%toggled = toggled_this_frame
+    
+    ! Render checkbox (would be handled by presentation system in full implementation)
+    call render_checkbox_placeholder(state_index)
+end function checkbox
+
+integer function find_or_create_checkbox_state(id) result(index)
+    ! Find existing checkbox state or create new one with security-hardened ID handling
+    character(*), intent(in) :: id
+    integer :: i
+    
+    ! Search for existing state
+    do i = 1, checkbox_count
+        if (trim(checkbox_states(i)%id) == trim(id)) then
+            index = i
+            return
+        end if
+    end do
+    
+    ! Create new state if space available
+    if (checkbox_count < MAX_CHECKBOXES) then
+        checkbox_count = checkbox_count + 1
+        index = checkbox_count
+        
+        ! Initialize new checkbox state with bounds checking
+        checkbox_states(index) = checkbox_state_t()
+        
+        ! Safe ID copying to prevent buffer overflow
+        call safe_copy_checkbox_id(id, checkbox_states(index)%id)
+        checkbox_states(index)%last_frame = checkbox_frame_counter
+    else
+        ! Reuse oldest slot if limit reached
+        print *, "checkbox: Warning - Maximum checkbox widget limit reached, reusing slot"
+        index = 1  ! Reuse first slot as fallback
+        checkbox_states(index) = checkbox_state_t()
+        
+        call safe_copy_checkbox_id(id, checkbox_states(index)%id)
+        checkbox_states(index)%last_frame = checkbox_frame_counter
+    end if
+end function find_or_create_checkbox_state
+
+subroutine safe_copy_checkbox_id(source_id, target_id)
+    ! Securely copy checkbox ID with bounds checking to prevent buffer overflow
+    character(*), intent(in) :: source_id
+    character(*), intent(out) :: target_id
+    integer :: copy_length
+    
+    copy_length = min(len(source_id), len(target_id))
+    target_id = source_id(1:copy_length)
+    
+    if (len_trim(source_id) > len(target_id)) then
+        print *, "checkbox: Warning - ID truncated to fit buffer: ", trim(target_id)
+    end if
+end subroutine safe_copy_checkbox_id
+
+subroutine safe_copy_checkbox_label(source_label, target_label)
+    ! Securely copy checkbox label with bounds checking to prevent buffer overflow
+    character(*), intent(in) :: source_label
+    character(*), intent(out) :: target_label
+    integer :: copy_length
+    
+    copy_length = min(len(source_label), len(target_label))
+    target_label = source_label(1:copy_length)
+    
+    if (len_trim(source_label) > len(target_label)) then
+        print *, "checkbox: Warning - Label truncated to fit buffer: ", trim(target_label)
+    end if
+end subroutine safe_copy_checkbox_label
+
+real function calculate_checkbox_auto_width(label, ctx) result(width_dp)
+    ! Calculate automatic checkbox width based on checkbox square + label content
+    character(*), intent(in) :: label
+    type(ui_context), intent(in) :: ctx
+    
+    real, parameter :: CHAR_WIDTH_RATIO = 0.6  ! Typical character width to font size ratio
+    real, parameter :: CHECKBOX_SIZE_DP = 16.0 ! Square checkbox size
+    real, parameter :: SPACING_DP = 8.0        ! Space between checkbox and label
+    real, parameter :: MIN_WIDTH_DP = 24.0     ! Minimum checkbox width
+    
+    integer :: label_length
+    real :: text_width_dp, total_width_dp
+    
+    ! Calculate text width based on font metrics
+    label_length = len_trim(label)
+    
+    ! Use context font size for character width calculation
+    if (ctx%em_dp > 0.0) then
+        text_width_dp = real(label_length) * ctx%em_dp * CHAR_WIDTH_RATIO
+    else
+        ! Fallback calculation with default font size
+        text_width_dp = real(label_length) * 8.0  ! 8dp per character fallback
+    end if
+    
+    ! Calculate total width: checkbox square + spacing + label text
+    if (label_length > 0) then
+        total_width_dp = CHECKBOX_SIZE_DP + SPACING_DP + text_width_dp
+    else
+        total_width_dp = CHECKBOX_SIZE_DP  ! Just checkbox if no label
+    end if
+    
+    ! Enforce minimum size
+    width_dp = max(total_width_dp, MIN_WIDTH_DP)
+end function calculate_checkbox_auto_width
+
+real function calculate_checkbox_auto_height(label, ctx) result(height_dp)
+    ! Calculate automatic checkbox height - square aspect ratio for checkbox element
+    character(*), intent(in) :: label
+    type(ui_context), intent(in) :: ctx
+    
+    real, parameter :: MIN_HEIGHT_DP = 16.0     ! Minimum checkbox height
+    real, parameter :: CHECKBOX_SIZE_DP = 16.0  ! Square checkbox size
+    real, parameter :: TEXT_HEIGHT_RATIO = 1.3  ! Line height to font size ratio
+    
+    real :: checkbox_height_dp, text_height_dp
+    
+    ! Calculate checkbox square size (fixed for consistent appearance)
+    checkbox_height_dp = CHECKBOX_SIZE_DP
+    
+    ! Calculate text height if there's a label
+    if (len_trim(label) > 0 .and. ctx%em_dp > 0.0) then
+        text_height_dp = ctx%em_dp * TEXT_HEIGHT_RATIO
+        ! Use the larger of checkbox or text height for proper alignment
+        height_dp = max(checkbox_height_dp, text_height_dp)
+    else
+        height_dp = checkbox_height_dp
+    end if
+    
+    ! Enforce minimum size
+    height_dp = max(height_dp, MIN_HEIGHT_DP)
+end function calculate_checkbox_auto_height
+
+logical function process_checkbox_interaction(state_index) result(toggled)
+    ! Process mouse and keyboard interaction for checkbox
+    integer, intent(in) :: state_index
+    
+    logical :: mouse_clicked, keyboard_activated
+    
+    ! Update input state (would be updated from actual events in full implementation)
+    call update_input_state()
+    
+    ! Check for mouse interaction
+    mouse_clicked = check_checkbox_mouse_interaction(state_index)
+    
+    ! Check for keyboard activation
+    keyboard_activated = check_checkbox_keyboard_activation(state_index)
+    
+    ! Determine if checkbox was toggled this frame
+    toggled = mouse_clicked .or. keyboard_activated
+    
+    ! Update checkbox state with immediate-mode behavior
+    if (toggled) then
+        checkbox_states(state_index)%clicked = .true.
+        
+        ! Reset input state after consuming interaction to prevent multiple toggles
+        input_state%mouse_clicked = .false.
+        input_state%enter_pressed = .false.
+        input_state%space_pressed = .false.
+    else
+        ! Reset click state for immediate-mode behavior
+        checkbox_states(state_index)%clicked = .false.
+    end if
+    
+    ! Update hover state
+    checkbox_states(state_index)%hovered = check_checkbox_mouse_hover(state_index)
+end function process_checkbox_interaction
+
+logical function check_checkbox_mouse_interaction(state_index) result(clicked)
+    ! Check if mouse click occurred within checkbox bounds
+    integer, intent(in) :: state_index
+    
+    clicked = .false.
+    
+    ! Only check if mouse was clicked this frame
+    if (.not. input_state%mouse_clicked) return
+    
+    ! Check if mouse position is within checkbox bounds
+    if (input_state%mouse_x >= checkbox_states(state_index)%x_dp .and. &
+        input_state%mouse_x <= checkbox_states(state_index)%x_dp + &
+                                checkbox_states(state_index)%width_dp .and. &
+        input_state%mouse_y >= checkbox_states(state_index)%y_dp .and. &
+        input_state%mouse_y <= checkbox_states(state_index)%y_dp + &
+                                checkbox_states(state_index)%height_dp) then
+        clicked = .true.
+    end if
+end function check_checkbox_mouse_interaction
+
+logical function check_checkbox_mouse_hover(state_index) result(hovered)
+    ! Check if mouse is hovering over checkbox
+    integer, intent(in) :: state_index
+    
+    hovered = .false.
+    
+    ! Check if mouse position is within checkbox bounds
+    if (input_state%mouse_x >= checkbox_states(state_index)%x_dp .and. &
+        input_state%mouse_x <= checkbox_states(state_index)%x_dp + &
+                                checkbox_states(state_index)%width_dp .and. &
+        input_state%mouse_y >= checkbox_states(state_index)%y_dp .and. &
+        input_state%mouse_y <= checkbox_states(state_index)%y_dp + &
+                                checkbox_states(state_index)%height_dp) then
+        hovered = .true.
+    end if
+end function check_checkbox_mouse_hover
+
+logical function check_checkbox_keyboard_activation(state_index) result(activated)
+    ! Check for keyboard activation (Enter/Space keys)
+    integer, intent(in) :: state_index
+    
+    activated = .false.
+    
+    ! Only activate if this checkbox has focus
+    if (trim(input_state%focused_button_id) /= trim(checkbox_states(state_index)%id)) return
+    
+    ! Check for activation keys (space or enter)
+    if (input_state%enter_pressed .or. input_state%space_pressed) then
+        activated = .true.
+    end if
+end function check_checkbox_keyboard_activation
+
+subroutine render_checkbox_placeholder(state_index)
+    ! Placeholder for checkbox rendering - would integrate with backend rendering system
+    integer, intent(in) :: state_index
+    
+    ! This is a placeholder for the actual rendering implementation
+    ! In the full system, this would:
+    ! 1. Convert dp coordinates to backend-specific coordinates
+    ! 2. Render checkbox square (empty or with checkmark/X based on checked state)
+    ! 3. Render associated label text with proper alignment
+    ! 4. Apply visual state (normal/hovered/focused)
+    ! 5. Handle cross-backend visual consistency (TUI: [X]/[ ], GUI: graphical checkbox)
+    
+    ! For testing, set up reasonable checkbox positions
+    if (checkbox_states(state_index)%x_dp == 0.0 .and. checkbox_states(state_index)%y_dp == 0.0) then
+        checkbox_states(state_index)%x_dp = 0.0
+        checkbox_states(state_index)%y_dp = 0.0
+    end if
+end subroutine render_checkbox_placeholder
+
+integer function find_or_create_slider_state(id) result(index)
+    ! Find existing slider state or create new one with security-hardened ID handling
+    character(*), intent(in) :: id
+    integer :: i
+    
+    ! Search for existing state
+    do i = 1, slider_count
+        if (trim(slider_states(i)%id) == trim(id)) then
+            index = i
+            return
+        end if
+    end do
+    
+    ! Create new state if space available
+    if (slider_count < MAX_SLIDERS) then
+        slider_count = slider_count + 1
+        index = slider_count
+        
+        ! Initialize new slider state with bounds checking
+        slider_states(index) = slider_state_t()
+        
+        ! Safe ID copying to prevent buffer overflow
+        call safe_copy_slider_id(id, slider_states(index)%id)
+        slider_states(index)%last_frame = slider_frame_counter
+    else
+        ! Reuse oldest slot if limit reached
+        print *, "slider: Warning - Maximum slider widget limit reached, reusing slot"
+        index = 1  ! Reuse first slot as fallback
+        slider_states(index) = slider_state_t()
+        
+        call safe_copy_slider_id(id, slider_states(index)%id)
+        slider_states(index)%last_frame = slider_frame_counter
+    end if
+end function find_or_create_slider_state
+
+subroutine safe_copy_slider_id(source_id, target_id)
+    ! Securely copy slider ID with bounds checking to prevent buffer overflow
+    character(*), intent(in) :: source_id
+    character(*), intent(out) :: target_id
+    integer :: copy_length
+    
+    copy_length = min(len(source_id), len(target_id))
+    target_id = source_id(1:copy_length)
+    
+    if (len_trim(source_id) > len(target_id)) then
+        print *, "slider: Warning - ID truncated to fit buffer: ", trim(target_id)
+    end if
+end subroutine safe_copy_slider_id
+
+subroutine handle_slider_interaction(state_index)
+    ! Handle slider interaction simulation for testing framework
+    integer, intent(in) :: state_index
+    
+    ! Basic interaction state management
+    ! In a full implementation, this would handle:
+    ! 1. Mouse drag detection and value updates
+    ! 2. Keyboard arrow key navigation
+    ! 3. Click positioning on slider track
+    ! 4. Focus and hover state management
+    
+    ! For now, maintain interaction state consistency
+    if (slider_states(state_index)%dragging) then
+        ! Simulate dragging interaction
+        slider_states(state_index)%hovered = .true.
+    end if
+    
+end subroutine handle_slider_interaction
+
+subroutine render_slider_placeholder(state_index)
+    ! Placeholder for slider rendering - would integrate with backend rendering system
+    integer, intent(in) :: state_index
+    
+    ! Full implementation would handle:
+    ! 1. Draw slider track (TUI: ASCII chars, GUI: filled rectangle)
+    ! 2. Draw slider thumb/handle at value position
+    ! 3. Handle cross-backend coordinate conversion
+    ! 4. Apply hover/focus visual feedback
+    ! 5. Render value text if space allows
+    
+    ! For testing, set up reasonable slider positions
+    if (slider_states(state_index)%x_dp == 0.0 .and. slider_states(state_index)%y_dp == 0.0) then
+        slider_states(state_index)%x_dp = 0.0
+        slider_states(state_index)%y_dp = 0.0
+    end if
+end subroutine render_slider_placeholder
+
+logical function slider(id, min_val, max_val, step_val, value, width, height) result(value_changed)
+    ! Immediate-mode slider widget with unified class(*) interface and value management
+    ! Returns true only when value changes from user interaction
+    character(*), intent(in) :: id
+    real, intent(in) :: min_val, max_val, step_val  
+    real, intent(inout) :: value
+    class(*), intent(in), optional :: width, height
+    
+    integer :: state_index
+    real :: widget_width_dp, widget_height_dp
+    real :: previous_value, clamped_value
+    type(ui_context) :: ctx
+    
+    ! Security validation - verify parameters
+    if (len_trim(id) == 0) then
+        print *, "slider: Warning - Empty slider ID provided, using fallback"
+        value_changed = .false.
+        return  
+    end if
+    
+    ! Validate range parameters
+    if (min_val >= max_val) then
+        print *, "slider: Error - Invalid range: min_val must be less than max_val"
+        value_changed = .false.
+        return
+    end if
+    
+    ! Validate step parameter  
+    if (step_val < 0.0) then
+        print *, "slider: Error - Invalid step: step_val must be non-negative"
+        value_changed = .false.
+        return
+    end if
+    
+    ! Get or create slider state
+    state_index = find_or_create_slider_state(id)
+    if (state_index <= 0) then
+        value_changed = .false.
+        return
+    end if
+    
+    ! Store previous value for change detection
+    previous_value = slider_states(state_index)%value
+    
+    ! Update slider range parameters
+    slider_states(state_index)%min_val = min_val
+    slider_states(state_index)%max_val = max_val
+    slider_states(state_index)%step_val = step_val
+    
+    ! Apply range clamping to input value
+    clamped_value = max(min_val, min(max_val, value))
+    
+    ! Apply step quantization if step > 0
+    if (step_val > 0.0) then
+        clamped_value = min_val + step_val * nint((clamped_value - min_val) / step_val)
+        ! Ensure quantized value is still within range (handles floating point precision issues)
+        clamped_value = max(min_val, min(max_val, clamped_value))
+    end if
+    
+    ! Update value parameter and state
+    value = clamped_value
+    slider_states(state_index)%value = clamped_value
+    
+    ! Get current UI context for dimensions
+    call ui_get_context(ctx)
+    slider_frame_counter = slider_frame_counter + 1
+    
+    ! Calculate dimensions
+    if (present(width)) then
+        widget_width_dp = convert_to_dp(width, ctx)
+        ! Apply minimum width constraints for usability
+        widget_width_dp = max(widget_width_dp, 50.0)
+    else
+        ! Auto-size width for slider - default to reasonable size
+        widget_width_dp = max(ctx%em_dp * 8.0, 120.0)
+    end if
+    
+    if (present(height)) then  
+        widget_height_dp = convert_to_dp(height, ctx)
+        ! Apply minimum height constraints for usability
+        widget_height_dp = max(widget_height_dp, 16.0)
+    else
+        ! Auto-size height for slider - compact but usable
+        widget_height_dp = max(ctx%em_dp * 1.5, 24.0)
+    end if
+    
+    ! Update slider state with current parameters
+    slider_states(state_index)%width_dp = widget_width_dp
+    slider_states(state_index)%height_dp = widget_height_dp  
+    slider_states(state_index)%last_frame = slider_frame_counter
+    
+    ! Handle interaction simulation for testing
+    call handle_slider_interaction(state_index)
+    
+    ! Render slider (would be handled by presentation system in full implementation)
+    call render_slider_placeholder(state_index)
+    
+    ! Detect value change (immediate-mode behavior)
+    value_changed = abs(clamped_value - previous_value) > 0.0001
+    
+end function slider
+
+integer function find_or_create_slider_state(id) result(index)
+    ! Find existing slider state or create new one with security-hardened ID handling
+    character(*), intent(in) :: id
+    integer :: i
+    
+    ! Search for existing state
+    do i = 1, slider_count
+        if (trim(slider_states(i)%id) == trim(id)) then
+            index = i
+            return
+        end if
+    end do
+    
+    ! Create new state if space available
+    if (slider_count < MAX_SLIDERS) then
+        slider_count = slider_count + 1
+        index = slider_count
+        
+        ! Initialize new slider state with bounds checking
+        slider_states(index) = slider_state_t()
+        
+        ! Safe ID copying to prevent buffer overflow
+        call safe_copy_slider_id(id, slider_states(index)%id)
+        slider_states(index)%last_frame = slider_frame_counter
+    else
+        ! Reuse oldest slot if limit reached
+        print *, "slider: Warning - Maximum slider widget limit reached, reusing slot"
+        index = 1  ! Reuse first slot as fallback
+        slider_states(index) = slider_state_t()
+        
+        call safe_copy_slider_id(id, slider_states(index)%id)
+        slider_states(index)%last_frame = slider_frame_counter
+    end if
+end function find_or_create_slider_state
+
+subroutine safe_copy_slider_id(source_id, target_id)
+    ! Securely copy slider ID with bounds checking to prevent buffer overflow
+    character(*), intent(in) :: source_id
+    character(*), intent(out) :: target_id
+    integer :: copy_length
+    
+    copy_length = min(len(source_id), len(target_id))
+    target_id = source_id(1:copy_length)
+    
+    if (len_trim(source_id) > len(target_id)) then
+        print *, "slider: Warning - ID truncated to fit buffer: ", trim(target_id)
+    end if
+end subroutine safe_copy_slider_id
+
+subroutine handle_slider_interaction(state_index)
+    ! Handle slider interaction simulation for testing framework
+    integer, intent(in) :: state_index
+    
+    ! Basic interaction state management
+    ! In a full implementation, this would handle:
+    ! 1. Mouse drag detection and value updates
+    ! 2. Keyboard arrow key navigation
+    ! 3. Click positioning on slider track
+    ! 4. Focus and hover state management
+    
+    ! For now, maintain interaction state consistency
+    if (slider_states(state_index)%dragging) then
+        ! Simulate dragging interaction
+        slider_states(state_index)%hovered = .true.
+    end if
+    
+end subroutine handle_slider_interaction
+
+subroutine render_slider_placeholder(state_index)
+    ! Placeholder for slider rendering - would integrate with backend rendering system
+    integer, intent(in) :: state_index
+    
+    ! Full implementation would handle:
+    ! 1. Draw slider track (TUI: ASCII chars, GUI: filled rectangle)
+    ! 2. Draw slider thumb/handle at value position
+    ! 3. Handle cross-backend coordinate conversion
+    ! 4. Apply hover/focus visual feedback
+    ! 5. Render value text if space allows
+    
+    ! For testing, set up reasonable slider positions
+    if (slider_states(state_index)%x_dp == 0.0 .and. slider_states(state_index)%y_dp == 0.0) then
+        slider_states(state_index)%x_dp = 0.0
+        slider_states(state_index)%y_dp = 0.0
+    end if
+end subroutine render_slider_placeholder
 
 integer function find_or_create_text_state(id) result(index)
     ! Find existing text state or create new one
@@ -969,5 +1816,298 @@ integer function find_text_state_by_id(id) result(index)
         end if
     end do
 end function find_text_state_by_id
+
+! Slider widget testing and debug functions
+
+subroutine simulate_slider_interaction(id, new_value)
+    ! Simulate slider interaction for testing framework
+    character(*), intent(in) :: id
+    real, intent(in) :: new_value
+    integer :: state_index
+    
+    state_index = find_slider_state_by_id(id) 
+    if (state_index > 0) then
+        ! Simulate user interaction by updating internal state
+        slider_states(state_index)%value = new_value
+        slider_states(state_index)%dragging = .true.
+        slider_states(state_index)%hovered = .true.
+    end if
+end subroutine simulate_slider_interaction
+
+subroutine get_slider_debug_info(id, value, min_val, max_val, step_val, width_dp, height_dp, dragging)
+    ! Get debug information about a slider state for testing validation
+    character(*), intent(in) :: id
+    real, intent(out), optional :: value, min_val, max_val, step_val, width_dp, height_dp
+    logical, intent(out), optional :: dragging
+    integer :: state_index
+    
+    state_index = find_slider_state_by_id(id)
+    if (state_index == 0) return
+    
+    if (present(value)) value = slider_states(state_index)%value
+    if (present(min_val)) min_val = slider_states(state_index)%min_val
+    if (present(max_val)) max_val = slider_states(state_index)%max_val  
+    if (present(step_val)) step_val = slider_states(state_index)%step_val
+    if (present(width_dp)) width_dp = slider_states(state_index)%width_dp
+    if (present(height_dp)) height_dp = slider_states(state_index)%height_dp
+    if (present(dragging)) dragging = slider_states(state_index)%dragging
+end subroutine get_slider_debug_info
+
+subroutine reset_slider_system()
+    ! Reset the entire slider widget system (useful for testing)
+    slider_count = 0
+    slider_frame_counter = 0
+    slider_states = slider_state_t()  ! Initialize all to default
+end subroutine reset_slider_system
+
+integer function find_slider_state_by_id(id) result(index)
+    ! Find slider state by ID (returns 0 if not found)
+    character(*), intent(in) :: id
+    integer :: i
+    
+    index = 0
+    do i = 1, slider_count
+        if (trim(slider_states(i)%id) == trim(id)) then
+            index = i
+            return
+        end if
+    end do
+end function find_slider_state_by_id
+
+! Checkbox widget testing and debug functions
+
+subroutine simulate_checkbox_toggle(id)
+    ! Simulate checkbox toggle interaction for testing framework
+    character(*), intent(in) :: id
+    integer :: state_index
+    
+    ! Set up toggle state for the checkbox
+    input_state%mouse_clicked = .true.
+    
+    ! Position mouse at checkbox center for click simulation
+    state_index = find_checkbox_state_by_id(id)
+    if (state_index > 0) then
+        input_state%mouse_x = checkbox_states(state_index)%x_dp + &
+                               checkbox_states(state_index)%width_dp/2.0
+        input_state%mouse_y = checkbox_states(state_index)%y_dp + &
+                               checkbox_states(state_index)%height_dp/2.0
+    else
+        ! Create minimal checkbox for testing if it doesn't exist
+        call ensure_checkbox_exists_for_testing(id)
+        state_index = find_checkbox_state_by_id(id)
+        if (state_index > 0) then
+            input_state%mouse_x = checkbox_states(state_index)%x_dp + &
+                                   checkbox_states(state_index)%width_dp/2.0
+            input_state%mouse_y = checkbox_states(state_index)%y_dp + &
+                                   checkbox_states(state_index)%height_dp/2.0
+        end if
+    end if
+    
+    ! Set focus for keyboard interaction testing
+    input_state%focused_button_id = id
+end subroutine simulate_checkbox_toggle
+
+subroutine get_checkbox_debug_info(id, checked, width_dp, height_dp, toggle_count, &
+                                   hovered, focused, clicked)
+    ! Get debug information about a checkbox state for testing validation
+    character(*), intent(in) :: id
+    logical, intent(out), optional :: checked, hovered, focused, clicked
+    real, intent(out), optional :: width_dp, height_dp
+    integer, intent(out), optional :: toggle_count
+    integer :: state_index
+    
+    state_index = find_checkbox_state_by_id(id)
+    if (state_index == 0) return
+    
+    if (present(checked)) checked = checkbox_states(state_index)%checked
+    if (present(width_dp)) width_dp = checkbox_states(state_index)%width_dp
+    if (present(height_dp)) height_dp = checkbox_states(state_index)%height_dp
+    if (present(toggle_count)) toggle_count = checkbox_states(state_index)%toggle_count
+    if (present(hovered)) hovered = checkbox_states(state_index)%hovered
+    if (present(focused)) focused = checkbox_states(state_index)%focused
+    if (present(clicked)) clicked = checkbox_states(state_index)%clicked
+end subroutine get_checkbox_debug_info
+
+subroutine reset_checkbox_system()
+    ! Reset the entire checkbox widget system (useful for testing)
+    checkbox_count = 0
+    checkbox_frame_counter = 0
+    checkbox_states = checkbox_state_t()  ! Initialize all to default
+end subroutine reset_checkbox_system
+
+integer function find_checkbox_state_by_id(id) result(index)
+    ! Find checkbox state by ID (returns 0 if not found)
+    character(*), intent(in) :: id
+    integer :: i
+    
+    index = 0
+    do i = 1, checkbox_count
+        if (trim(checkbox_states(i)%id) == trim(id)) then
+            index = i
+            return
+        end if
+    end do
+end function find_checkbox_state_by_id
+
+subroutine ensure_checkbox_exists_for_testing(id)
+    ! Create a minimal checkbox state for testing if it doesn't exist
+    character(*), intent(in) :: id
+    integer :: state_index
+    logical :: dummy_checked
+    type(checkbox_node_t) :: widget_node
+    
+    state_index = find_checkbox_state_by_id(id)
+    if (state_index <= 0) then
+        ! Create checkbox by calling it once
+        dummy_checked = .false.
+        widget_node = checkbox(id, dummy_checked)
+        state_index = find_checkbox_state_by_id(id)
+        if (state_index > 0) then
+            ! Set up reasonable test position and size
+            checkbox_states(state_index)%x_dp = 0.0
+            checkbox_states(state_index)%y_dp = 0.0
+            checkbox_states(state_index)%width_dp = max(checkbox_states(state_index)%width_dp, 32.0)
+            checkbox_states(state_index)%height_dp = max(checkbox_states(state_index)%height_dp, 16.0)
+        end if
+    end if
+end subroutine ensure_checkbox_exists_for_testing
+
+! Widget node logical conversion procedures for dual usage patterns
+
+logical function button_to_logical(this) result(clicked)
+    class(button_node_t), intent(in) :: this
+    clicked = this%clicked
+end function button_to_logical
+
+logical function checkbox_to_logical(this) result(toggled)
+    class(checkbox_node_t), intent(in) :: this
+    toggled = this%toggled
+end function checkbox_to_logical
+
+logical function slider_to_logical(this) result(changed)
+    class(slider_node_t), intent(in) :: this
+    changed = this%value_changed
+end function slider_to_logical
+
+! Logical operator functions for .logical. operator
+logical function button_to_logical_op(this) result(clicked)
+    type(button_node_t), intent(in) :: this
+    clicked = this%clicked
+end function button_to_logical_op
+
+logical function checkbox_to_logical_op(this) result(toggled)
+    type(checkbox_node_t), intent(in) :: this
+    toggled = this%toggled
+end function checkbox_to_logical_op
+
+logical function slider_to_logical_op(this) result(changed)
+    type(slider_node_t), intent(in) :: this
+    changed = this%value_changed
+end function slider_to_logical_op
+
+! Assignment operator implementations
+
+subroutine assign_button_to_logical(lhs, rhs)
+    logical, intent(out) :: lhs
+    type(button_node_t), intent(in) :: rhs
+    lhs = rhs%clicked
+end subroutine assign_button_to_logical
+
+subroutine assign_checkbox_to_logical(lhs, rhs)
+    logical, intent(out) :: lhs
+    type(checkbox_node_t), intent(in) :: rhs
+    lhs = rhs%toggled
+end subroutine assign_checkbox_to_logical
+
+subroutine assign_slider_to_logical(lhs, rhs)
+    logical, intent(out) :: lhs
+    type(slider_node_t), intent(in) :: rhs
+    lhs = rhs%value_changed
+end subroutine assign_slider_to_logical
+
+! ============================================================================
+! Polymorphic Widget Construction Helpers
+! ============================================================================
+! These functions solve the polymorphic array construction problem by returning
+! class(ui_element) instead of specific derived types, enabling mixed widget arrays
+
+function widget(source) result(wrapper)
+    ! Generic polymorphic converter for any widget node type
+    ! Creates concrete wrapper for use in arrays, avoiding abstract type issues
+    class(*), intent(in) :: source
+    type(widget_wrapper) :: wrapper
+    
+    ! Wrap the source element in a concrete wrapper type
+    select type (source)
+    type is (button_node_t)
+        allocate(button_node_t :: wrapper%wrapped_element)
+        select type (element => wrapper%wrapped_element)
+        type is (button_node_t)
+            element = source
+        end select
+    type is (text_node_t)
+        allocate(text_node_t :: wrapper%wrapped_element)
+        select type (element => wrapper%wrapped_element)
+        type is (text_node_t)
+            element = source
+        end select
+    type is (slider_node_t)
+        allocate(slider_node_t :: wrapper%wrapped_element)
+        select type (element => wrapper%wrapped_element)
+        type is (slider_node_t)
+            element = source
+        end select
+    type is (checkbox_node_t)
+        allocate(checkbox_node_t :: wrapper%wrapped_element)
+        select type (element => wrapper%wrapped_element)
+        type is (checkbox_node_t)
+            element = source
+        end select
+    type is (node)
+        allocate(node :: wrapper%wrapped_element)
+        select type (element => wrapper%wrapped_element)
+        type is (node)
+            element = source
+        end select
+    class default
+        ! For unsupported types, create a basic button placeholder
+        allocate(button_node_t :: wrapper%wrapped_element)
+        select type (element => wrapper%wrapped_element)
+        type is (button_node_t)
+            element = button("placeholder", "?")
+        end select
+        print *, "widget: Warning - unsupported type, wrapped as placeholder"
+    end select
+end function widget
+
+function viewport(id, width, height, view_state) result(wrapper)
+    ! Viewport widget implementation as concrete wrapper
+    ! Returns widget_wrapper for proper array construction
+    character(*), intent(in) :: id
+    real, intent(in) :: width, height
+    type(view), intent(inout) :: view_state
+    type(widget_wrapper) :: wrapper
+    
+    ! For now, create a text node as placeholder for viewport
+    ! In full implementation, this would be a proper viewport_node_t type
+    type(text_node_t) :: viewport_placeholder
+    character(len=64) :: viewport_label
+    
+    ! Create descriptive label for viewport placeholder
+    write(viewport_label, '(A,A,F0.1,A,F0.1,A)') trim(id), '(', width, 'x', height, ')'
+    
+    ! Create text node as viewport placeholder
+    viewport_placeholder = text(id, viewport_label, width=width, height=height)
+    
+    ! Wrap in concrete wrapper
+    allocate(text_node_t :: wrapper%wrapped_element)
+    select type (element => wrapper%wrapped_element)
+    type is (text_node_t)
+        element = viewport_placeholder
+    end select
+    
+    ! Note: view_state parameter maintained for API compatibility
+    ! Full viewport implementation would manage pan/zoom state
+end function viewport
 
 end module fortui_widgets
