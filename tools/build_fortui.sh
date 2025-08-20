@@ -159,6 +159,84 @@ update_cache_versions() {
     atomic_write "$version_file" "$versions"
 }
 
+# Get cache size in human-readable format
+get_cache_size() {
+    local cache_dir="$1"
+    
+    if [[ ! -d "$cache_dir" ]]; then
+        echo "0B"
+        return
+    fi
+    
+    # Use du to get size, fallback to manual calculation if not available
+    if command -v du >/dev/null 2>&1; then
+        local size_kb
+        size_kb=$(du -sk "$cache_dir" 2>/dev/null | cut -f1)
+        if [[ -n "$size_kb" && "$size_kb" =~ ^[0-9]+$ ]]; then
+            # Convert to human readable format
+            if [[ $size_kb -lt 1024 ]]; then
+                echo "${size_kb}KB"
+            elif [[ $size_kb -lt 1048576 ]]; then
+                echo "$((size_kb / 1024))MB"
+            else
+                echo "$((size_kb / 1048576))GB"
+            fi
+        else
+            echo "unknown"
+        fi
+    else
+        echo "unknown"
+    fi
+}
+
+# Monitor and report cache status
+report_cache_status() {
+    local cache_dir="$1"
+    
+    if [[ ! -d "$cache_dir" ]]; then
+        echo "Cache directory does not exist: $cache_dir" >&2
+        return
+    fi
+    
+    local cache_size
+    cache_size=$(get_cache_size "$cache_dir")
+    
+    echo "Cache Status:" >&2
+    echo "  Location: $cache_dir" >&2
+    echo "  Size: $cache_size" >&2
+    
+    # Report on individual components
+    local termbox_dir="${cache_dir}/termbox2"
+    local frg_dir="${cache_dir}/fortran-raygui"
+    
+    if [[ -d "$termbox_dir" ]]; then
+        local termbox_size
+        termbox_size=$(get_cache_size "$termbox_dir")
+        echo "  termbox2: $termbox_size" >&2
+    else
+        echo "  termbox2: not cached" >&2
+    fi
+    
+    if [[ -d "$frg_dir" ]]; then
+        local frg_size
+        frg_size=$(get_cache_size "$frg_dir")
+        echo "  fortran-raygui: $frg_size" >&2
+    else
+        echo "  fortran-raygui: not cached" >&2
+    fi
+    
+    # Check for build markers
+    local markers=()
+    [[ -f "${cache_dir}/termbox2_built" ]] && markers+=("termbox2")
+    [[ -f "${cache_dir}/fortran_raygui_built" ]] && markers+=("fortran-raygui")
+    
+    if [[ ${#markers[@]} -gt 0 ]]; then
+        echo "  Built: ${markers[*]}" >&2
+    else
+        echo "  Built: none" >&2
+    fi
+}
+
 # Calculate SHA256 checksum of directory (git repo)
 calculate_repo_checksum() {
     local repo_dir="$1"
@@ -745,13 +823,18 @@ main() {
                 echo "Cache directory does not exist: ${GUI_CACHE}" >&2
             fi
             ;;
+        "status")
+            report_cache_status "${GUI_CACHE}"
+            return 0
+            ;;
         *)
-            echo "Usage: $0 [build|flags|ldflags|config|clean]" >&2
+            echo "Usage: $0 [build|flags|ldflags|config|clean|status]" >&2
             echo "  build   - Build all dependencies" >&2
             echo "  flags   - Print CPP flags (ENABLE_GUI=0|1)" >&2
             echo "  ldflags - Print linker flags for dependencies" >&2
             echo "  config  - Print configuration summary" >&2
             echo "  clean   - Clean dependency cache" >&2
+            echo "  status  - Show cache status and size information" >&2
             echo "" >&2
             echo "Environment variables:" >&2
             echo "  DISABLE_GUI   - Set to 1 to disable GUI backend" >&2
@@ -760,6 +843,8 @@ main() {
             echo "  DEBUG         - Set to 1 to enable debug output" >&2
             echo "  FRG_URL       - fortran-raygui repository URL" >&2
             echo "  FRG_REF       - fortran-raygui git reference" >&2
+            echo "  FORCE_REBUILD - Set to 1 to force rebuild all dependencies" >&2
+            echo "  OFFLINE_MODE  - Set to 1 to use only cached dependencies" >&2
             return 1
             ;;
     esac
