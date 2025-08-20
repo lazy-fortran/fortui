@@ -263,10 +263,17 @@ print_config() {
     echo "Fortui Build Configuration:" >&2
     echo "  Platform: $(detect_platform)" >&2
     echo "  Cache: ${GUI_CACHE}" >&2
-    echo "  GUI Backend: $(detect_raylib && echo 'ENABLED' || echo 'DISABLED')" >&2
+    
+    local gui_enabled=false
+    if detect_raylib; then
+        gui_enabled=true
+        echo "  GUI Backend: ENABLED" >&2
+    else
+        echo "  GUI Backend: DISABLED" >&2
+    fi
     echo "  TUI Backend: ENABLED (always)" >&2
     
-    if detect_raylib; then
+    if [[ "$gui_enabled" == "true" ]]; then
         if [[ -n "${RAYLIB_ROOT}" ]]; then
             echo "  Raylib: Custom (${RAYLIB_ROOT})" >&2
         else
@@ -274,14 +281,14 @@ print_config() {
         fi
     fi
     
-    [[ "${DEBUG}" == "1" ]] && {
+    if [[ "${DEBUG}" == "1" ]]; then
         echo "  Debug mode: ON" >&2
         echo "  Environment variables:" >&2
         echo "    DISABLE_GUI=${DISABLE_GUI}" >&2
         echo "    RAYLIB_ROOT=${RAYLIB_ROOT}" >&2
         echo "    FRG_URL=${FRG_URL}" >&2
         echo "    FRG_REF=${FRG_REF}" >&2
-    }
+    fi
 }
 
 # Main execution when run directly
@@ -307,6 +314,7 @@ main() {
             ;;
         "config")
             print_config
+            return 0
             ;;
         "clean")
             if [[ -d "${GUI_CACHE}" ]]; then
