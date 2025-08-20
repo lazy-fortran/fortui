@@ -200,10 +200,13 @@ subroutine tui_begin_frame(self)
     end if
 end subroutine tui_begin_frame
 
-subroutine tui_present(self)
+subroutine tui_present(self, tree)
     class(tui_backend_t), intent(inout) :: self
+    class(*), intent(in) :: tree
     
     if (self%initialized) then
+        ! Render the UI tree to the terminal (placeholder implementation)
+        call tb_clear()
         call tb_present()
     end if
 end subroutine tui_present

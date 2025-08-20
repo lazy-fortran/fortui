@@ -573,12 +573,14 @@ subroutine gui_begin_frame(self)
 end subroutine gui_begin_frame
 
 ! Type-bound procedure: Present GUI frame
-subroutine gui_present(self)
+subroutine gui_present(self, tree)
     class(gui_backend_t), intent(inout) :: self
+    class(*), intent(in) :: tree
     
     if (.not. self%initialized) return
     
-    ! Just end the frame without rendering a tree
+    ! Render the UI tree (delegate to existing implementation)
+    call present_gui_impl(tree)
     ! The actual tree rendering happens through gui_render_tree
     if (self%in_frame .and. self%window_created) then
         ! Would call EndDrawing() here

@@ -51,9 +51,10 @@ abstract interface
         class(backend_interface), intent(inout) :: self
     end subroutine begin_frame_proc
     
-    subroutine present_proc(self)
+    subroutine present_proc(self, tree)
         import :: backend_interface
         class(backend_interface), intent(inout) :: self
+        class(*), intent(in) :: tree
     end subroutine present_proc
     
     logical function is_available_proc(self)

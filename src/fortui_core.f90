@@ -17,7 +17,7 @@ public :: ui_element, node, view, widget_wrapper
 public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
 public :: ui_set_idle_policy, ui_get_context
 public :: is_gui_available, is_headless_environment, resolve_backend
-public :: ui_state, check_gui_quit
+public :: ui_state
 public :: set_environment_variable_simulation, clear_environment_variable_simulation
 ! Layout constructors
 public :: column, row
@@ -451,24 +451,20 @@ subroutine ui_frame_begin(timeout_ms)
     end if
     
     ! Backend-specific frame preparation
-    select case (trim(ui_state%active_backend))
-    case ("tui")
-        ! TUI: Event-driven with timeout
+    if (associated(ui_state%backend)) then
+        call ui_state%backend%begin_frame()
+    else
+        print *, "ui_frame_begin: Error - No backend available"
+        return
+    end if
+    
+    ! For TUI backend, also handle event polling
+    if (trim(ui_state%active_backend) == "tui") then
         call begin_tui_frame(timeout_ms)
-    case ("gui")
-#ifdef ENABLE_GUI
-        ! GUI: Frame timing controlled by target_fps, timeout ignored
-        call begin_gui_frame()
-#else
-        print *, "ui_frame_begin: Error - GUI backend not available (disabled at compile time)"
-#endif
-    end select
+    end if
 end subroutine ui_frame_begin
 
 subroutine ui_present(tree)
-#ifdef ENABLE_GUI
-    use fortui_gui, only: present_gui_impl
-#endif
     class(ui_element), intent(in) :: tree
     
     if (.not. ui_state%initialized) then
@@ -477,16 +473,11 @@ subroutine ui_present(tree)
     end if
     
     ! Backend-specific presentation
-    select case (trim(ui_state%active_backend))
-    case ("tui")
-        call present_tui(tree)
-    case ("gui")
-#ifdef ENABLE_GUI
-        call present_gui_impl(tree)
-#else
-        print *, "ui_present: Error - GUI backend not available (disabled at compile time)"
-#endif
-    end select
+    if (associated(ui_state%backend)) then
+        call ui_state%backend%present(tree)
+    else
+        print *, "ui_present: Error - No backend available"
+    end if
 end subroutine ui_present
 
 logical function ui_should_close()
@@ -499,18 +490,11 @@ logical function ui_should_close()
     end if
     
     ! Check backend-specific quit conditions
-    select case (trim(ui_state%active_backend))
-    case ("tui")
-        ui_should_close = check_tui_quit() .or. ui_state%should_quit
-    case ("gui")
-#ifdef ENABLE_GUI
-        ui_should_close = check_gui_quit() .or. ui_state%should_quit
-#else
-        ui_should_close = .true.  ! GUI backend disabled, force quit
-#endif
-    case default
-        ui_should_close = .true.  ! Unknown backend, force quit
-    end select
+    if (associated(ui_state%backend)) then
+        ui_should_close = ui_state%backend%check_quit() .or. ui_state%should_quit
+    else
+        ui_should_close = .true.  ! No backend available, force quit
+    end if
 end function ui_should_close
 
 subroutine ui_shutdown()
@@ -1054,36 +1038,9 @@ subroutine clear_back_buffer()
     end do
 end subroutine clear_back_buffer
 
-subroutine begin_gui_frame()
-#ifdef ENABLE_GUI
-    use fortui_gui, only: begin_gui_frame_impl
-    
-    ! Start GUI frame with raylib
-    call begin_gui_frame_impl()
-#else
-    print *, "begin_gui_frame: Error - GUI backend not available (disabled at compile time)"
-#endif
-end subroutine begin_gui_frame
+! All backend-specific operations now handled through backend interface
 
-! Backend-specific presentation stubs
-subroutine present_tui(tree)
-    class(ui_element), intent(in) :: tree
-    
-    if (.not. tui_state%initialized) return
-    
-    ! Render widget tree to back buffer
-    call render_node_to_buffer(tree, 0.0, 0.0)
-    
-    ! Apply diff-based updates to terminal
-    call apply_buffer_diff()
-    
-    ! Present the changes to the terminal using appropriate termbox2 implementation
-    if (tui_state%using_real_termbox) then
-        call real_tb_present()
-    else
-        call mock_tb_present()
-    end if
-end subroutine present_tui
+! TUI presentation now handled through backend interface
 
 recursive subroutine render_node_to_buffer(tree, offset_x_dp, offset_y_dp)
     ! Render ui_element tree to the back buffer using dp coordinates
@@ -1370,18 +1327,6 @@ logical function check_tui_quit()
     ! Check for TUI quit events (ESC, Ctrl+C, etc.)
     check_tui_quit = tui_state%quit_requested .or. .not. tui_state%initialized
 end function check_tui_quit
-
-logical function check_gui_quit()
-#ifdef ENABLE_GUI
-    use fortui_gui, only: check_gui_quit_impl
-    
-    ! Check for GUI quit events (window close, etc.)
-    check_gui_quit = check_gui_quit_impl()
-#else
-    ! GUI backend disabled - always return true to quit
-    check_gui_quit = .true.
-#endif
-end function check_gui_quit
 
 ! Backend-specific shutdown stubs
 subroutine shutdown_tui_backend()
