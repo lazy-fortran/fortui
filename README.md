@@ -42,55 +42,49 @@ fpm test  # ~87 validations across all components
 - [INTEGRATION_EXAMPLES.md](INTEGRATION_EXAMPLES.md) - Copy-paste examples for Makefile, CMake, CI/CD integration
 - [TESTING_GUIDE.md](docs/TESTING_GUIDE.md) - Enhanced test validation system (~87 validations)
 
-## Demo Application
-
-Comprehensive demo showcasing all widget types working together:
-
-```bash
-# Run the main demo application  
-./build/gfortran_*/app/fortui
-```
-
-**Demo features:**
-- Button widgets (zoom in/out with immediate feedback)
-- Slider widget (gain control: 0.1-5.0 range, 0.1 step)
-- Checkbox widget (grid toggle)
-- Text widget (dynamic status display)
-- Viewport widget (pan/zoom state management)
-- Layout system (column/row with gap spacing)
-
-**Source:** `app/main.f90` - Copy-paste ready immediate-mode widget patterns
-
 ## Quick Start
 
 ```fortran
-program minimal_example
+program layout_example
   use fortui_core
-  use fortui_widgets
+  use fortui_units
   implicit none
 
-  logical :: running = .true.
-  real :: volume = 50.0
-  logical :: enabled = .false.
+  type(node) :: ui, inner_layout
+  type(node), allocatable :: children(:)
+  logical :: running
+  integer :: frame = 0
 
-  call ui_init(backend="auto", width=60, height=20, title="Quick Start")
+  ! Automatic backend selection - uses GUI if available, TUI otherwise
+  call ui_init(backend="auto", width=60, height=20, title="Layout Demo")
   
+  running = .true.
   do while (running)
     call ui_frame_begin(timeout_ms=200)
+    frame = frame + 1
 
-    ! Immediate-mode widgets
-    if (button("exit", "Exit")) running = .false.
-    if (slider("vol", 0.0, 100.0, 5.0, volume)) then
-        print *, "Volume:", volume
-    end if
-    call checkbox("sound", enabled, "Enable Sound")
-    call text("status", "Widget demo ready")
+    ! Create nested layout structure
+    allocate(children(2))
+    children(1) = node()  ! placeholder child
+    children(2) = node()  ! placeholder child
+    inner_layout = row(gap=cw(2.0), children=children)
+    
+    deallocate(children)
+    allocate(children(3))
+    children(1) = node()  ! header placeholder
+    children(2) = inner_layout
+    children(3) = node()  ! footer placeholder
+    
+    ui = column(gap=ch(1.0), children=children)
 
-    call ui_present(node())  ! Minimal UI tree
-    running = running .and. .not. ui_should_close()
+    call ui_present(ui)
+    running = .not. ui_should_close()
+    
+    deallocate(children)
   end do
 
   call ui_shutdown()
+  print *, "Layout demo completed after", frame, "frames"
 end program
 ```
 
@@ -166,45 +160,113 @@ layout = column(gap=16.0)       ! bare real (treated as dp)
 
 **Complete Documentation:** [Layout API Guide](docs/LAYOUT_API.md)
 
-## Widgets
+## Widget System
 
-Immediate-mode widgets with automatic state management:
+### Button Widget
+
+Interactive button with click detection and auto-sizing:
 
 ```fortran
 use fortui_widgets
 
-! Button - returns true when clicked
-if (button("save", "Save")) then
-    print *, "Saving..."
+logical :: save_clicked, big_clicked
+
+! Basic usage - assignment operator pattern
+save_clicked = button("save_btn", label="Save")
+if (save_clicked) then
+    print *, "Save button clicked!"
 end if
 
-! Slider - returns true when changed, updates value
-if (slider("volume", 0.0, 100.0, 5.0, volume)) then
-    print *, "Volume:", volume
+! Custom size with units
+big_clicked = button("big_btn", width=dp(80.0), height=dp(40.0))
+if (big_clicked) then
+    ! Handle click
 end if
-
-! Checkbox - toggles boolean when clicked  
-call checkbox("sound", enabled, "Enable Sound")
-
-! Text - display content with auto-sizing
-call text("status", "Ready")
 ```
 
-**Widget Documentation:** [Button](docs/BUTTON_WIDGET.md) | [Text](docs/TEXT_WIDGET.md) | [Slider](docs/SLIDER_WIDGET.md) | [Checkbox](docs/CHECKBOX_WIDGET.md)
+### Text Widget
+
+Display text content with auto-sizing and multiline support:
+
+```fortran
+type(text_node_t) :: label_widget, info_widget, terminal_widget
+
+! Basic text display
+label_widget = text("label", "Hello World!")
+
+! Custom size with multiline content
+info_widget = text("info", "Line 1" // char(10) // "Line 2", text_size=sp(16.0))
+
+! Auto-sizing with TUI units
+terminal_widget = text("terminal", "Terminal Text", width=cw(25.0))
+```
+
+### Slider Widget
+
+Interactive numeric input with range control and step quantization:
+
+```fortran
+real :: volume = 50.0, temperature = 20.0
+logical :: volume_changed, temp_changed
+
+! Assignment operator pattern for change detection
+volume_changed = slider("volume", 0.0, 100.0, 5.0, volume, width=dp(120.0))
+if (volume_changed) then
+    print *, "Volume changed to:", volume
+end if
+
+! Continuous values (step_val = 0.0)
+temp_changed = slider("temp", 15.0, 30.0, 0.0, temperature)
+if (temp_changed) then
+    print *, "Temperature:", temperature, "°C"
+end if
+```
+
+### Checkbox Widget
+
+Boolean input with toggle functionality:
+
+```fortran
+logical :: sound_enabled = .true., enabled = .false.
+type(checkbox_node_t) :: sound_widget, notif_widget
+
+! Checkbox widget returns widget node with toggle state
+sound_widget = checkbox("sound", sound_enabled, label="Enable Sound")
+if (sound_enabled) then
+    print *, "Sound is enabled"
+end if
+
+! Auto-sizing with label
+notif_widget = checkbox("notifications", enabled, label="Email Notifications")
+```
+
+**Complete Documentation:** 
+- [Button Widget API](docs/BUTTON_WIDGET.md)
+- [Text Widget API](docs/TEXT_WIDGET.md)
+- [Slider Widget API](docs/SLIDER_WIDGET.md)
+- [Checkbox Widget API](docs/CHECKBOX_WIDGET.md)
 
 ### Units System
+fortui provides a comprehensive units system for cross-backend consistency:
+
 ```fortran
 use fortui_units
 
-! Cross-backend units
+! Unit constructor functions
 width = dp(40.0)      ! density-independent pixels
-height = em(2.5)      ! relative to font size
-border = cw(10.0)     ! cell widths (TUI-friendly)
-gap = ch(3.0)         ! cell heights (TUI-friendly)
+gap = em(2.5)         ! relative to font size  
+text_size = sp(14.0)  ! scaled pixels (accessibility)
+border = px(2.0)      ! physical pixels
+cols = cw(10.0)       ! cell widths (TUI-friendly)
+rows = ch(3.0)        ! cell heights (TUI-friendly)
 
-! Bare real defaults to dp
+! Bare real values default to dp
 width = 40.0          ! equivalent to dp(40.0)
 ```
+
+**Cross-backend behavior:**
+- **TUI**: Units snap to cell boundaries for perfect terminal alignment
+- **GUI**: Subpixel precision maintained for smooth graphics
 
 ## API Reference
 
@@ -242,15 +304,50 @@ plot_view%off_x = 100.0    ! Pan right by 100 units
 ! Memory management is automatic - no manual cleanup needed
 ```
 
-## Examples
+## Complete Example
 
-```bash
-# Individual widget examples
-fpm run --example button_test      # Button click detection
-fpm run --example slider_demo      # Slider value changes 
-fpm run --example checkbox_demo    # Checkbox toggle behavior
-fpm run --example text_demo        # Text display and sizing
-fpm run --example layout_demo      # Column/row layout system
+```fortran
+program core_types_demo  
+  use fortui_core
+  implicit none
+
+  type(view) :: plot_view
+  type(node) :: ui_root
+  logical :: running
+  integer :: frame_count = 0
+
+  ! Automatic backend selection - GUI if available, TUI otherwise
+  call ui_init(backend="auto", width=80, height=25, title="Core Types Demo")
+  
+  ! Optional: Configure power-saving for GUI mode (ignored in TUI)
+  call ui_set_idle_policy("adaptive", idle_fps=12)
+
+  running = .true.
+  do while (running)
+    call ui_frame_begin(timeout_ms=200)
+
+    ! Update view state (zoom oscillation for demo)
+    frame_count = frame_count + 1
+    plot_view%scale_x = 1.0 + sin(real(frame_count) * 0.05) * 0.5
+    plot_view%scale_y = plot_view%scale_x
+    plot_view%off_x = cos(real(frame_count) * 0.03) * 20.0
+
+    ! Build UI with text widgets
+    ! ui_root = column(children=[ &
+    !   text("title", "fortui Demo - Frame " // int_to_str(frame_count)), &
+    !   text("view_info", "Scale: " // real_to_str(plot_view%scale_x) // &
+    !                     " Offset: " // real_to_str(plot_view%off_x)), &
+    !   viewport("plot", 60, 15, plot_view) ])
+
+    call ui_present(ui_root)
+    running = .not. ui_should_close()
+  end do
+
+  call ui_shutdown()
+  
+  print *, "Demo completed after", frame_count, "frames"
+  print *, "Final view state: scale=", plot_view%scale_x, "offset=", plot_view%off_x
+end program
 ```
 
 ## Backend Selection
@@ -268,10 +365,11 @@ call ui_init(backend="auto", width=80, height=25, title="My App")
 ```fortran
 call ui_init(backend="tui", width=80, height=25, title="My App")
 ```
-- Event-driven with smart timeouts
-- Minimal terminal writes via diffing
-- Full mouse support
-- Always available (no dependencies)
+- **Visual rendering**: Layout characters (`|`, `-`, `*`) for widget visualization
+- **Event-driven**: Smart timeouts with keyboard/mouse support
+- **Cell-based display**: Perfect coordinate snapping to terminal grid
+- **Performance optimized**: Front/back buffer diffing for minimal writes
+- **Production ready**: Complete termbox2 integration with fallback testing
 
 ### Graphical UI (GUI)  
 ```fortran
@@ -289,7 +387,7 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
 ✅ **fortui_core module**: Complete with `node` and `view` types, lifecycle management, layout constructors  
 ✅ **fortui_units module**: Complete with comprehensive cross-backend units system
 ✅ **Layout system**: `column()` and `row()` functions with gap parameters and children arrays - **PRODUCTION READY**
-✅ **fortui_widgets module**: Button, text, slider, and checkbox widgets with interaction detection, auto-sizing, value management  
+✅ **fortui_widgets module**: Button, text, slider, and checkbox widgets with interaction detection, auto-sizing, value management
 ✅ **Backend selection**: TUI/GUI conditional compilation working  
 ✅ **Build system**: Automatic dependency detection and configuration
 
