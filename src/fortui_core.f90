@@ -49,10 +49,6 @@ type, extends(ui_element) :: node
     ! Widget interaction status (for button clicks, checkbox toggles, etc.)
     logical :: interaction_occurred = .false.
     ! Backend-agnostic design (identical behavior regardless of compilation flags)
-contains
-    ! Assignment operator overload for proper memory management
-    procedure :: assign_node
-    generic :: assignment(=) => assign_node
 end type node
 
 ! Pan/zoom state for plot areas with default values from DESIGN.md
@@ -915,34 +911,6 @@ function row(gap, children) result(n)
     end if
 end function row
 
-! Assignment operator implementation for proper memory management
-recursive subroutine assign_node(lhs, rhs)
-    class(node), intent(out) :: lhs
-    class(node), intent(in) :: rhs
-    
-    integer :: i
-    
-    ! Copy basic properties
-    lhs%layout_type = rhs%layout_type
-    lhs%gap_dp = rhs%gap_dp
-    lhs%interaction_occurred = rhs%interaction_occurred
-    
-    ! Deep copy children array with proper memory management
-    if (allocated(rhs%children)) then
-        if (size(rhs%children) > 0) then
-            allocate(lhs%children(size(rhs%children)))
-            do i = 1, size(rhs%children)
-                ! Use assignment operator recursively for deep copy
-                lhs%children(i) = rhs%children(i)
-            end do
-        else
-            ! Allocate empty array for consistency
-            allocate(lhs%children(0))
-        end if
-    end if
-    ! Note: if rhs%children is not allocated, lhs%children remains unallocated
-    ! due to intent(out) behavior, which is correct
-end subroutine assign_node
 
 ! Mock termbox2 implementations for testing without actual library
 integer(c_int) function mock_tb_init() result(ret)
