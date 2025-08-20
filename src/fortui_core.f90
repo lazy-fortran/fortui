@@ -1383,10 +1383,12 @@ subroutine apply_buffer_diff()
 end subroutine apply_buffer_diff
 
 subroutine present_gui(tree)
-    class(ui_element), intent(in) :: tree
 #ifdef ENABLE_GUI
     use fortui_gui, only: present_gui_impl
+#endif
+    class(ui_element), intent(in) :: tree
     
+#ifdef ENABLE_GUI
     ! Render widget tree with raylib/raygui
     call present_gui_impl(tree)
 #else
