@@ -142,6 +142,85 @@ TERMBOX_URL=https://github.com/user/termbox2.git
 TERMBOX_REF=master ./tools/build_fortui.sh build
 ```
 
+## GUI Backend Setup
+
+### Installing raylib
+
+The GUI backend requires raylib to be installed on your system. Here are platform-specific installation instructions:
+
+**Ubuntu/Debian:**
+```bash
+sudo apt update && sudo apt install libraylib-dev
+```
+
+**Fedora/RHEL:**
+```bash
+sudo dnf install raylib-devel
+```
+
+**macOS:**
+```bash
+brew install raylib
+```
+
+**Arch Linux:**
+```bash
+sudo pacman -S raylib
+```
+
+**Windows (MSYS2):**
+```bash
+pacman -S mingw-w64-x86_64-raylib
+```
+
+### Verifying GUI Support
+
+After installing raylib, verify GUI backend detection:
+
+```bash
+# Check if raylib is detected
+./tools/build_fortui.sh config
+```
+
+Expected output with GUI enabled:
+```
+Fortui Build Configuration:
+  Platform: linux
+  Cache: /home/user/.cache/fortui
+  GUI Backend: ENABLED          # ← Should show ENABLED
+  TUI Backend: ENABLED (always)
+  Raylib: System (pkg-config)   # ← Detection method
+```
+
+If GUI shows as DISABLED:
+```bash
+# Check raylib installation
+pkg-config --exists raylib && echo "raylib found" || echo "raylib missing"
+pkg-config --modversion raylib  # Show version
+
+# Force rebuild after installing raylib
+FORCE_REBUILD=1 ./tools/build_fortui.sh build
+```
+
+### Quick GUI Test
+
+Build and test GUI functionality:
+
+```bash
+# Build with GUI support
+source fpm_env.sh
+fpm build
+
+# Test GUI backend
+fpm run --example gui_demo
+```
+
+If the window doesn't appear, check your display environment:
+```bash
+echo $DISPLAY              # X11 (should show :0 or similar)
+echo $WAYLAND_DISPLAY      # Wayland (should show wayland-0)
+```
+
 ## Integration Examples
 
 ### Basic FPM Integration

@@ -852,6 +852,349 @@ end subroutine
 
 ⸻
 
+## GUI Backend Implementation (Issue #11)
+
+### Overview
+
+Implement the raygui/raylib-based GUI backend as a conditional enhancement that builds only when system has required libraries. The GUI backend provides pixel-perfect monospace rendering that exactly matches TUI behavior while adding graphical capabilities.
+
+### Architecture Design
+
+#### Conditional Compilation Structure
+```fortran
+! src/fortui_gui.F90 - GUI backend module
+module fortui_gui
+#ifdef ENABLE_GUI
+  use iso_c_binding
+  use raygui_bindings  ! From fortran-raygui dependency
+  use fortui_core
+  use fortui_units
+  implicit none
+  private
+  
+  ! Public procedures
+  public :: gui_init, gui_shutdown, gui_frame_begin, gui_present
+  public :: gui_should_close, gui_is_available
+  
+  ! Backend state
+  type :: gui_state_t
+    logical :: initialized = .false.
+    integer :: window_width = 0
+    integer :: window_height = 0
+    real :: cell_width = 8.0   ! Monospace cell dimensions
+    real :: cell_height = 16.0
+    integer :: target_fps = 60
+    logical :: vsync_enabled = .true.
+  end type
+  
+  type(gui_state_t), save :: gui_state
+  
+contains
+  
+  subroutine gui_init(width_dp, height_dp, title, target_fps, vsync)
+    real, intent(in) :: width_dp, height_dp
+    character(*), intent(in) :: title
+    integer, intent(in), optional :: target_fps
+    logical, intent(in), optional :: vsync
+    
+    ! Convert dp to pixels for window creation
+    integer :: width_px, height_px
+    width_px = int(width_dp)
+    height_px = int(height_dp)
+    
+    ! Initialize raylib window
+    call InitWindow(width_px, height_px, title // c_null_char)
+    
+    ! Configure rendering settings
+    if (present(target_fps)) then
+      call SetTargetFPS(target_fps)
+      gui_state%target_fps = target_fps
+    else
+      call SetTargetFPS(60)
+    end if
+    
+    if (present(vsync) .and. vsync) then
+      call SetConfigFlags(FLAG_VSYNC_HINT)
+      gui_state%vsync_enabled = .true.
+    end if
+    
+    gui_state%initialized = .true.
+    gui_state%window_width = width_px
+    gui_state%window_height = height_px
+  end subroutine
+  
+#else
+  ! Stub implementation when GUI not available
+  implicit none
+  private
+  public :: gui_is_available
+  
+contains
+  
+  logical function gui_is_available() result(available)
+    available = .false.
+  end function
+  
+#endif
+end module fortui_gui
+```
+
+#### Runtime Backend Selection
+```fortran
+! Enhanced fortui_core.f90 backend selection
+subroutine ui_init_backend_select(backend, width, height, title, target_fps, vsync)
+  character(*), intent(in) :: backend
+  class(unit_type), intent(in) :: width, height
+  character(*), intent(in) :: title
+  integer, intent(in), optional :: target_fps
+  logical, intent(in), optional :: vsync
+  
+  real :: width_dp, height_dp
+  logical :: gui_available, headless_env
+  
+  ! Convert dimensions to dp
+  width_dp = width%to_dp(ui_get_context())
+  height_dp = height%to_dp(ui_get_context())
+  
+  ! Check environment and availability
+  gui_available = check_gui_available()
+  headless_env = check_headless_environment()
+  
+  ! Backend selection logic
+  if (backend == "auto") then
+    if (gui_available .and. .not. headless_env) then
+      ui_state%active_backend = "gui"
+    else
+      ui_state%active_backend = "tui"
+    end if
+  else if (backend == "gui") then
+    if (.not. gui_available) then
+      print *, "Warning: GUI backend requested but not available, falling back to TUI"
+      ui_state%active_backend = "tui"
+    else if (headless_env) then
+      print *, "Warning: GUI backend requested in headless environment, falling back to TUI"
+      ui_state%active_backend = "tui"
+    else
+      ui_state%active_backend = "gui"
+    end if
+  else
+    ui_state%active_backend = "tui"
+  end if
+  
+  ! Initialize selected backend
+  select case(ui_state%active_backend)
+    case("gui")
+      call gui_init(width_dp, height_dp, title, target_fps, vsync)
+    case("tui")
+      call tui_init(int(width_dp/8), int(height_dp/16), title)
+  end select
+end subroutine
+```
+
+#### Environment Detection Functions
+```fortran
+logical function check_gui_available() result(available)
+#ifdef ENABLE_GUI
+  ! Check if GUI was compiled in
+  available = .true.
+#else
+  available = .false.
+#endif
+end function
+
+logical function check_headless_environment() result(headless)
+  character(len=256) :: display_var
+  integer :: status
+  
+  ! Check for display environment variables
+  call get_environment_variable("DISPLAY", display_var, status=status)
+  if (status == 0 .and. len_trim(display_var) > 0) then
+    headless = .false.
+    return
+  end if
+  
+  call get_environment_variable("WAYLAND_DISPLAY", display_var, status=status)
+  if (status == 0 .and. len_trim(display_var) > 0) then
+    headless = .false.
+    return
+  end if
+  
+  ! No display found - headless environment
+  headless = .true.
+end function
+```
+
+### Widget Implementation Strategy
+
+#### Monospace Grid Mapping
+```fortran
+! Convert grid units to pixel coordinates for GUI rendering
+subroutine grid_to_pixels(col, row, x_px, y_px)
+  integer, intent(in) :: col, row
+  integer, intent(out) :: x_px, y_px
+  
+  x_px = col * int(gui_state%cell_width)
+  y_px = row * int(gui_state%cell_height)
+end subroutine
+
+! Render text at grid position (monospace alignment)
+subroutine draw_text_grid(text, col, row, color)
+  character(*), intent(in) :: text
+  integer, intent(in) :: col, row
+  integer, intent(in) :: color
+  
+  integer :: x_px, y_px
+  call grid_to_pixels(col, row, x_px, y_px)
+  call DrawText(text // c_null_char, x_px, y_px, &
+                int(gui_state%cell_height * 0.8), color)
+end subroutine
+```
+
+#### Widget Rendering Backends
+```fortran
+! Button widget with backend-specific rendering
+subroutine render_button(id, label, x, y, width, height, pressed)
+  character(*), intent(in) :: id, label
+  integer, intent(in) :: x, y, width, height
+  logical, intent(out) :: pressed
+  
+  select case(ui_state%active_backend)
+    case("gui")
+      call render_button_gui(id, label, x, y, width, height, pressed)
+    case("tui")
+      call render_button_tui(id, label, x, y, width, height, pressed)
+  end select
+end subroutine
+
+#ifdef ENABLE_GUI
+subroutine render_button_gui(id, label, x, y, width, height, pressed)
+  ! GUI implementation using raygui
+  Rectangle :: bounds
+  bounds%x = real(x)
+  bounds%y = real(y)
+  bounds%width = real(width)
+  bounds%height = real(height)
+  
+  pressed = GuiButton(bounds, label // c_null_char) /= 0
+end subroutine
+#endif
+```
+
+### Build System Integration
+
+#### Dependency Management
+```bash
+# tools/build_fortui.sh additions for GUI backend
+fetch_fortran_raygui() {
+    local cache_dir="${GUI_CACHE}/fortran-raygui"
+    
+    if [[ ! -d "$cache_dir" ]] || [[ "${FORCE_REBUILD}" == "1" ]]; then
+        echo "Fetching fortran-raygui..."
+        git clone "${FRG_URL}" "$cache_dir"
+        cd "$cache_dir"
+        git checkout "${FRG_REF}"
+        
+        # Build fortran-raygui
+        make lib
+    fi
+    
+    # Set include and library paths
+    export FRG_INCLUDE="-I${cache_dir}/build/include"
+    export FRG_LIBS="-L${cache_dir}/build/lib -lfortran-raygui"
+}
+
+# Enhanced raylib detection with fortran-raygui integration
+setup_gui_backend() {
+    if detect_raylib; then
+        fetch_fortran_raygui
+        
+        # Set CPP flags for conditional compilation
+        export FPM_FFLAGS="${FPM_FFLAGS} -DENABLE_GUI"
+        export FPM_LDFLAGS="${FPM_LDFLAGS} ${FRG_LIBS} $(pkg-config --libs raylib)"
+        
+        echo "GUI backend enabled with raylib/raygui"
+        return 0
+    else
+        echo "GUI backend disabled (raylib not found)"
+        return 1
+    fi
+}
+```
+
+### Testing Strategy
+
+#### Cross-Backend Validation
+```fortran
+! Test that both backends produce equivalent results
+program test_backend_parity
+  use fortui
+  implicit none
+  
+  type(view) :: test_view
+  logical :: tui_result, gui_result
+  
+  ! Test with TUI backend
+  call ui_init("tui", 80.0 .cw., 24.0 .ch., "Test TUI")
+  call ui_frame_begin()
+  tui_result = button("test_btn", "Click Me")
+  call ui_present()
+  call ui_shutdown()
+  
+  ! Test with GUI backend (if available)
+  if (check_gui_available()) then
+    call ui_init("gui", 640.0, 480.0, "Test GUI")
+    call ui_frame_begin()
+    gui_result = button("test_btn", "Click Me")
+    call ui_present()
+    call ui_shutdown()
+    
+    ! Results should be functionally equivalent
+    call assert_equivalent_behavior(tui_result, gui_result)
+  end if
+end program
+```
+
+### Success Criteria
+
+**Build System**:
+- [ ] GUI backend builds only when raylib detected
+- [ ] fortran-raygui fetched and cached automatically
+- [ ] CPP preprocessing correctly enables/disables GUI code
+- [ ] Build succeeds with TUI-only when GUI unavailable
+
+**Runtime Behavior**:
+- [ ] Automatic backend selection based on environment
+- [ ] Headless environment detection works correctly
+- [ ] Graceful fallback from GUI to TUI when needed
+- [ ] User can force TUI mode via backend parameter
+
+**Visual Parity**:
+- [ ] Monospace grid alignment identical between backends
+- [ ] Widget dimensions match exactly (in grid units)
+- [ ] Color schemes translate appropriately
+- [ ] Input behavior consistent across backends
+
+**Performance**:
+- [ ] GUI respects target FPS (default 60)
+- [ ] VSync enabled by default
+- [ ] Idle policy (steady/adaptive) configurable
+- [ ] No performance regression in TUI mode
+
+### Dependencies
+
+**Requires**:
+- Build system with dependency management (Issue #17) ✓
+- System capability detection (Issue #15) ✓
+- CPP preprocessing support in FPM ✓
+
+**External**:
+- raylib system installation (detected via pkg-config)
+- fortran-raygui (fetched automatically when GUI possible)
+
+**Priority**: **HIGH** - Enables full dual-backend architecture and cross-platform GUI support.
+
+⸻
+
 ## Viewport Widget Architecture (Issue #9)
 
 ### Overview

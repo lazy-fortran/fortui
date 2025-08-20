@@ -14,7 +14,10 @@ public :: ui_element, node, view, widget_wrapper
 
 ! Public procedures
 public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
-public :: ui_set_idle_policy
+public :: ui_set_idle_policy, ui_get_context
+public :: is_gui_available, is_headless_environment, resolve_backend
+public :: ui_state, check_gui_quit
+public :: set_environment_variable_simulation, clear_environment_variable_simulation
 ! Layout constructors
 public :: column, row
 ! Widget wrapper for layout integration
@@ -32,6 +35,7 @@ type :: ui_state_t
     character(len=32) :: idle_mode = "adaptive"
     integer :: idle_fps = 12
     logical :: should_quit = .false.
+    real :: dpi_scale = 1.0
 end type ui_state_t
 
 type(ui_state_t), save :: ui_state
@@ -258,7 +262,7 @@ subroutine ui_init_integer(backend, width, height, title, target_fps, vsync)
     case ("tui")
         call init_tui_backend()
     case ("gui")
-#if defined(ENABLE_GUI) && ENABLE_GUI == 1
+#ifdef ENABLE_GUI
         call init_gui_backend()
 #else
         print *, "ui_init: Error - GUI backend not available (disabled at compile time)"
@@ -319,6 +323,31 @@ subroutine ui_init_abstract(backend, width, height, title, target_fps, vsync)
     call setup_enhanced_context(backend, ctx)
 end subroutine ui_init_abstract
 
+subroutine ui_get_context(ctx)
+    ! Get current UI context for unit conversions and measurements
+    use fortui_units, only: ui_context
+    type(ui_context), intent(out) :: ctx
+    
+    ! Set basic context values
+    ctx%cell_w_dp = 8.0   ! Default character width in dp
+    ctx%cell_h_dp = 16.0  ! Default line height in dp
+    ctx%em_dp = 16.0      ! Default em size
+    ctx%dpi_scale = ui_state%dpi_scale
+    ctx%text_scale = 1.0
+    
+    ! Backend-specific adjustments
+    select case (trim(ui_state%active_backend))
+    case ("gui")
+        ! GUI may have different metrics
+        ctx%dpi_scale = max(1.0, ui_state%dpi_scale)
+    case ("tui")
+        ! TUI always uses 1.0 DPI scale
+        ctx%dpi_scale = 1.0
+    case default
+        ! Use defaults
+    end select
+end subroutine ui_get_context
+
 subroutine setup_enhanced_context(backend, ctx)
     ! Setup enhanced context with backend-specific measurement
     use fortui_units, only: ui_context, ui_set_context
@@ -336,7 +365,7 @@ subroutine setup_enhanced_context(backend, ctx)
         ctx%dpi_scale = 1.0  ! TUI always uses 1.0 DPI scale
         
     case ("gui")
-#if defined(ENABLE_GUI) && ENABLE_GUI == 1
+#ifdef ENABLE_GUI
         ! Enhanced GUI context setup with system measurement
         call detect_system_dpi(ctx%dpi_scale)
         call measure_font_metrics(ctx%em_dp)
@@ -374,7 +403,7 @@ subroutine ui_set_idle_policy(mode, idle_fps)        ! gui only
     end if
     
     ! Apply policy for GUI backend only
-#if defined(ENABLE_GUI) && ENABLE_GUI == 1
+#ifdef ENABLE_GUI
     if (trim(ui_state%active_backend) == "gui") then
         print *, "ui_set_idle_policy: mode=", trim(ui_state%idle_mode)
         if (present(idle_fps)) print *, "  idle_fps=", ui_state%idle_fps
@@ -401,7 +430,7 @@ subroutine ui_frame_begin(timeout_ms)
         ! TUI: Event-driven with timeout
         call begin_tui_frame(timeout_ms)
     case ("gui")
-#if defined(ENABLE_GUI) && ENABLE_GUI == 1
+#ifdef ENABLE_GUI
         ! GUI: Frame timing controlled by target_fps, timeout ignored
         call begin_gui_frame()
 #else
@@ -423,7 +452,7 @@ subroutine ui_present(tree)
     case ("tui")
         call present_tui(tree)
     case ("gui")
-#if defined(ENABLE_GUI) && ENABLE_GUI == 1
+#ifdef ENABLE_GUI
         call present_gui(tree)
 #else
         print *, "ui_present: Error - GUI backend not available (disabled at compile time)"
@@ -445,7 +474,7 @@ logical function ui_should_close()
     case ("tui")
         ui_should_close = check_tui_quit() .or. ui_state%should_quit
     case ("gui")
-#if defined(ENABLE_GUI) && ENABLE_GUI == 1
+#ifdef ENABLE_GUI
         ui_should_close = check_gui_quit() .or. ui_state%should_quit
 #else
         ui_should_close = .true.  ! GUI backend disabled, force quit
@@ -468,7 +497,7 @@ subroutine ui_shutdown()
     case ("tui")
         call shutdown_tui_backend()
     case ("gui")
-#if defined(ENABLE_GUI) && ENABLE_GUI == 1
+#ifdef ENABLE_GUI
         call shutdown_gui_backend()
 #else
         ! GUI backend disabled - no cleanup needed
@@ -514,7 +543,7 @@ function resolve_backend(requested) result(backend)
         backend = "gui"
     case ("auto", "AUTO", "")
         ! Auto-detect best available backend
-#if defined(ENABLE_GUI) && ENABLE_GUI == 1
+#ifdef ENABLE_GUI
         if (is_gui_available() .and. .not. is_headless_environment()) then
             backend = "gui"
         else
@@ -540,19 +569,11 @@ end function resolve_backend
 
 logical function is_gui_available()
     ! Check if GUI backend can be initialized
-#if defined(ENABLE_GUI) && ENABLE_GUI == 1
-    character(len=256) :: disable_gui
-    integer :: ios
+#ifdef ENABLE_GUI
+    use fortui_gui, only: is_gui_available_impl
     
-    ! Check DISABLE_GUI environment variable
-    call get_environment_variable("DISABLE_GUI", disable_gui, status=ios)
-    if (ios == 0 .and. trim(disable_gui) == "1") then
-        is_gui_available = .false.
-        return
-    end if
-    
-    ! TODO: Add runtime raylib initialization check when backend modules available
-    is_gui_available = .true.
+    ! Use GUI backend's availability check
+    is_gui_available = is_gui_available_impl()
 #else
     is_gui_available = .false.
 #endif
@@ -609,6 +630,19 @@ logical function is_headless_environment()
     
     is_headless_environment = .false.
 end function is_headless_environment
+
+
+subroutine set_environment_variable_simulation(name, value)
+    character(*), intent(in) :: name, value
+    ! This is a stub for testing - real implementation would set env vars
+    print *, "  [SIMULATION] Setting ", trim(name), "=", trim(value)
+end subroutine set_environment_variable_simulation
+
+subroutine clear_environment_variable_simulation(name)
+    character(*), intent(in) :: name
+    ! This is a stub for testing - real implementation would clear env vars
+    print *, "  [SIMULATION] Clearing ", trim(name)
+end subroutine clear_environment_variable_simulation
 
 ! Backend-specific initialization stubs
 subroutine init_tui_backend()
@@ -702,14 +736,27 @@ end subroutine init_tui_backend
 
 subroutine init_gui_backend()
     ! Initialize GUI backend with enhanced measurement
-#if defined(ENABLE_GUI) && ENABLE_GUI == 1
+#ifdef ENABLE_GUI
     use fortui_units, only: ui_get_context, ui_set_context, ui_context
     use fortui_platform_measurement, only: detect_system_dpi, measure_font_metrics, &
                                            detect_text_scaling, validate_context
+    use fortui_gui, only: init_gui_backend_impl, is_gui_available_impl
     
     type(ui_context) :: ctx
     
-    ! TODO: Initialize raylib when GUI module available
+    ! Check if GUI is actually available at runtime
+    if (.not. is_gui_available_impl()) then
+        print *, "init_gui_backend: GUI not available in current environment"
+        print *, "init_gui_backend: Falling back to TUI backend"
+        ui_state%active_backend = "tui"
+        call init_tui_backend()
+        return
+    end if
+    
+    ! Initialize raylib/raygui backend
+    call init_gui_backend_impl(ui_state%window_width, ui_state%window_height, &
+                               ui_state%window_title, ui_state%target_fps, &
+                               ui_state%vsync_enabled)
     
     ! Setup enhanced GUI context with system measurement
     call ui_get_context(ctx)
@@ -1027,8 +1074,11 @@ subroutine clear_back_buffer()
 end subroutine clear_back_buffer
 
 subroutine begin_gui_frame()
-#if defined(ENABLE_GUI) && ENABLE_GUI == 1
-    ! TODO: GUI frame timing
+#ifdef ENABLE_GUI
+    use fortui_gui, only: begin_gui_frame_impl
+    
+    ! Start GUI frame with raylib
+    call begin_gui_frame_impl()
 #else
     print *, "begin_gui_frame: Error - GUI backend not available (disabled at compile time)"
 #endif
@@ -1333,9 +1383,14 @@ subroutine apply_buffer_diff()
 end subroutine apply_buffer_diff
 
 subroutine present_gui(tree)
+#ifdef ENABLE_GUI
+    use fortui_gui, only: present_gui_impl
+#endif
     class(ui_element), intent(in) :: tree
-#if defined(ENABLE_GUI) && ENABLE_GUI == 1
-    ! TODO: GUI rendering with raygui
+    
+#ifdef ENABLE_GUI
+    ! Render widget tree with raylib/raygui
+    call present_gui_impl(tree)
 #else
     print *, "present_gui: Error - GUI backend not available (disabled at compile time)"
 #endif
@@ -1348,15 +1403,11 @@ logical function check_tui_quit()
 end function check_tui_quit
 
 logical function check_gui_quit()
-#if defined(ENABLE_GUI) && ENABLE_GUI == 1
-    ! Check for GUI quit events (window close, etc.)
-    ! For now, return true after reasonable timeout to prevent infinite loop
-    integer, save :: call_count = 0
-    call_count = call_count + 1
+#ifdef ENABLE_GUI
+    use fortui_gui, only: check_gui_quit_impl
     
-    ! Auto-quit after 10 seconds (approximately 600 frames at 60fps)
-    ! This prevents infinite loops during development/testing
-    check_gui_quit = call_count > 600
+    ! Check for GUI quit events (window close, etc.)
+    check_gui_quit = check_gui_quit_impl()
 #else
     ! GUI backend disabled - always return true to quit
     check_gui_quit = .true.
@@ -1388,8 +1439,11 @@ subroutine shutdown_tui_backend()
 end subroutine shutdown_tui_backend
 
 subroutine shutdown_gui_backend()
-#if defined(ENABLE_GUI) && ENABLE_GUI == 1
-    ! TODO: GUI cleanup
+#ifdef ENABLE_GUI
+    use fortui_gui, only: shutdown_gui_backend_impl
+    
+    ! Cleanup raylib/raygui resources
+    call shutdown_gui_backend_impl()
     print *, "shutdown_gui_backend: GUI backend shutdown"
 #else
     ! GUI backend disabled - no cleanup needed
@@ -1476,7 +1530,7 @@ recursive subroutine assign_node(lhs, rhs)
     end if
 end subroutine assign_node
 
-! Mock termbox2 implementations for testing without actual library
+! Mock termbox2 implementations for testing and fallback
 integer(c_int) function mock_tb_init() result(ret)
     ! Mock termbox2 initialization
     mock_terminal%initialized = .true.
