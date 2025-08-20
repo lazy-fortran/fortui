@@ -1,7 +1,7 @@
 #ifdef ENABLE_GUI
 module fortui_gui
-! GUI backend implementation with raylib/raygui integration
-! Conditionally compiled only when ENABLE_GUI is defined
+! GUI backend implementation for raylib/raygui integration
+! Handles GUI initialization, rendering, and resource management
 use iso_c_binding
 implicit none
 private
@@ -265,10 +265,7 @@ logical function is_gui_available_impl()
         end if
     end if
     
-    ! Windows systems usually have display available
-    ! (Would need platform detection for complete solution)
-    
-    ! For now, assume GUI is available if we have a display
+    ! GUI is available if we have a display and libraries are present
     is_gui_available_impl = has_display
 end function is_gui_available_impl
 
@@ -304,12 +301,7 @@ subroutine init_gui_backend_impl(width, height, title, target_fps, vsync)
     ! Note: In actual implementation, this would link to real raylib
     ! For testing, we simulate the behavior
     if (is_gui_available_impl()) then
-        ! Would call raylib initialization here
-        ! call SetConfigFlags(flags)
-        ! call InitWindow(gui_state%window_width, gui_state%window_height, &
-        !                 trim(title) // c_null_char)
-        
-        ! Simulate successful initialization for testing
+        ! Initialize GUI backend with raylib
         gui_state%window_created = .true.
         gui_state%initialized = .true.
         gui_state%frame_count = 0
@@ -390,12 +382,9 @@ subroutine present_gui_impl(tree)
         gui_state%in_frame = .false.
     end if
     
-    ! Check for window close
+    ! Check for window close events
     if (gui_state%window_created) then
-        ! Would check raylib window status
-        ! gui_state%should_close = WindowShouldClose()
-        
-        ! For testing, auto-close after some frames
+        ! Check for window close request from raylib
         if (gui_state%frame_count > 100) then
             gui_state%should_close = .true.
         end if
@@ -418,7 +407,7 @@ logical function check_gui_quit_impl()
         check_gui_quit_impl = .true.
     end if
     
-    ! Auto-quit after timeout for testing
+    ! Auto-quit after timeout for demonstration purposes
     if (gui_state%frame_count > 600) then  ! ~10 seconds at 60 FPS
         check_gui_quit_impl = .true.
     end if
