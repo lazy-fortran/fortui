@@ -8,7 +8,7 @@ private
 public :: button_node_t, button
 
 ! Placeholder types for other widgets
-public :: text_node_t, slider_node_t, checkbox_node_t
+public :: text_node_t, slider_node_t, checkbox_node_t, viewport_node_t
 public :: text, slider, checkbox, viewport
 
 ! Widget node types (simplified placeholders)
@@ -34,6 +34,13 @@ type :: checkbox_node_t
     real :: width_dp = 0.0
     real :: height_dp = 0.0
 end type checkbox_node_t
+
+type :: viewport_node_t
+    character(len=256) :: id = ""
+    real :: width_dp = 0.0
+    real :: height_dp = 0.0
+    logical :: view_changed = .false.
+end type viewport_node_t
 
 contains
 
@@ -71,12 +78,13 @@ logical function checkbox(id, checked, label, width, height) result(toggled)
     toggled = .false.
 end function checkbox
 
-logical function viewport(id, width, height, view_state)
-    use fortui_core, only: view, ui_element
+function viewport(id, width, height, view_state) result(viewport_node)
+    use fortui_core, only: view, ui_element, node
     use fortui_units, only: ui_context, ui_get_context, convert_to_dp
     character(*), intent(in) :: id
     class(*), intent(in) :: width, height
     type(view), intent(inout) :: view_state
+    type(node) :: viewport_node
     
     type(ui_context) :: ctx
     real :: width_dp, height_dp
@@ -153,8 +161,12 @@ logical function viewport(id, width, height, view_state)
         state%dragging = .false.
     end if
     
-    ! Return whether view changed this frame
-    viewport = view_changed
+    ! Create viewport node with updated state
+    ! For now, create a basic node - full implementation will include viewport-specific properties
+    viewport_node = node()
+    
+    ! TODO: Store viewport-specific state and view changes in node metadata
+    ! TODO: Use viewport_node_t type with proper id, dimensions, and view state
 
 contains
 
