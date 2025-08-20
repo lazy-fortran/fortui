@@ -2411,7 +2411,10 @@ subroutine mock_text(id, value)
     character(*), intent(in) :: id, value
     
     ! Use the real text implementation when available
-    call text(id, value)
+    block
+        type(text_node_t) :: temp_text
+        temp_text = text(id, value)
+    end block
 end subroutine mock_text
 
 subroutine mock_text_with_text_size(id, value, text_size_arg)
@@ -2419,7 +2422,10 @@ subroutine mock_text_with_text_size(id, value, text_size_arg)
     class(*), intent(in) :: text_size_arg
     
     ! Use the real text implementation with text_size
-    call text(id, value, text_size=text_size_arg)
+    block
+        type(text_node_t) :: temp_text
+        temp_text = text(id, value, text_size=text_size_arg)
+    end block
 end subroutine mock_text_with_text_size
 
 subroutine mock_text_with_dimensions(id, value, width, height)
@@ -2427,7 +2433,10 @@ subroutine mock_text_with_dimensions(id, value, width, height)
     class(*), intent(in) :: width, height
     
     ! Use the real text implementation with dimensions
-    call text(id, value, width=width, height=height)
+    block
+        type(text_node_t) :: temp_text
+        temp_text = text(id, value, width=width, height=height)
+    end block
 end subroutine mock_text_with_dimensions
 
 subroutine mock_text_full(id, value, text_size_arg, width, height)
@@ -2435,7 +2444,10 @@ subroutine mock_text_full(id, value, text_size_arg, width, height)
     class(*), intent(in) :: text_size_arg, width, height
     
     ! Use the real text implementation with all parameters
-    call text(id, value, text_size=text_size_arg, width=width, height=height)
+    block
+        type(text_node_t) :: temp_text
+        temp_text = text(id, value, text_size=text_size_arg, width=width, height=height)
+    end block
 end subroutine mock_text_full
 
 ! Text validation and measurement helper functions
@@ -5122,7 +5134,10 @@ subroutine mock_checkbox(id, checked)
     logical, intent(inout) :: checked
     
     ! Call the actual checkbox widget implementation
-    call checkbox(id, checked)
+    block
+        type(checkbox_node_t) :: temp_checkbox
+        temp_checkbox = checkbox(id, checked)
+    end block
 end subroutine mock_checkbox
 
 subroutine mock_checkbox_with_label(id, checked, label)
@@ -5131,7 +5146,10 @@ subroutine mock_checkbox_with_label(id, checked, label)
     logical, intent(inout) :: checked
     
     ! Call the actual checkbox widget with label
-    call checkbox(id, checked, label=label)
+    block
+        type(checkbox_node_t) :: temp_checkbox
+        temp_checkbox = checkbox(id, checked, label=label)
+    end block
 end subroutine mock_checkbox_with_label
 
 subroutine mock_checkbox_with_dimensions(id, checked, width, height)
@@ -5141,7 +5159,10 @@ subroutine mock_checkbox_with_dimensions(id, checked, width, height)
     class(*), intent(in) :: width, height
     
     ! Call the actual checkbox widget with dimensions
-    call checkbox(id, checked, width=width, height=height)
+    block
+        type(checkbox_node_t) :: temp_checkbox
+        temp_checkbox = checkbox(id, checked, width=width, height=height)
+    end block
 end subroutine mock_checkbox_with_dimensions
 
 subroutine mock_checkbox_full(id, checked, label, width, height)
@@ -5151,7 +5172,10 @@ subroutine mock_checkbox_full(id, checked, label, width, height)
     class(*), intent(in) :: width, height
     
     ! Call the actual checkbox widget with all parameters
-    call checkbox(id, checked, label=label, width=width, height=height)
+    block
+        type(checkbox_node_t) :: temp_checkbox
+        temp_checkbox = checkbox(id, checked, label=label, width=width, height=height)
+    end block
 end subroutine mock_checkbox_full
 
 ! Testing utility functions for checkbox interaction simulation
