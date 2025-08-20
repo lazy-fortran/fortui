@@ -71,15 +71,171 @@ logical function checkbox(id, checked, label, width, height) result(toggled)
     toggled = .false.
 end function checkbox
 
-function viewport(id, width, height, view_state) result(viewport_node)
-    use fortui_core, only: node, view
+logical function viewport(id, width, height, view_state)
+    use fortui_core, only: view, ui_element
+    use fortui_units, only: ui_context, ui_get_context, convert_to_dp
     character(*), intent(in) :: id
-    real, intent(in) :: width, height
+    class(*), intent(in) :: width, height
     type(view), intent(inout) :: view_state
-    type(node) :: viewport_node
     
-    ! Placeholder - return empty node
-    ! In full implementation would set up viewport properties
+    type(ui_context) :: ctx
+    real :: width_dp, height_dp
+    real :: mouse_x, mouse_y, scroll_x, scroll_y
+    logical :: mouse_left, mouse_right, mouse_middle
+    logical :: view_changed
+    
+    ! Internal viewport state tracking
+    type :: viewport_state_t
+        logical :: dragging = .false.
+        real :: last_mouse_x = 0.0
+        real :: last_mouse_y = 0.0
+        real :: viewport_x = 0.0
+        real :: viewport_y = 0.0
+        real :: viewport_w = 0.0
+        real :: viewport_h = 0.0
+    end type
+    
+    type(viewport_state_t), save :: state
+    character(len=256), save :: last_id = ""
+    
+    view_changed = .false.
+    
+    ! Get UI context for conversions
+    call ui_get_context(ctx)
+    
+    ! Convert dimensions to dp using class(*) interface
+    call process_viewport_size(width, height, ctx, width_dp, height_dp)
+    
+    ! Reset state if ID changed
+    if (trim(id) /= trim(last_id)) then
+        state%dragging = .false.
+        last_id = id
+    end if
+    
+    ! Store viewport dimensions for this frame
+    state%viewport_w = width_dp
+    state%viewport_h = height_dp
+    
+    ! Get input state (placeholder implementation - will be replaced with actual input system)
+    call get_input_state(mouse_x, mouse_y, mouse_left, mouse_right, mouse_middle, &
+                         scroll_x, scroll_y)
+    
+    ! Check if mouse is within viewport bounds
+    ! (For now, assume viewport starts at current layout position)
+    ! TODO: Get actual viewport position from layout system
+    
+    ! Handle mouse scroll for zoom
+    if (abs(scroll_y) > 1e-6) then
+        call update_zoom(view_state, 1.0 + scroll_y * 0.1, &
+                        mouse_x - state%viewport_x, mouse_y - state%viewport_y, &
+                        state%viewport_w, state%viewport_h)
+        view_changed = .true.
+    end if
+    
+    ! Handle mouse drag for pan
+    if (mouse_left) then
+        if (.not. state%dragging) then
+            ! Start dragging
+            state%dragging = .true.
+            state%last_mouse_x = mouse_x
+            state%last_mouse_y = mouse_y
+        else
+            ! Continue dragging - update pan
+            call update_pan(view_state, &
+                           mouse_x - state%last_mouse_x, &
+                           mouse_y - state%last_mouse_y, &
+                           state%viewport_w, state%viewport_h)
+            state%last_mouse_x = mouse_x
+            state%last_mouse_y = mouse_y
+            view_changed = .true.
+        end if
+    else
+        state%dragging = .false.
+    end if
+    
+    ! Return whether view changed this frame
+    viewport = view_changed
+
+contains
+
+    subroutine process_viewport_size(width_arg, height_arg, ctx, w_dp, h_dp)
+        ! Convert class(*) dimensions to dp with minimum size enforcement
+        class(*), intent(in) :: width_arg, height_arg
+        type(ui_context), intent(in) :: ctx
+        real, intent(out) :: w_dp, h_dp
+        
+        ! Convert width (required parameter)
+        w_dp = convert_to_dp(width_arg, ctx)
+        
+        ! Convert height (required parameter)
+        h_dp = convert_to_dp(height_arg, ctx)
+        
+        ! Ensure minimum usable size
+        w_dp = max(w_dp, ctx%em_dp * 2.0)  ! Minimum 2em width
+        h_dp = max(h_dp, ctx%em_dp * 1.5)  ! Minimum 1.5em height
+    end subroutine process_viewport_size
+
+    subroutine update_pan(view_state, mouse_delta_x, mouse_delta_y, viewport_width, viewport_height)
+        use fortui_core, only: view
+        ! Update pan offsets based on mouse movement
+        type(view), intent(inout) :: view_state
+        real, intent(in) :: mouse_delta_x, mouse_delta_y
+        real, intent(in) :: viewport_width, viewport_height
+        
+        ! Convert pixel delta to view coordinates
+        if (viewport_width > 0.0 .and. viewport_height > 0.0) then
+            view_state%off_x = view_state%off_x - mouse_delta_x / (viewport_width * view_state%scale_x)
+            view_state%off_y = view_state%off_y - mouse_delta_y / (viewport_height * view_state%scale_y)
+        end if
+    end subroutine update_pan
+
+    subroutine update_zoom(view_state, zoom_factor, mouse_x, mouse_y, viewport_width, viewport_height)
+        use fortui_core, only: view
+        ! Update zoom scaling around mouse position
+        type(view), intent(inout) :: view_state
+        real, intent(in) :: zoom_factor, mouse_x, mouse_y
+        real, intent(in) :: viewport_width, viewport_height
+        
+        real :: old_scale_x, old_scale_y
+        real :: view_x, view_y
+        
+        ! Store old scale values
+        old_scale_x = view_state%scale_x
+        old_scale_y = view_state%scale_y
+        
+        ! Apply zoom with reasonable limits
+        view_state%scale_x = max(0.1, min(10.0, view_state%scale_x * zoom_factor))
+        view_state%scale_y = max(0.1, min(10.0, view_state%scale_y * zoom_factor))
+        
+        ! Adjust offset to zoom around mouse position
+        if (viewport_width > 0.0 .and. viewport_height > 0.0) then
+            view_x = mouse_x / viewport_width
+            view_y = mouse_y / viewport_height
+            
+            if (old_scale_x > 0.0 .and. old_scale_y > 0.0) then
+                view_state%off_x = view_state%off_x + view_x * (1.0/old_scale_x - 1.0/view_state%scale_x)
+                view_state%off_y = view_state%off_y + view_y * (1.0/old_scale_y - 1.0/view_state%scale_y)
+            end if
+        end if
+    end subroutine update_zoom
+
+    subroutine get_input_state(mouse_x, mouse_y, mouse_left, mouse_right, mouse_middle, &
+                              scroll_x, scroll_y)
+        ! Placeholder input function - returns safe defaults
+        ! TODO: Replace with actual input system integration
+        real, intent(out) :: mouse_x, mouse_y, scroll_x, scroll_y
+        logical, intent(out) :: mouse_left, mouse_right, mouse_middle
+        
+        ! Safe defaults - no input
+        mouse_x = 0.0
+        mouse_y = 0.0
+        scroll_x = 0.0
+        scroll_y = 0.0
+        mouse_left = .false.
+        mouse_right = .false.
+        mouse_middle = .false.
+    end subroutine get_input_state
+
 end function viewport
 
 end module fortui_widgets
