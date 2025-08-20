@@ -8,13 +8,13 @@ copyright = "Copyright 2025, Christopher Albert"
 # Test re-enabling examples one by one
 [[example]]
 name = "simple_test"
-source-dir = "examples"
+source-dir = "example"
 main = "simple_test.f90"
 
 # Other examples temporarily disabled due to widget interface changes  
 # [[example]]  
 # name = "layout_demo"
-# source-dir = "examples"
+# source-dir = "example"
 # main = "layout_demo.f90"
 
 [build]
