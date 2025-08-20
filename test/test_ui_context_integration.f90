@@ -1,8 +1,8 @@
 module test_ui_context_integration
 ! Comprehensive tests for UI context integration with backend measurement
 ! RED phase tests - these will FAIL initially to guide implementation
-use fortui_core
-use fortui_units
+use fortui_core, only: ui_init, ui_shutdown, ui_get_context
+use fortui_units, only: ui_context, ui_set_context
 implicit none
 
 contains

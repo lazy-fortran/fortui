@@ -67,15 +67,15 @@ type, bind(C) :: Font
     type(c_ptr) :: glyphs
 end type Font
 
-! Predefined colors (using int8 values to avoid overflow)
-type(Color), parameter :: RAYWHITE = Color(int(245, c_int8_t), int(245, c_int8_t), int(245, c_int8_t), int(255, c_int8_t))
-type(Color), parameter :: BLACK = Color(int(0, c_int8_t), int(0, c_int8_t), int(0, c_int8_t), int(255, c_int8_t))
-type(Color), parameter :: DARKGRAY = Color(int(80, c_int8_t), int(80, c_int8_t), int(80, c_int8_t), int(255, c_int8_t))
-type(Color), parameter :: GRAY = Color(int(130, c_int8_t), int(130, c_int8_t), int(130, c_int8_t), int(255, c_int8_t))
-type(Color), parameter :: LIGHTGRAY = Color(int(200, c_int8_t), int(200, c_int8_t), int(200, c_int8_t), int(255, c_int8_t))
-type(Color), parameter :: BLUE = Color(int(0, c_int8_t), int(121, c_int8_t), int(241, c_int8_t), int(255, c_int8_t))
-type(Color), parameter :: GREEN = Color(int(0, c_int8_t), int(228, c_int8_t), int(48, c_int8_t), int(255, c_int8_t))
-type(Color), parameter :: RED = Color(int(230, c_int8_t), int(41, c_int8_t), int(55, c_int8_t), int(255, c_int8_t))
+! Predefined colors (using proper signed int8 values)
+type(Color), parameter :: RAYWHITE = Color(int(-11, c_int8_t), int(-11, c_int8_t), int(-11, c_int8_t), int(-1, c_int8_t))  ! 245,245,245,255
+type(Color), parameter :: BLACK = Color(int(0, c_int8_t), int(0, c_int8_t), int(0, c_int8_t), int(-1, c_int8_t))          ! 0,0,0,255  
+type(Color), parameter :: DARKGRAY = Color(int(80, c_int8_t), int(80, c_int8_t), int(80, c_int8_t), int(-1, c_int8_t))    ! 80,80,80,255
+type(Color), parameter :: GRAY = Color(int(-126, c_int8_t), int(-126, c_int8_t), int(-126, c_int8_t), int(-1, c_int8_t))  ! 130,130,130,255
+type(Color), parameter :: LIGHTGRAY = Color(int(-56, c_int8_t), int(-56, c_int8_t), int(-56, c_int8_t), int(-1, c_int8_t)) ! 200,200,200,255
+type(Color), parameter :: BLUE = Color(int(0, c_int8_t), int(121, c_int8_t), int(-15, c_int8_t), int(-1, c_int8_t))       ! 0,121,241,255
+type(Color), parameter :: GREEN = Color(int(0, c_int8_t), int(-28, c_int8_t), int(48, c_int8_t), int(-1, c_int8_t))       ! 0,228,48,255  
+type(Color), parameter :: RED = Color(int(-26, c_int8_t), int(41, c_int8_t), int(55, c_int8_t), int(-1, c_int8_t))        ! 230,41,55,255
 
 ! Raylib C library interface (simplified subset)
 interface
@@ -140,23 +140,17 @@ interface
     subroutine EndDrawing() bind(C, name="EndDrawing")
     end subroutine EndDrawing
     
-    subroutine ClearBackground(color) bind(C, name="ClearBackground")
-        import :: c_int8_t
-        type, bind(C) :: Color
-            integer(c_int8_t) :: r, g, b, a
-        end type Color
-        type(Color), intent(in), value :: color
+    subroutine ClearBackground(bg_color) bind(C, name="ClearBackground")
+        import :: Color
+        type(Color), intent(in), value :: bg_color
     end subroutine ClearBackground
     
     ! Text drawing
-    subroutine DrawText(text, posX, posY, fontSize, color) bind(C, name="DrawText")
-        import :: c_char, c_int, c_int8_t
+    subroutine DrawText(text, posX, posY, fontSize, text_color) bind(C, name="DrawText")
+        import :: c_char, c_int, Color
         character(c_char), intent(in) :: text(*)
         integer(c_int), intent(in), value :: posX, posY, fontSize
-        type, bind(C) :: Color
-            integer(c_int8_t) :: r, g, b, a
-        end type Color
-        type(Color), intent(in), value :: color
+        type(Color), intent(in), value :: text_color
     end subroutine DrawText
     
     integer(c_int) function MeasureText(text, fontSize) bind(C, name="MeasureText")
@@ -171,34 +165,25 @@ interface
     end function GetFontDefault
     
     ! Shape drawing
-    subroutine DrawRectangle(posX, posY, width, height, color) &
+    subroutine DrawRectangle(posX, posY, width, height, rect_color) &
         bind(C, name="DrawRectangle")
-        import :: c_int, c_int8_t
+        import :: c_int, Color
         integer(c_int), intent(in), value :: posX, posY, width, height
-        type, bind(C) :: Color
-            integer(c_int8_t) :: r, g, b, a
-        end type Color
-        type(Color), intent(in), value :: color
+        type(Color), intent(in), value :: rect_color
     end subroutine DrawRectangle
     
-    subroutine DrawRectangleLines(posX, posY, width, height, color) &
+    subroutine DrawRectangleLines(posX, posY, width, height, line_color) &
         bind(C, name="DrawRectangleLines")
-        import :: c_int, c_int8_t
+        import :: c_int, Color
         integer(c_int), intent(in), value :: posX, posY, width, height
-        type, bind(C) :: Color
-            integer(c_int8_t) :: r, g, b, a
-        end type Color
-        type(Color), intent(in), value :: color
+        type(Color), intent(in), value :: line_color
     end subroutine DrawRectangleLines
     
-    subroutine DrawLine(startPosX, startPosY, endPosX, endPosY, color) &
+    subroutine DrawLine(startPosX, startPosY, endPosX, endPosY, line_color) &
         bind(C, name="DrawLine")
-        import :: c_int, c_int8_t
+        import :: c_int, Color
         integer(c_int), intent(in), value :: startPosX, startPosY, endPosX, endPosY
-        type, bind(C) :: Color
-            integer(c_int8_t) :: r, g, b, a
-        end type Color
-        type(Color), intent(in), value :: color
+        type(Color), intent(in), value :: line_color
     end subroutine DrawLine
     
     ! Window flags
@@ -442,13 +427,13 @@ recursive subroutine gui_render_tree(tree, x, y)
 end subroutine gui_render_tree
 
 ! Helper function to draw text (simulated for testing)
-subroutine gui_draw_text(text, x, y, color)
+subroutine gui_draw_text(text, x, y, draw_color)
     character(*), intent(in) :: text
     integer, intent(in) :: x, y
-    type(Color), intent(in) :: color
+    type(Color), intent(in) :: draw_color
     
     ! Would call raylib text drawing here
-    ! call DrawText(trim(text) // c_null_char, x, y, gui_state%font_size, color)
+    ! call DrawText(trim(text) // c_null_char, x, y, gui_state%font_size, draw_color)
     
     ! For testing, just track that drawing occurred
     if (gui_state%in_frame) then
@@ -458,19 +443,19 @@ subroutine gui_draw_text(text, x, y, color)
 end subroutine gui_draw_text
 
 ! Helper function to draw rectangle (simulated for testing)
-subroutine gui_draw_rect(x, y, width, height, color, filled)
+subroutine gui_draw_rect(x, y, width, height, draw_color, filled)
     integer, intent(in) :: x, y, width, height
-    type(Color), intent(in) :: color
+    type(Color), intent(in) :: draw_color
     logical, intent(in) :: filled
     
     if (.not. gui_state%in_frame) return
     
     if (filled) then
         ! Would call raylib rectangle drawing
-        ! call DrawRectangle(x, y, width, height, color)
+        ! call DrawRectangle(x, y, width, height, draw_color)
     else
         ! Would call raylib rectangle lines drawing
-        ! call DrawRectangleLines(x, y, width, height, color)
+        ! call DrawRectangleLines(x, y, width, height, draw_color)
     end if
 end subroutine gui_draw_rect
 

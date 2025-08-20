@@ -646,6 +646,24 @@ build_fortran_raylib() {
         return 0
     fi
     
+    # Check for problematic gfortran versions (Issue #46)
+    # gfortran 15.2.1 has c_unsigned_char compilation issues with fortran-raylib
+    # Our internal bindings in src/fortui_gui.f90 are sufficient for now
+    local gfortran_version
+    if gfortran_version=$(gfortran -dumpversion 2>/dev/null); then
+        case "$gfortran_version" in
+            15.2.*)
+                echo "Warning: gfortran $gfortran_version has known compilation issues" \
+                     "with external fortran-raylib" >&2
+                echo "         Using internal raylib bindings instead" \
+                     "(in src/fortui_gui.f90)" >&2
+                # Create build marker to indicate we've handled this
+                atomic_write "${build_marker}" "skipped_gfortran_15.2_workaround"
+                return 0
+                ;;
+        esac
+    fi
+    
     # Check if already built (unless forced rebuild)
     if [[ -f "${build_marker}" && "${FORCE_REBUILD}" != "1" ]]; then
         [[ "${DEBUG}" == "1" ]] && \
