@@ -22,8 +22,8 @@ do while (running .and. frame_count < 10)
     ! Test button functionality
     save_btn = button("save", label="Save File")
     load_btn = button("load", label="Load File") 
-    settings_btn = button("settings", width=dp(80.0))
-    quit_btn = button("quit", label="Exit", width=dp(60.0), height=dp(30.0))
+    settings_btn = button("settings", width=80.0)
+    quit_btn = button("quit", label="Exit", width=60.0, height=30.0)
     
     ! Create layout structure (buttons integrated directly)
     allocate(children(4))
@@ -32,7 +32,7 @@ do while (running .and. frame_count < 10)
     children(3) = settings_btn
     children(4) = quit_btn
     
-    ui_root = column(gap=dp(8.0), children=children)
+    ui_root = column(gap=8.0, children=children)
     deallocate(children)
     
     ! Note: In new API, interaction detection handled by UI framework

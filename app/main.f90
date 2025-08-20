@@ -49,7 +49,7 @@ program demo
     call checkbox("grid", grid, "Show Grid")
     
     ! Viewport manages view state
-    viewport_node = viewport("plot", dp(80.0), dp(24.0), v)
+    viewport_node = viewport("plot", 80.0, 24.0, v)
     
     ! Text display with status information
     call text("status", status_line(gain, v, grid))

@@ -844,24 +844,19 @@ end subroutine shutdown_gui_backend
 
 ! Layout constructor implementations
 function column(gap, children) result(n)
-    use fortui_units, only: convert_to_dp, ui_get_context, ui_context
-    class(*), intent(in), optional :: gap
+    real, intent(in), optional :: gap
     type(node), intent(in), optional :: children(:)
     type(node) :: n
     
-    type(ui_context) :: ctx
-    real :: gap_dp_value
     integer :: i
     
     ! Initialize column layout node
     n = node()
     n%layout_type = "column"
     
-    ! Process gap parameter with convert_to_dp()
+    ! Process gap parameter as real dp value
     if (present(gap)) then
-        call ui_get_context(ctx)
-        gap_dp_value = convert_to_dp(gap, ctx)
-        n%gap_dp = gap_dp_value
+        n%gap_dp = gap
     else
         n%gap_dp = 0.0  ! Default gap per test specifications
     end if
@@ -878,24 +873,19 @@ function column(gap, children) result(n)
 end function column
 
 function row(gap, children) result(n)
-    use fortui_units, only: convert_to_dp, ui_get_context, ui_context
-    class(*), intent(in), optional :: gap
+    real, intent(in), optional :: gap
     type(node), intent(in), optional :: children(:)
     type(node) :: n
     
-    type(ui_context) :: ctx
-    real :: gap_dp_value
     integer :: i
     
     ! Initialize row layout node
     n = node()
     n%layout_type = "row"
     
-    ! Process gap parameter with convert_to_dp()
+    ! Process gap parameter as real dp value
     if (present(gap)) then
-        call ui_get_context(ctx)
-        gap_dp_value = convert_to_dp(gap, ctx)
-        n%gap_dp = gap_dp_value
+        n%gap_dp = gap
     else
         n%gap_dp = 0.0  ! Default gap per test specifications
     end if

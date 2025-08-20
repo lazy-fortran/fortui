@@ -27,7 +27,7 @@ do while (running)
     ! Build header section
     allocate(children(1))
     children(1) = node()  ! Title placeholder
-    header_section = column(gap=dp(0.0), children=children)
+    header_section = column(gap=0.0, children=children)
     deallocate(children)
     
     ! Build navigation sidebar
@@ -36,7 +36,7 @@ do while (running)
     nav_items(2) = node()  ! Reports  
     nav_items(3) = node()  ! Settings
     nav_items(4) = node()  ! Help
-    sidebar = column(gap=ch(1.0), children=nav_items)
+    sidebar = column(gap=16.0, children=nav_items)  ! ch(1.0) ≈ 16dp
     deallocate(nav_items)
     
     ! Build main content area
@@ -44,14 +44,14 @@ do while (running)
     content_items(1) = node()  ! Content header
     content_items(2) = node()  ! Main content body
     content_items(3) = node()  ! Status info
-    main_content = column(gap=dp(16.0), children=content_items)
+    main_content = column(gap=16.0, children=content_items)
     deallocate(content_items)
     
     ! Combine sidebar and main content horizontally
     allocate(children(2))
     children(1) = sidebar
     children(2) = main_content
-    content_area = row(gap=cw(3.0), children=children)
+    content_area = row(gap=24.0, children=children)  ! cw(3.0) ≈ 24dp
     deallocate(children)
     
     ! Build footer button row
@@ -59,12 +59,12 @@ do while (running)
     buttons(1) = node()  ! Save button
     buttons(2) = node()  ! Cancel button
     buttons(3) = node()  ! Help button
-    button_row = row(gap=dp(12.0), children=buttons)
+    button_row = row(gap=12.0, children=buttons)
     deallocate(buttons)
     
     allocate(children(1))
     children(1) = button_row
-    footer_section = column(gap=dp(8.0), children=children)
+    footer_section = column(gap=8.0, children=children)
     deallocate(children)
     
     ! Build complete UI hierarchy: header / content / footer
@@ -72,7 +72,7 @@ do while (running)
     children(1) = header_section
     children(2) = content_area
     children(3) = footer_section
-    ui_root = column(gap=ch(2.0), children=children)
+    ui_root = column(gap=32.0, children=children)  ! ch(2.0) ≈ 32dp
     deallocate(children)
     
     ! Present the complete UI tree
