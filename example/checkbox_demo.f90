@@ -9,20 +9,25 @@ logical :: auto_save = .true.
 logical :: dark_mode = .false.
 logical :: running = .true.
 integer :: frame = 0
-type(checkbox_node_t) :: checkbox_widget
+logical :: sound_toggled, notifications_toggled, save_toggled, theme_toggled
 
 do while (running .and. frame < 10)
     frame = frame + 1
     print *, "=== Settings Panel (Frame", frame, ") ==="
     
-    ! Audio settings
-    checkbox_widget = checkbox("sound", sound_enabled, label="Enable Sound")
-    checkbox_widget = checkbox("notifications", notifications, label="Notifications")
+    ! Audio settings - capture toggle status
+    sound_toggled = checkbox("sound", sound_enabled, "Enable Sound")
+    if (sound_toggled) sound_enabled = .not. sound_enabled
+    
+    notifications_toggled = checkbox("notifications", notifications, "Notifications")
+    if (notifications_toggled) notifications = .not. notifications
     
     ! Application settings  
-    checkbox_widget = checkbox("auto_save", auto_save, label="Auto-save Documents")
-    checkbox_widget = checkbox("dark_mode", dark_mode, label="Dark Theme", &
-                      width=dp(150.0))
+    save_toggled = checkbox("auto_save", auto_save, "Auto-save Documents")
+    if (save_toggled) auto_save = .not. auto_save
+    
+    theme_toggled = checkbox("dark_mode", dark_mode, "Dark Theme", width=150.0)
+    if (theme_toggled) dark_mode = .not. dark_mode
     
     ! Display current settings
     print *, "Sound:", sound_enabled, "| Notifications:", notifications
