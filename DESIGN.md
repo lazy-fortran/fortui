@@ -425,6 +425,433 @@ This architecture ensures that fortui never fails to build while providing power
 
 ⸻
 
+## UI Context Integration with Backend Measurement
+
+### Overview
+
+The UI context system provides runtime measurement and conversion between unit types and backend-specific coordinates. This architecture integrates with the abstract type system from Issue #21 to enable context-aware unit conversion during initialization and runtime updates.
+
+**Core Principle**: Abstract type integration with backend-specific measurement for optimal cross-platform unit handling and context-aware rendering.
+
+### Context Architecture Design
+
+#### Abstract Type Integration Framework
+```fortran
+! Enhanced ui_init with abstract unit type support
+subroutine ui_init(backend, width, height, title, target_fps, vsync)
+  character(*), intent(in) :: backend
+  class(unit_type), intent(in) :: width, height    ! Abstract unit interface
+  character(*), intent(in) :: title
+  integer, intent(in), optional :: target_fps
+  logical, intent(in), optional :: vsync
+  
+  type(ui_context) :: ctx
+  real :: width_dp, height_dp
+  
+  ! Initialize context based on backend
+  select case(backend)
+    case("tui")
+      call setup_tui_context(ctx)
+    case("gui") 
+      call setup_gui_context(ctx)
+  end select
+  
+  ! Store context globally for API access
+  call ui_set_context(ctx)
+  
+  ! Convert window dimensions using abstract interface
+  width_dp = width%to_dp(ctx)    ! Abstract interface call
+  height_dp = height%to_dp(ctx)  ! Abstract interface call
+  
+  ! Initialize backend with dp dimensions
+  call init_backend(backend, width_dp, height_dp, ctx)
+end subroutine
+```
+
+#### Backend-Specific Context Setup
+
+**TUI Context Initialization**:
+```fortran
+subroutine setup_tui_context(ctx)
+  type(ui_context), intent(out) :: ctx
+  
+  ! Measure terminal cell dimensions in dp equivalents
+  call measure_terminal_cells(ctx%cell_w_dp, ctx%cell_h_dp)
+  
+  ! TUI-specific defaults
+  ctx%dpi_scale = 1.0       ! No DPI scaling in terminal
+  ctx%em_dp = ctx%cell_h_dp * 0.8  ! Approximate font size from cell height
+  ctx%text_scale = 1.0      ! No accessibility scaling in terminal
+end subroutine
+```
+
+**GUI Context Initialization**:
+```fortran
+subroutine setup_gui_context(ctx)
+  type(ui_context), intent(out) :: ctx
+  
+  ! Detect system settings via platform-specific APIs
+  call detect_system_dpi(ctx%dpi_scale)
+  call measure_font_metrics(ctx%em_dp)
+  call detect_text_scaling(ctx%text_scale)
+  
+  ! Calculate equivalent cell sizes for TUI compatibility
+  ctx%cell_w_dp = ctx%em_dp * 0.6  ! Monospace width ratio
+  ctx%cell_h_dp = ctx%em_dp * 1.2  ! Line height ratio
+end subroutine
+```
+
+### Cross-Platform Measurement Routines
+
+#### Terminal Cell Measurement (TUI)
+```fortran
+subroutine measure_terminal_cells(cell_w_dp, cell_h_dp)
+  real, intent(out) :: cell_w_dp, cell_h_dp
+  
+  ! Platform-specific terminal measurement strategies:
+  ! 1. Query terminal for cell pixel dimensions via escape sequences
+  ! 2. Use terminfo/termcap database queries where available
+  ! 3. Fallback to conservative defaults for unknown terminals
+  
+  ! Implementation: termbox2 integration for precise cell measurements
+  call tb_query_cell_size(cell_w_dp, cell_h_dp)
+  
+  ! Sanity check and fallback
+  if (cell_w_dp <= 0.0 .or. cell_h_dp <= 0.0) then
+    cell_w_dp = 8.0   ! Default monospace character width
+    cell_h_dp = 16.0  ! Default line height
+  end if
+end subroutine
+```
+
+#### System DPI Detection (GUI)
+```fortran
+subroutine detect_system_dpi(dpi_scale)
+  real, intent(out) :: dpi_scale
+  
+  ! Platform-specific DPI detection
+  dpi_scale = 1.0  ! Default for 96 DPI baseline
+  
+#ifdef __linux__
+  ! Linux: X11/Wayland DPI queries
+  call linux_detect_dpi(dpi_scale)
+#elif defined(_WIN32)
+  ! Windows: GetDpiForWindow API
+  call windows_detect_dpi(dpi_scale)
+#elif defined(__APPLE__)
+  ! macOS: NSScreen backingScaleFactor
+  call macos_detect_dpi(dpi_scale)
+#endif
+end subroutine
+
+! Platform-specific implementations
+#ifdef __linux__
+subroutine linux_detect_dpi(dpi_scale)
+  real, intent(out) :: dpi_scale
+  ! Implementation: X11 XDisplayWidth/XDisplayWidthMM ratio
+  ! Or Wayland wl_output logical_size/physical_size
+  dpi_scale = query_x11_dpi_scale()
+end subroutine
+#endif
+```
+
+#### Font Metrics Measurement (GUI)
+```fortran
+subroutine measure_font_metrics(em_dp)
+  real, intent(out) :: em_dp
+  
+  ! Measure actual font metrics in current rendering context
+  ! Use raylib/raygui font measurement functions for precision
+  em_dp = measure_default_font_em()
+  
+  ! Sanity check and fallback
+  if (em_dp <= 0.0) then
+    em_dp = 16.0  ! Default reasonable base font size
+  end if
+end subroutine
+
+real function measure_default_font_em() result(em_size)
+  ! Integration with raylib font measurement
+  ! MeasureTextEx() with default font and size
+  em_size = real(MeasureText("M", default_font_size))
+end function
+```
+
+#### Accessibility Text Scaling Detection
+```fortran
+subroutine detect_text_scaling(text_scale)
+  real, intent(out) :: text_scale
+  
+  ! Query system accessibility settings
+  text_scale = 1.0  ! Default no scaling
+  
+#ifdef __linux__
+  ! Linux: gsettings text-scaling-factor
+  call linux_detect_text_scaling(text_scale)
+#elif defined(_WIN32)
+  ! Windows: SystemParametersInfo for font scaling
+  call windows_detect_text_scaling(text_scale)
+#elif defined(__APPLE__)
+  ! macOS: NSUserDefaults preferredContentSizeCategory
+  call macos_detect_text_scaling(text_scale)
+#endif
+end subroutine
+```
+
+### Context-Aware Rendering Integration
+
+#### TUI Rendering with Context
+```fortran
+subroutine render_tui_element(x_dp, y_dp, w_dp, h_dp, ctx)
+  real, intent(in) :: x_dp, y_dp, w_dp, h_dp
+  type(ui_context), intent(in) :: ctx
+  
+  ! Convert dp coordinates to cell positions with snapping
+  integer :: x_cells, y_cells, w_cells, h_cells
+  
+  x_cells = nint(x_dp / ctx%cell_w_dp)
+  y_cells = nint(y_dp / ctx%cell_h_dp)
+  w_cells = max(1, nint(w_dp / ctx%cell_w_dp))
+  h_cells = max(1, nint(h_dp / ctx%cell_h_dp))
+  
+  ! Render using termbox2 with cell coordinates
+  call tb_render_rect(x_cells, y_cells, w_cells, h_cells)
+end subroutine
+```
+
+#### GUI Rendering with Context
+```fortran
+subroutine render_gui_element(x_dp, y_dp, w_dp, h_dp, ctx)
+  real, intent(in) :: x_dp, y_dp, w_dp, h_dp
+  type(ui_context), intent(in) :: ctx
+  
+  ! Convert dp coordinates to pixel positions (subpixel precision)
+  real :: x_pixels, y_pixels, w_pixels, h_pixels
+  
+  x_pixels = x_dp * ctx%dpi_scale
+  y_pixels = y_dp * ctx%dpi_scale
+  w_pixels = w_dp * ctx%dpi_scale
+  h_pixels = h_dp * ctx%dpi_scale
+  
+  ! Render using raylib with precise pixel coordinates
+  call DrawRectangle(int(x_pixels), int(y_pixels), &
+                     int(w_pixels), int(h_pixels), color)
+end subroutine
+```
+
+### Abstract Type System Integration
+
+#### Enhanced Unit Processing with Context
+```fortran
+! Helper function for converting any abstract unit to dp with context
+real function unit_to_dp_with_context(unit_arg) result(dp_value)
+  class(unit_type), intent(in) :: unit_arg
+  type(ui_context) :: ctx
+  
+  call ui_get_context(ctx)
+  dp_value = unit_arg%to_dp(ctx)  ! Abstract interface call
+end function
+
+! Widget integration example with abstract unit handling
+subroutine process_widget_size(width_arg, height_arg, w_dp, h_dp)
+  class(unit_type), intent(in), optional :: width_arg, height_arg
+  real, intent(out) :: w_dp, h_dp
+  type(ui_context) :: ctx
+  
+  call ui_get_context(ctx)
+  
+  if (present(width_arg)) then
+    w_dp = width_arg%to_dp(ctx)   ! Abstract interface conversion
+  else
+    w_dp = auto_width(ctx)        ! Context-aware default
+  end if
+  
+  if (present(height_arg)) then
+    h_dp = height_arg%to_dp(ctx)  ! Abstract interface conversion
+  else
+    h_dp = auto_height(ctx)       ! Context-aware default
+  end if
+end subroutine
+```
+
+### Context Lifecycle Management
+
+#### Runtime Context Updates
+```fortran
+! Support for runtime context updates (DPI changes, accessibility changes)
+subroutine ui_update_context(new_ctx)
+  type(ui_context), intent(in) :: new_ctx
+  call ui_set_context(new_ctx)
+  
+  ! Trigger layout recalculation for affected widgets
+  call invalidate_widget_layouts()
+end subroutine
+
+! Event-driven context updates
+subroutine handle_system_dpi_change()
+  type(ui_context) :: ctx
+  call ui_get_context(ctx)
+  call detect_system_dpi(ctx%dpi_scale)  ! Re-measure DPI
+  call ui_update_context(ctx)
+end subroutine
+```
+
+#### Context Validation and Error Handling
+```fortran
+subroutine validate_context(ctx, is_valid)
+  type(ui_context), intent(in) :: ctx
+  logical, intent(out) :: is_valid
+  
+  is_valid = .true.
+  
+  ! Sanity check context values
+  if (ctx%dpi_scale <= 0.0 .or. ctx%dpi_scale > 10.0) is_valid = .false.
+  if (ctx%em_dp <= 0.0 .or. ctx%em_dp > 200.0) is_valid = .false.
+  if (ctx%text_scale <= 0.0 .or. ctx%text_scale > 5.0) is_valid = .false.
+  if (ctx%cell_w_dp <= 0.0 .or. ctx%cell_h_dp <= 0.0) is_valid = .false.
+  
+  if (.not. is_valid) then
+    ! Log warning and apply fallback context
+    call apply_fallback_context()
+  end if
+end subroutine
+```
+
+### Implementation Architecture
+
+#### File Organization
+```
+src/
+├── fortui_core.f90           ! ui_init integration with abstract types
+├── fortui_context.f90        ! Context lifecycle and measurement
+├── fortui_units.f90          ! Abstract unit type interfaces  
+├── backends/
+│   ├── tui/
+│   │   ├── tui_context.f90       ! TUI-specific context setup
+│   │   └── tui_measurement.f90   ! Terminal cell measurement
+│   └── gui/
+│       ├── gui_context.f90       ! GUI-specific context setup
+│       └── gui_measurement.f90   ! DPI and font measurement
+└── platform/
+    ├── linux_measurement.f90     ! Linux-specific DPI/accessibility
+    ├── windows_measurement.f90   ! Windows-specific APIs
+    └── macos_measurement.f90     ! macOS-specific APIs
+```
+
+#### Key Integration Points
+
+**1. ui_init() Enhancement**:
+- Accept `class(unit_type)` for width/height parameters
+- Automatic context setup based on backend selection
+- Abstract interface calls for unit conversion
+- Context validation and fallback handling
+
+**2. Backend Integration**:
+- TUI backend: Terminal cell measurement via termbox2
+- GUI backend: System DPI and font metric detection via raylib
+- Cross-platform measurement abstraction
+
+**3. Runtime Adaptability**:
+- Context update mechanism for DPI changes
+- Event-driven accessibility setting updates
+- Layout invalidation and recalculation
+
+**4. Performance Optimization**:
+- Context caching to minimize repeated measurements
+- Lazy evaluation of expensive platform queries
+- Minimal conversion overhead for frequent operations
+
+### Advanced Features
+
+#### Multi-Monitor DPI Awareness
+```fortran
+! Per-monitor DPI handling for multi-display setups
+type :: monitor_context
+  integer :: monitor_id
+  real :: dpi_scale
+  real :: physical_width_mm, physical_height_mm
+end type
+
+subroutine detect_monitor_contexts(contexts)
+  type(monitor_context), allocatable, intent(out) :: contexts(:)
+  ! Platform-specific multi-monitor detection
+end subroutine
+```
+
+#### Dynamic Context Switching
+```fortran
+! Handle window movement between monitors with different DPI
+subroutine update_context_for_monitor(monitor_id)
+  integer, intent(in) :: monitor_id
+  type(ui_context) :: ctx
+  
+  call ui_get_context(ctx)
+  call get_monitor_dpi_scale(monitor_id, ctx%dpi_scale)
+  call ui_update_context(ctx)
+end subroutine
+```
+
+### Testing and Validation Strategy
+
+#### Unit Testing
+- **Context initialization**: Validate context setup for both backends
+- **Measurement accuracy**: Test platform-specific measurement routines
+- **Abstract type integration**: Verify unit conversion via abstract interface
+- **Error handling**: Test graceful fallback when measurements fail
+
+#### Integration Testing
+- **Cross-backend consistency**: Ensure equivalent visual results
+- **Runtime updates**: Test DPI change and accessibility updates
+- **Performance validation**: Verify conversion overhead acceptable
+- **Platform compatibility**: Test on Linux, Windows, macOS
+
+### Success Criteria
+
+**Core Functionality**:
+- [ ] Context automatically initialized during ui_init() for both backends
+- [ ] Abstract type integration: ui_init accepts `class(unit_type)` parameters
+- [ ] TUI cell measurements produce accurate cell-to-dp conversion ratios
+- [ ] GUI DPI detection works correctly on high-DPI displays
+- [ ] Font metrics measurement produces correct em_dp values
+- [ ] Accessibility text scaling integrated correctly
+
+**Cross-Platform Support**:
+- [ ] Platform-specific measurement routines implemented (Linux/Windows/macOS)
+- [ ] Fallback defaults work when measurements unavailable
+- [ ] Context validation prevents invalid measurement values
+
+**Performance and Reliability**:
+- [ ] Context-aware rendering produces consistent visual results
+- [ ] Context update mechanism functional for runtime changes
+- [ ] Performance acceptable for frequent unit conversions
+- [ ] Memory usage optimized for context storage and caching
+
+**Abstract Type System**:
+- [ ] **NO class(*) usage** - only abstract `unit_type` interface
+- [ ] Abstract interface calls work correctly throughout codebase
+- [ ] Type safety maintained with abstract unit type system
+- [ ] Conversion accuracy validated across all unit types
+
+### Dependencies and Blocking Issues
+
+**Requires**:
+- **Issue #21**: Units system with abstract types (CRITICAL dependency)
+- **Issue #1**: Core types and ui_context definition
+- **Issue #2**: Lifecycle functions (ui_init, ui_get_context, ui_set_context)
+
+**Blocked by**:
+- **Issue #6**: TUI backend for terminal measurement integration
+- **Issue #11**: GUI backend for raylib measurement integration
+
+**Enables**:
+- **Issue #3**: Layout constructors with proper unit conversion
+- **Issues #4-9**: All widgets with context-aware unit handling
+- Future canvas and advanced rendering features
+
+**Priority**: **CRITICAL** - Required for functional abstract unit system and cross-platform consistency.
+
+⸻
+
 ## 1) units system
 
 ### unit types & ergonomic api
