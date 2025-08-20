@@ -28,4 +28,6 @@ implicit-typing = false
 implicit-external = false
 source-form = "free"
 
+# Preprocessor definitions handled by external build script
+
 
