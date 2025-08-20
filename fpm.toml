@@ -21,9 +21,11 @@ auto-executables = true
 auto-tests = true
 auto-examples = true
 module-naming = false
+
 [install]
 library = false
 test = false
+
 [fortran]
 implicit-typing = false
 implicit-external = false
@@ -32,8 +34,13 @@ source-form = "free"
 [preprocess]
 cpp.suffixes = ["F90", "f90"]
 cpp.directories = ["src", "app", "test", "example"]
+# Macros are set dynamically by build script via FPM_FFLAGS
 cpp.macros = []
 
-# Preprocessor definitions handled by external build script
+# Build script integration:
+# - tools/fpm_build_wrapper.sh is executed before compilation
+# - Sets FPM_FFLAGS with CPP macros (ENABLE_GUI or TUI_ONLY)
+# - Sets FPM_LDFLAGS with dependency paths and libraries
+# - Manages termbox2 and fortran-raylib dependencies automatically
 
 

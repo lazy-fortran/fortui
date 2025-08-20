@@ -21,20 +21,44 @@ A declarative UI library for modern Fortran with dual backends: terminal (TUI) a
 
 ### Build
 
+fortui provides multiple build methods for different workflows:
+
+#### Method 1: Using Make (Recommended)
 ```bash
 # Clone repository
 git clone https://github.com/krystophny/fortui.git
 cd fortui
 
-# Build dependencies (termbox2 for TUI, fortran-raylib for GUI)
+# Build everything (dependencies + project)
+make
+
+# Run tests
+make test
+
+# Build TUI-only version
+DISABLE_GUI=1 make
+```
+
+#### Method 2: Using FPM with Environment Setup
+```bash
+# Set up environment (builds dependencies and configures FPM)
+source fpm_env.sh
+
+# Use standard FPM commands
+fpm build
+fpm test
+fpm run --example layout_demo
+```
+
+#### Method 3: Direct Build Script + FPM
+```bash
+# Build dependencies first
 ./tools/build_fortui.sh build
 
-# Build fortui library
+# Then use FPM with manual flags
+export FPM_FFLAGS="-cpp -DTUI_ONLY"  # or -DENABLE_GUI for GUI support
+export FPM_LDFLAGS="$(./tools/build_fortui.sh ldflags)"
 fpm build
-
-# Run examples and comprehensive test suite
-fpm run --example layout_demo
-fpm test  # ~87 validations across all components
 ```
 
 ### Advanced Build System
