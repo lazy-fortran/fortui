@@ -6,8 +6,8 @@ set -euo pipefail
 
 # Configuration defaults
 DEFAULT_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/fortui"
-DEFAULT_FRG_URL="https://github.com/lazy-fortran/fortran-raygui.git"
-DEFAULT_FRG_REF="main"
+DEFAULT_FRG_URL="https://github.com/interkosmos/fortran-raylib.git"
+DEFAULT_FRG_REF="master"
 DEFAULT_TERMBOX_URL="https://github.com/termbox/termbox2.git"
 DEFAULT_TERMBOX_REF="master"
 
@@ -132,6 +132,7 @@ release_cache_lock() {
             [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Lock owned by different process (PID $lock_pid)" >&2
         fi
     fi
+    return 0
 }
 
 # Atomic file operations for safe cache updates
@@ -207,7 +208,7 @@ report_cache_status() {
     
     # Report on individual components
     local termbox_dir="${cache_dir}/termbox2"
-    local frg_dir="${cache_dir}/fortran-raygui"
+    local frg_dir="${cache_dir}/fortran-raylib"
     
     if [[ -d "$termbox_dir" ]]; then
         local termbox_size
@@ -220,15 +221,15 @@ report_cache_status() {
     if [[ -d "$frg_dir" ]]; then
         local frg_size
         frg_size=$(get_cache_size "$frg_dir")
-        echo "  fortran-raygui: $frg_size" >&2
+        echo "  fortran-raylib: $frg_size" >&2
     else
-        echo "  fortran-raygui: not cached" >&2
+        echo "  fortran-raylib: not cached" >&2
     fi
     
     # Check for build markers
     local markers=()
     [[ -f "${cache_dir}/termbox2_built" ]] && markers+=("termbox2")
-    [[ -f "${cache_dir}/fortran_raygui_built" ]] && markers+=("fortran-raygui")
+    [[ -f "${cache_dir}/fortran_raylib_built" ]] && markers+=("fortran-raylib")
     
     if [[ ${#markers[@]} -gt 0 ]]; then
         echo "  Built: ${markers[*]}" >&2
@@ -329,10 +330,10 @@ handle_corrupted_dependency() {
 validate_dependency_compatibility() {
     local cache_dir="$1"
     
-    # Check raylib/fortran-raygui compatibility
+    # Check raylib/fortran-raylib compatibility
     if detect_raylib; then
         local raylib_version=""
-        local frg_supported_versions=">=3.0.0"  # fortran-raygui supports raylib 3.0+
+        local frg_supported_versions=">=3.0.0"  # fortran-raylib supports raylib 3.0+
         
         # Get raylib version
         if [[ -n "${RAYLIB_ROOT}" ]]; then
@@ -354,10 +355,10 @@ validate_dependency_compatibility() {
             # Check if raylib version is compatible (3.0.0+)
             if [[ "$raylib_major" -lt 3 ]]; then
                 echo "Warning: Raylib version $raylib_version may not be" \
-                     "compatible with fortran-raygui (requires >=3.0.0)" >&2
+                     "compatible with fortran-raylib (requires >=3.0.0)" >&2
                 echo "         Build may fail. Consider upgrading raylib." >&2
             elif [[ "${DEBUG}" == "1" ]]; then
-                echo "DEBUG: Raylib version $raylib_version is compatible with fortran-raygui" >&2
+                echo "DEBUG: Raylib version $raylib_version is compatible with fortran-raylib" >&2
             fi
         elif [[ "${DEBUG}" == "1" ]]; then
             echo "DEBUG: Could not determine raylib version for compatibility check" >&2
@@ -512,13 +513,14 @@ setup_cache() {
         
         # Remove build markers to force rebuild
         rm -f "${GUI_CACHE}/termbox2_built"
-        rm -f "${GUI_CACHE}/fortran_raygui_built"
+        rm -f "${GUI_CACHE}/fortran_raylib_built"
     fi
     
     # Update version tracking
     update_cache_versions "${GUI_CACHE}"
     
     [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Cache directory: ${GUI_CACHE}" >&2
+    return 0
 }
 
 # Dependency building functions
@@ -595,75 +597,75 @@ build_termbox2() {
     echo "termbox2 built successfully" >&2
 }
 
-build_fortran_raygui() {
+build_fortran_raylib() {
     local cache_dir="${GUI_CACHE}"
-    local frg_dir="${cache_dir}/fortran-raygui"
-    local build_marker="${cache_dir}/fortran_raygui_built"
+    local frg_dir="${cache_dir}/fortran-raylib"
+    local build_marker="${cache_dir}/fortran_raylib_built"
     
     # Only build if GUI is enabled
     if ! detect_raylib; then
-        [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Skipping fortran-raygui build (GUI disabled)" >&2
+        [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Skipping fortran-raylib build (GUI disabled)" >&2
         return 0
     fi
     
     # Check if already built (unless forced rebuild)
     if [[ -f "${build_marker}" && "${FORCE_REBUILD}" != "1" ]]; then
-        [[ "${DEBUG}" == "1" ]] && echo "DEBUG: fortran-raygui already built (marker exists)" >&2
+        [[ "${DEBUG}" == "1" ]] && echo "DEBUG: fortran-raylib already built (marker exists)" >&2
         return 0
     fi
     
     if [[ "${FORCE_REBUILD}" == "1" && -f "${build_marker}" ]]; then
-        [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Force rebuild - removing existing fortran-raygui build marker" >&2
+        [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Force rebuild - removing existing fortran-raylib build marker" >&2
         rm -f "${build_marker}"
     fi
     
-    echo "Building fortran-raygui..." >&2
+    echo "Building fortran-raylib..." >&2
     
-    # Clone or update fortran-raygui
+    # Clone or update fortran-raylib
     if [[ -d "${frg_dir}" ]]; then
         # Validate existing repository before updating
-        if ! validate_dependency_checksum "${frg_dir}" "${FRG_REF}" "fortran-raygui"; then
+        if ! validate_dependency_checksum "${frg_dir}" "${FRG_REF}" "fortran-raylib"; then
             if [[ "${OFFLINE_MODE}" == "1" ]]; then
-                echo "Warning: fortran-raygui repository validation failed in offline mode, using existing repository" >&2
+                echo "Warning: fortran-raylib repository validation failed in offline mode, using existing repository" >&2
             else
-                echo "Warning: fortran-raygui repository validation failed, attempting recovery..." >&2
-                if ! handle_corrupted_dependency "${frg_dir}" "${FRG_URL}" "${FRG_REF}" "fortran-raygui"; then
+                echo "Warning: fortran-raylib repository validation failed, attempting recovery..." >&2
+                if ! handle_corrupted_dependency "${frg_dir}" "${FRG_URL}" "${FRG_REF}" "fortran-raylib"; then
                     return 1
                 fi
             fi
         else
             if [[ "${OFFLINE_MODE}" == "1" ]]; then
-                [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Offline mode - skipping fortran-raygui repository update" >&2
+                [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Offline mode - skipping fortran-raylib repository update" >&2
             else
                 if ! (cd "${frg_dir}" && call_git fetch && call_git reset --hard "origin/${FRG_REF}"); then
-                    echo "Error: Failed to update fortran-raygui repository" >&2
+                    echo "Error: Failed to update fortran-raylib repository" >&2
                     return 1
                 fi
             fi
         fi
     else
         if [[ "${OFFLINE_MODE}" == "1" ]]; then
-            echo "Error: fortran-raygui repository not found and offline mode is enabled" >&2
+            echo "Error: fortran-raylib repository not found and offline mode is enabled" >&2
             echo "       Please run with OFFLINE_MODE=0 first to download dependencies" >&2
             return 1
         fi
         
         if ! call_git clone "${FRG_URL}" "${frg_dir}"; then
-            echo "Error: Failed to clone fortran-raygui repository" >&2
+            echo "Error: Failed to clone fortran-raylib repository" >&2
             return 1
         fi
         if ! (cd "${frg_dir}" && call_git checkout "${FRG_REF}"); then
-            echo "Error: Failed to checkout fortran-raygui ref: ${FRG_REF}" >&2
+            echo "Error: Failed to checkout fortran-raylib ref: ${FRG_REF}" >&2
             return 1
         fi
     fi
     
     # Final validation after clone/update
-    if ! validate_dependency_checksum "${frg_dir}" "${FRG_REF}" "fortran-raygui"; then
-        echo "Warning: fortran-raygui repository validation failed after clone/update" >&2
+    if ! validate_dependency_checksum "${frg_dir}" "${FRG_REF}" "fortran-raylib"; then
+        echo "Warning: fortran-raylib repository validation failed after clone/update" >&2
     fi
     
-    # Build fortran-raygui (assuming it has a Makefile or fpm build)
+    # Build fortran-raylib (assuming it has a Makefile or fpm build)
     local build_success=false
     if [[ -f "${frg_dir}/fpm.toml" ]]; then
         if (cd "${frg_dir}" && fpm build); then
@@ -679,13 +681,13 @@ build_fortran_raygui() {
     fi
     
     if [[ "${build_success}" == "false" ]]; then
-        echo "Error: Failed to build fortran-raygui" >&2
+        echo "Error: Failed to build fortran-raylib" >&2
         return 1
     fi
     
     # Create build marker atomically
-    atomic_write "${build_marker}" "fortran_raygui_build_marker"
-    echo "fortran-raygui built successfully" >&2
+    atomic_write "${build_marker}" "fortran_raylib_build_marker"
+    echo "fortran-raylib built successfully" >&2
 }
 
 # Main build function
@@ -695,8 +697,8 @@ build_dependencies() {
         return 1
     fi
     
-    # Setup cleanup trap to ensure lock is released
-    trap 'release_cache_lock "${GUI_CACHE}"' EXIT INT TERM
+    # Setup cleanup trap to ensure lock is released on interrupt
+    trap 'release_cache_lock "${GUI_CACHE}"' INT TERM
     
     # Setup cache
     if ! setup_cache; then
@@ -714,16 +716,16 @@ build_dependencies() {
         return 1
     fi
     
-    # Build fortran-raygui (only if GUI enabled)
-    if ! build_fortran_raygui; then
-        echo "Error: Failed to build fortran-raygui dependency" >&2
+    # Build fortran-raylib (only if GUI enabled)
+    if ! build_fortran_raylib; then
+        echo "Error: Failed to build fortran-raylib dependency" >&2
         release_cache_lock "${GUI_CACHE}"
         return 1
     fi
     
-    # Release lock before success return (trap will also release)
+    # Release lock before success return
     release_cache_lock "${GUI_CACHE}"
-    trap - EXIT INT TERM
+    trap - INT TERM
     
     return 0
 }
@@ -739,7 +741,7 @@ get_dependency_flags() {
         flags+=" -L${cache_dir}/termbox2 -ltermbox2"
     fi
     
-    # raylib/fortran-raygui flags (only if GUI enabled)
+    # raylib/fortran-raylib flags (only if GUI enabled)
     if detect_raylib; then
         # Add raylib flags
         if [[ -n "${RAYLIB_ROOT}" ]]; then
@@ -748,13 +750,13 @@ get_dependency_flags() {
             flags+=" $(call_pkg_config --cflags --libs raylib)"
         fi
         
-        # Add fortran-raygui flags
-        if [[ -d "${cache_dir}/fortran-raygui" ]]; then
-            flags+=" -I${cache_dir}/fortran-raygui/src"
-            # Add fortran-raygui library path if it exists
-            local frg_lib_path="${cache_dir}/fortran-raygui/build/gfortran_*/fortran-raygui"
+        # Add fortran-raylib flags
+        if [[ -d "${cache_dir}/fortran-raylib" ]]; then
+            flags+=" -I${cache_dir}/fortran-raylib/src"
+            # Add fortran-raylib library path if it exists
+            local frg_lib_path="${cache_dir}/fortran-raylib/build/gfortran_*/fortran-raylib"
             if ls ${frg_lib_path}/*.a >/dev/null 2>&1; then
-                flags+=" -L${frg_lib_path} -lfortran-raygui"
+                flags+=" -L${frg_lib_path} -lfortran-raylib"
             fi
         fi
     fi
@@ -793,6 +795,7 @@ print_config() {
         echo "    FRG_URL=${FRG_URL}" >&2
         echo "    FRG_REF=${FRG_REF}" >&2
     fi
+    return 0
 }
 
 # Main execution when run directly
@@ -812,9 +815,11 @@ main() {
             ;;
         "flags")
             setup_cpp_flags
+            return 0
             ;;
         "ldflags")
             get_dependency_flags
+            return 0
             ;;
         "config")
             print_config
@@ -828,6 +833,7 @@ main() {
             else
                 echo "Cache directory does not exist: ${GUI_CACHE}" >&2
             fi
+            return 0
             ;;
         "status")
             report_cache_status "${GUI_CACHE}"
@@ -847,8 +853,8 @@ main() {
             echo "  RAYLIB_ROOT   - Path to custom raylib installation" >&2
             echo "  GUI_CACHE     - Cache directory (default: ~/.cache/fortui)" >&2
             echo "  DEBUG         - Set to 1 to enable debug output" >&2
-            echo "  FRG_URL       - fortran-raygui repository URL" >&2
-            echo "  FRG_REF       - fortran-raygui git reference" >&2
+            echo "  FRG_URL       - fortran-raylib repository URL" >&2
+            echo "  FRG_REF       - fortran-raylib git reference" >&2
             echo "  FORCE_REBUILD - Set to 1 to force rebuild all dependencies" >&2
             echo "  OFFLINE_MODE  - Set to 1 to use only cached dependencies" >&2
             return 1
@@ -859,4 +865,5 @@ main() {
 # Only run main if executed directly (not sourced)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
+    exit $?
 fi

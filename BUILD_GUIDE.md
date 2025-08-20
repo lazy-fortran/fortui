@@ -31,7 +31,7 @@ Fortui uses an advanced two-stage build process with enterprise-grade reliabilit
 - **Corruption Recovery**: Automatic detection and repair of corrupted git repositories
 - **Atomic Operations**: Safe cache updates using temporary files and atomic moves
 - **Cross-Platform**: Linux, macOS, Windows with platform-specific optimizations
-- **FPM Integration**: Build-script override with CPP preprocessing support
+- **FPM Integration**: Preprocessor support via fpm.toml configuration
 
 ## Build Script Commands
 
@@ -42,7 +42,7 @@ The build script `tools/build_fortui.sh` provides several commands:
 ./tools/build_fortui.sh build
 ```
 - **termbox2**: TUI backend with visual widget rendering (always built)
-- **fortran-raygui**: GUI backend (conditional on raylib availability)
+- **fortran-raylib**: GUI backend bindings (conditional on raylib availability)
 - **Caching**: `~/.cache/fortui` with smart rebuild detection
 - **Mock support**: Testing without real termbox2 dependency
 
@@ -82,8 +82,8 @@ Cache Status:
   Location: /home/user/.cache/fortui
   Size: 45MB
   termbox2: 12MB
-  fortran-raygui: 33MB
-  Built: termbox2 fortran-raygui
+  fortran-raylib: 33MB
+  Built: termbox2 fortran-raylib
 ```
 
 ### Clean Cache
@@ -133,8 +133,8 @@ OFFLINE_MODE=1 ./tools/build_fortui.sh build
 
 **Repository Customization**
 ```bash
-# Custom fortran-raygui
-FRG_URL=https://github.com/user/fortran-raygui.git
+# Custom fortran-raylib
+FRG_URL=https://github.com/user/fortran-raylib.git
 FRG_REF=feature-branch ./tools/build_fortui.sh build
 
 # Custom termbox2
@@ -228,9 +228,10 @@ clean-deps:
 - Check build output: `DEBUG=1 ./tools/build_fortui.sh build`
 - Clean and retry: `./tools/build_fortui.sh clean && ./tools/build_fortui.sh build`
 
-**fortran-raygui build fails**:
+**fortran-raylib build fails**:
 - Check network access to GitHub
 - Use alternative repository: `FRG_URL=your-mirror-url ./tools/build_fortui.sh build`
+- Default repository: `https://github.com/interkosmos/fortran-raylib.git`
 - GUI will be disabled if this dependency fails
 
 ### Cache Issues
@@ -264,7 +265,7 @@ GUI_CACHE=/tmp/fortui_cache ./tools/build_fortui.sh build
 
 ### Dependency Compatibility Issues
 
-**Raylib/fortran-raygui version conflicts**:
+**Raylib/fortran-raylib version conflicts**:
 ```bash
 # Check compatibility automatically during build
 ./tools/build_fortui.sh build  # Warns about incompatible versions
@@ -287,7 +288,7 @@ OFFLINE_MODE=1 ./tools/build_fortui.sh build
 **Corporate firewalls**:
 ```bash
 # Use alternative repository URLs
-FRG_URL=https://internal-mirror/fortran-raygui.git ./tools/build_fortui.sh build
+FRG_URL=https://internal-mirror/fortran-raylib.git ./tools/build_fortui.sh build
 TERMBOX_URL=https://internal-mirror/termbox2.git ./tools/build_fortui.sh build
 ```
 
@@ -397,16 +398,16 @@ The advanced build script provides enterprise-grade features:
 - **Corruption recovery**: Automatic detection and repair of corrupted git repositories
 - **Version tracking**: Cache invalidation when build tools (git, make, gfortran, fpm) change
 - **Atomic operations**: Safe cache updates using temporary files and atomic moves
-- **Dependency compatibility**: Version checking for raylib/fortran-raygui compatibility
+- **Dependency compatibility**: Version checking for raylib/fortran-raylib compatibility
 - **Cross-platform paths**: Consistent behavior across Windows/Unix systems
 
 Dependencies are built in `${GUI_CACHE}` (default `~/.cache/fortui`) with this structure:
 ```
 ~/.cache/fortui/
 ├── termbox2/           # termbox2 source and built library
-├── fortran-raygui/     # fortran-raygui source and built library  
+├── fortran-raylib/     # fortran-raylib source and built library  
 ├── termbox2_built      # Build marker for termbox2
-├── fortran_raygui_built # Build marker for fortran-raygui
+├── fortran_raylib_built # Build marker for fortran-raylib
 ├── .tool_versions      # Tool version fingerprint for cache invalidation
 └── .build.lock         # Concurrent access lock (auto-removed)
 ```
