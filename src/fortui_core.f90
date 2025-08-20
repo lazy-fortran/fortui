@@ -925,20 +925,23 @@ recursive subroutine assign_node(lhs, rhs)
     ! Copy basic properties
     lhs%layout_type = rhs%layout_type
     lhs%gap_dp = rhs%gap_dp
+    lhs%interaction_occurred = rhs%interaction_occurred
     
-    ! Deep copy children array (automatic reallocation when assigning allocatable arrays)
+    ! Deep copy children array with proper memory management
     if (allocated(rhs%children)) then
         if (size(rhs%children) > 0) then
             allocate(lhs%children(size(rhs%children)))
             do i = 1, size(rhs%children)
+                ! Use assignment operator recursively for deep copy
                 lhs%children(i) = rhs%children(i)
             end do
         else
             ! Allocate empty array for consistency
             allocate(lhs%children(0))
         end if
-    ! else - no children to copy, lhs%children automatically unallocated for intent(out)
     end if
+    ! Note: if rhs%children is not allocated, lhs%children remains unallocated
+    ! due to intent(out) behavior, which is correct
 end subroutine assign_node
 
 ! Mock termbox2 implementations for testing without actual library

@@ -140,9 +140,9 @@ type(input_state_t), save :: input_state
 
 contains
 
-type(node) function button(id, label, width, height) result(n)
+logical function button(id, label, width, height) result(clicked)
     ! Immediate-mode button widget with unified class(*) interface
-    ! Returns UI node for layout system, interaction status available separately
+    ! Returns true when button is clicked, false otherwise
     character(*), intent(in) :: id
     character(*), intent(in), optional :: label
     class(*), intent(in), optional :: width
@@ -159,14 +159,14 @@ type(node) function button(id, label, width, height) result(n)
     ! Validate ID parameter
     if (len_trim(id) == 0) then
         print *, "button: Warning - Empty button ID provided, using fallback"
-        n = node()
+        clicked = .false.
         return
     end if
     
     ! Get or create button state
     state_index = find_or_create_button_state(id)
     if (state_index <= 0) then
-        n = node()
+        clicked = .false.
         return
     end if
     
@@ -207,10 +207,8 @@ type(node) function button(id, label, width, height) result(n)
     ! Process input and determine click state  
     call process_button_interaction(state_index, display_label)
     
-    ! Create UI node for layout system
-    n = node()
-    n%layout_type = "button"
-    n%interaction_occurred = button_states(state_index)%clicked
+    ! Return click status directly
+    clicked = button_states(state_index)%clicked
     
     ! Render button (would be handled by presentation system in full implementation)
     call render_button_placeholder(state_index, display_label)
@@ -574,7 +572,7 @@ subroutine ensure_button_exists_for_testing(id)
     state_index = find_button_state_by_id(id)
     if (state_index <= 0) then
         ! Create button by calling it once
-        dummy_node = button(id)
+        dummy_node%interaction_occurred = button(id)
         state_index = find_button_state_by_id(id)
         if (state_index > 0) then
             ! Set up reasonable test position and size
@@ -589,7 +587,7 @@ end subroutine ensure_button_exists_for_testing
 ! Text Widget Implementation 
 ! =========================
 
-type(node) function text(id, value, text_size, width, height) result(n)
+subroutine text(id, value, text_size, width, height)
     ! Immediate-mode text widget with unified class(*) interface
     ! Displays text content with auto-sizing and cross-backend support
     character(*), intent(in) :: id, value
@@ -665,18 +663,13 @@ type(node) function text(id, value, text_size, width, height) result(n)
     ! Process text content (wrapping, clipping, line counting)
     call process_text_content(state_index, value, widget_width_dp, widget_text_size_dp, ctx)
     
-    ! Create UI node for layout system
-    n = node()
-    n%layout_type = "text"
-    n%interaction_occurred = .false.  ! Text widgets don't have interactions
-    
     ! Render text (would be handled by presentation system in full implementation)
     call render_text_placeholder(state_index)
-end function text
+end subroutine text
 
-type(node) function slider(id, min_val, max_val, step_val, value, width, height) result(n)
+logical function slider(id, min_val, max_val, step_val, value, width, height) result(changed)
     ! Immediate-mode slider widget with unified class(*) interface and value management
-    ! Returns UI node for layout system, value change status available separately
+    ! Returns true when slider value changes, false otherwise
     character(*), intent(in) :: id
     real, intent(in) :: min_val, max_val, step_val  
     real, intent(inout) :: value
@@ -690,28 +683,28 @@ type(node) function slider(id, min_val, max_val, step_val, value, width, height)
     ! Security validation - verify parameters
     if (len_trim(id) == 0) then
         print *, "slider: Warning - Empty slider ID provided, using fallback"
-        n = node()
+        changed = .false.
         return  
     end if
     
     ! Validate range parameters
     if (min_val >= max_val) then
         print *, "slider: Error - Invalid range: min_val must be less than max_val"
-        n = node()
+        changed = .false.
         return
     end if
     
     ! Validate step parameter  
     if (step_val < 0.0) then
         print *, "slider: Error - Invalid step: step_val must be non-negative"
-        n = node()
+        changed = .false.
         return
     end if
     
     ! Get or create slider state
     state_index = find_or_create_slider_state(id)
     if (state_index <= 0) then
-        n = node()
+        changed = .false.
         return
     end if
     
@@ -768,20 +761,17 @@ type(node) function slider(id, min_val, max_val, step_val, value, width, height)
     ! Handle interaction simulation for testing
     call handle_slider_interaction(state_index)
     
-    ! Create UI node for layout system
-    n = node()
-    n%layout_type = "slider"
-    ! Detect value change for interaction status
-    n%interaction_occurred = abs(clamped_value - previous_value) > 0.0001
+    ! Return value change status
+    changed = abs(clamped_value - previous_value) > 0.0001
     
     ! Render slider (would be handled by presentation system in full implementation)
     call render_slider_placeholder(state_index)
     
 end function slider
 
-type(node) function checkbox(id, checked, label, width, height) result(n)
+subroutine checkbox(id, checked, label, width, height)
     ! Immediate-mode checkbox widget with unified class(*) interface and cross-backend support
-    ! Returns UI node for layout system and modifies checked parameter based on user interactions
+    ! Modifies checked parameter based on user interactions
     character(*), intent(in) :: id
     logical, intent(inout) :: checked
     character(*), intent(in), optional :: label
@@ -860,15 +850,9 @@ type(node) function checkbox(id, checked, label, width, height) result(n)
         checkbox_states(state_index)%state_changed = .false.
     end if
     
-    ! Create UI node for layout system
-    n = node()
-    n%layout_type = "checkbox"
-    n%interaction_occurred = checkbox_states(state_index)%state_changed
-    
-    ! Store interaction status in node (would be handled by presentation system)
-    ! For now, just render placeholder
+    ! Render checkbox (would be handled by presentation system in full implementation)
     call render_checkbox_placeholder(state_index)
-end function checkbox
+end subroutine checkbox
 
 type(node) function viewport(id, width, height, v) result(n)
     ! Immediate-mode viewport widget for pan/zoom display areas
@@ -1763,7 +1747,7 @@ subroutine ensure_checkbox_exists_for_testing(id)
     if (state_index <= 0) then
         ! Create checkbox by calling it once
         dummy_checked = .false.
-        dummy_node = checkbox(id, dummy_checked)
+        call checkbox(id, dummy_checked)
         state_index = find_checkbox_state_by_id(id)
         if (state_index > 0) then
             ! Set up reasonable test position and size
