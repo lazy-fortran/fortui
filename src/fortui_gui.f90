@@ -10,6 +10,8 @@ private
 ! Public types and procedures
 public :: gui_backend_t, register_gui_backend
 public :: gui_render_tree
+! Export implementation functions for fortui_core direct calls
+public :: begin_gui_frame_impl, check_gui_quit_impl, present_gui_impl
 
 ! GUI backend implementation
 type, extends(backend_interface) :: gui_backend_t
@@ -397,7 +399,29 @@ subroutine present_gui_impl(tree)
     end if
 end subroutine present_gui_impl
 
-! Check if GUI should quit
+! Check if GUI should quit (module-level state version for fortui_core)
+logical function check_gui_quit_impl()
+    if (.not. gui_state%initialized) then
+        check_gui_quit_impl = .true.
+        return
+    end if
+    
+    ! Check window close status
+    if (gui_state%window_created) then
+        ! Would check raylib window status
+        ! check_gui_quit_impl = WindowShouldClose() .or. gui_state%should_close
+        check_gui_quit_impl = gui_state%should_close
+    else
+        check_gui_quit_impl = .true.
+    end if
+    
+    ! Auto-quit after timeout for demonstration purposes
+    if (gui_state%frame_count > 600) then  ! ~10 seconds at 60 FPS
+        check_gui_quit_impl = .true.
+    end if
+end function check_gui_quit_impl
+
+! Check if GUI should quit (type-bound version)
 logical function gui_check_quit(self)
     class(gui_backend_t), intent(inout) :: self
     
@@ -478,5 +502,102 @@ integer function gui_measure_text(text, font_size)
     ! For testing, estimate based on character count
     gui_measure_text = len_trim(text) * 8  ! Assume 8 pixels per character
 end function gui_measure_text
+
+! Register GUI backend with the backend manager
+subroutine register_gui_backend()
+    type(gui_backend_t) :: gui
+    
+    ! Set GUI capabilities
+    gui%capabilities%colors = .true.
+    gui%capabilities%mouse = .true.
+    gui%capabilities%unicode = .true.
+    gui%capabilities%async_events = .false.  ! GUI uses polling
+    gui%capabilities%graphics = .true.  ! GUI supports graphics primitives
+    
+    call register_backend("gui", gui)
+end subroutine register_gui_backend
+
+! Type-bound procedure: Initialize GUI backend
+subroutine gui_init(self, width, height, title, target_fps, vsync)
+    class(gui_backend_t), intent(inout) :: self
+    integer, intent(in) :: width, height
+    character(*), intent(in) :: title
+    integer, intent(in) :: target_fps
+    logical, intent(in) :: vsync
+    
+    ! Update instance state
+    self%window_width = max(100, width * 8)  ! Convert grid units to pixels
+    self%window_height = max(100, height * 16)  ! 16px line height
+    self%window_title = title
+    self%target_fps = max(1, target_fps)
+    self%vsync_enabled = vsync
+    
+    ! Delegate to implementation
+    call init_gui_backend_impl(width, height, title, target_fps, vsync)
+    
+    ! Update instance state from module-level state
+    self%initialized = gui_state%initialized
+    self%window_created = gui_state%window_created
+    self%font_size = gui_state%font_size
+    self%char_width = gui_state%char_width
+    self%char_height = gui_state%char_height
+end subroutine gui_init
+
+! Type-bound procedure: Shutdown GUI backend
+subroutine gui_shutdown(self)
+    class(gui_backend_t), intent(inout) :: self
+    
+    ! Delegate to implementation
+    call shutdown_gui_backend_impl()
+    
+    ! Update instance state
+    self%initialized = .false.
+    self%window_created = .false.
+    self%frame_count = 0
+    self%should_close = .false.
+    self%in_frame = .false.
+end subroutine gui_shutdown
+
+! Type-bound procedure: Begin GUI frame
+subroutine gui_begin_frame(self)
+    class(gui_backend_t), intent(inout) :: self
+    
+    if (.not. self%initialized) return
+    
+    ! Delegate to implementation
+    call begin_gui_frame_impl()
+    
+    ! Update instance state from module-level state
+    self%in_frame = gui_state%in_frame
+    self%frame_count = gui_state%frame_count
+end subroutine gui_begin_frame
+
+! Type-bound procedure: Present GUI frame
+subroutine gui_present(self)
+    class(gui_backend_t), intent(inout) :: self
+    
+    if (.not. self%initialized) return
+    
+    ! Just end the frame without rendering a tree
+    ! The actual tree rendering happens through gui_render_tree
+    if (self%in_frame .and. self%window_created) then
+        ! Would call EndDrawing() here
+        self%in_frame = .false.
+        gui_state%in_frame = .false.
+    end if
+    
+    ! Update instance state from module-level state
+    self%should_close = gui_state%should_close
+    self%in_frame = gui_state%in_frame
+end subroutine gui_present
+
+! Type-bound procedure: Check if GUI is available
+logical function gui_is_available(self)
+    class(gui_backend_t), intent(in) :: self
+    
+    ! Delegate to implementation
+    gui_is_available = is_gui_available_impl()
+end function gui_is_available
+
 end module fortui_gui
 #endif

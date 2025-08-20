@@ -466,6 +466,9 @@ subroutine ui_frame_begin(timeout_ms)
 end subroutine ui_frame_begin
 
 subroutine ui_present(tree)
+#ifdef ENABLE_GUI
+    use fortui_gui, only: present_gui_impl
+#endif
     class(ui_element), intent(in) :: tree
     
     if (.not. ui_state%initialized) then
@@ -479,7 +482,7 @@ subroutine ui_present(tree)
         call present_tui(tree)
     case ("gui")
 #ifdef ENABLE_GUI
-        call present_gui(tree)
+        call present_gui_impl(tree)
 #else
         print *, "ui_present: Error - GUI backend not available (disabled at compile time)"
 #endif

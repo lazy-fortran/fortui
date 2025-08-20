@@ -2,9 +2,9 @@ module fortui_backend_init
 ! Module for automatic backend registration
 ! Separates registration from core to avoid circular dependencies
 use fortui_backend
-use fortui_tui
+use fortui_tui, only: register_tui_backend
 #ifdef ENABLE_GUI
-use fortui_gui
+use fortui_gui, only: register_gui_backend
 #endif
 implicit none
 private
