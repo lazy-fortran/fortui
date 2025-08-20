@@ -12,7 +12,7 @@ use test_ui_context_integration
 use test_abstract_unit_types
 use test_platform_measurement
 use test_viewport_widget
-! use test_widgets  ! Temporarily disabled due to API mismatch
+use test_widgets
 ! use test_demo_application  ! Temporarily disabled due to API mismatch
 ! use test_demo_integration  ! Temporarily disabled due to API mismatch
 implicit none
@@ -72,7 +72,7 @@ subroutine run_fortran_tests()
     call test_all_viewport_widget()
     
     ! Widget system tests with button implementation and immediate-mode interaction
-    ! call test_all_widgets()  ! Temporarily disabled due to API mismatch
+    call test_all_widgets()
     
     ! Demo application tests for complete widget foundation integration
     ! call run_demo_application_tests()  ! Temporarily disabled due to API mismatch
