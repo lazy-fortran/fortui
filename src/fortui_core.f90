@@ -17,6 +17,8 @@ public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
 public :: ui_set_idle_policy
 ! Layout constructors
 public :: column, row
+! Widget wrapper for layout integration
+public :: widget
 
 ! Internal state management
 type :: ui_state_t
@@ -1651,5 +1653,13 @@ subroutine flush_output()
     use iso_fortran_env, only: output_unit
     flush(output_unit)
 end subroutine flush_output
+
+! Widget wrapper function for layout integration
+function widget(element) result(wrapper)
+    class(ui_element), intent(in) :: element
+    type(widget_wrapper) :: wrapper
+    
+    allocate(wrapper%wrapped_element, source=element)
+end function widget
 
 end module fortui_core
