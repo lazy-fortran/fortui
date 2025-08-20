@@ -389,13 +389,13 @@ subroutine present_gui_impl(tree)
     end if
     
     ! Check for window close events
-    if (self%window_created) then
+    if (gui_state%window_created) then
         ! Check for window close request from raylib
-        if (self%frame_count > 100) then
-            self%should_close = .true.
+        if (gui_state%frame_count > 100) then
+            gui_state%should_close = .true.
         end if
     end if
-end subroutine gui_present
+end subroutine present_gui_impl
 
 ! Check if GUI should quit
 logical function gui_check_quit(self)
