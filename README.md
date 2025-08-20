@@ -33,14 +33,59 @@ cd fortui
 fpm build
 
 # Run examples and comprehensive test suite
-fpm run --example hello_world
+fpm run --example layout_demo
 fpm test  # ~87 validations across all components
 ```
 
-**Build Documentation:**
-- [BUILD_GUIDE.md](BUILD_GUIDE.md) - Comprehensive build configuration and troubleshooting
-- [INTEGRATION_EXAMPLES.md](INTEGRATION_EXAMPLES.md) - Copy-paste examples for Makefile, CMake, CI/CD integration
-- [TESTING_GUIDE.md](docs/TESTING_GUIDE.md) - Enhanced test validation system (~87 validations)
+### Advanced Build System
+
+Enterprise-grade build system with dependency management, network resilience, and cross-platform support:
+
+#### Environment Variables
+```bash
+# Core controls
+DISABLE_GUI=1           # Force TUI-only build
+RAYLIB_ROOT=/opt/raylib # Custom raylib installation
+GUI_CACHE=/tmp/deps     # Custom cache location
+
+# Advanced features  
+FORCE_REBUILD=1         # Ignore cache, rebuild everything
+OFFLINE_MODE=1          # Work with cached dependencies only
+DEBUG=1                 # Enable detailed build diagnostics
+
+# Repository customization
+FRG_URL=https://github.com/user/fortran-raygui.git
+FRG_REF=feature-branch
+TERMBOX_URL=https://github.com/user/termbox2.git  
+TERMBOX_REF=custom-ref
+```
+
+#### Build Commands
+```bash
+# Build all dependencies
+./tools/build_fortui.sh build
+
+# View configuration and status
+./tools/build_fortui.sh config
+./tools/build_fortui.sh status
+
+# Get compiler flags
+./tools/build_fortui.sh flags    # ENABLE_GUI=0|1
+./tools/build_fortui.sh ldflags  # Linker flags
+
+# Cache management
+./tools/build_fortui.sh clean
+```
+
+#### Enterprise Features
+- **Network resilience**: Automatic retry with exponential backoff (3 attempts, 1-30s delays)
+- **Concurrent safety**: File locking with 5-minute timeout and stale lock detection
+- **Version tracking**: Smart cache invalidation when build tools change
+- **Corruption recovery**: Automatic detection and repair of corrupted git repositories
+- **Cross-platform**: Linux, macOS, Windows with platform-specific optimizations
+- **FPM integration**: Build-script override with CPP preprocessing support
+
+**Complete Documentation**: [BUILD_GUIDE.md](BUILD_GUIDE.md) | [Integration Examples](INTEGRATION_EXAMPLES.md)
 
 ## Quick Start
 
