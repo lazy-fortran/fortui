@@ -10,6 +10,7 @@ use test_termbox2_interface
 use test_ui_context_integration
 use test_abstract_unit_types
 use test_platform_measurement
+use test_viewport_widget
 ! use test_widgets  ! Temporarily disabled due to API mismatch
 ! use test_demo_application  ! Temporarily disabled due to API mismatch
 ! use test_demo_integration  ! Temporarily disabled due to API mismatch
@@ -62,6 +63,9 @@ subroutine run_fortran_tests()
     
     ! Platform measurement system tests (RED phase)
     call test_all_platform_measurement()
+    
+    ! Viewport widget tests with pan/zoom functionality (RED phase - Issue #9)
+    call test_all_viewport_widget()
     
     ! Widget system tests with button implementation and immediate-mode interaction
     ! call test_all_widgets()  ! Temporarily disabled due to API mismatch

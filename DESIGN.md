@@ -852,6 +852,192 @@ end subroutine
 
 ⸻
 
+## Viewport Widget Architecture (Issue #9)
+
+### Overview
+
+Implement viewport widget with unified class(*) interface for pan/zoom functionality with cross-backend rendering support, providing immediate-mode view updates and consistent interaction behavior. The viewport widget is a essential component for data visualization and interactive content.
+
+### Core Design Principles
+
+**Unified Interface**: Single viewport() function accepting class(*) dimensions for maximum API simplicity and consistency with other widgets.
+
+**Required Dimensions**: Width and height must be specified (no auto-sizing) to ensure deterministic viewport behavior.
+
+**View State Management**: Direct update of view parameter during interaction with frame-based change detection.
+
+**Cross-Backend Parity**: Consistent viewport behavior in TUI (cell-based) and GUI (pixel-based) with appropriate rendering strategies.
+
+### API Design
+
+#### Viewport Function Signature
+```fortran
+logical function viewport(id, width, height, view)
+  character(*), intent(in) :: id
+  class(*), intent(in) :: width, height     ! any unit type or real
+  type(view), intent(inout) :: view         ! wheel=zoom, drag=pan
+  ! returns .true. if view changed this frame
+end function
+```
+
+#### View Type Definition
+```fortran
+type :: view
+  real :: scale_x = 1.0, scale_y = 1.0  ! zoom factors
+  real :: off_x = 0.0, off_y = 0.0      ! pan offsets in view coordinates
+end type
+```
+
+#### Usage Examples
+```fortran
+! Simple viewport with cell units (TUI-friendly)
+if (viewport("plot", 80.0 .cw., 24.0 .ch., plot_view)) then
+  call redraw_plot_content()
+end if
+
+! Viewport with dp units (cross-backend)
+if (viewport("chart", 400.0, 300.0, chart_view)) then
+  call update_chart_display()
+end if
+
+! Mixed unit viewport
+if (viewport("mini", 20.0 .em., 15.0 .em., mini_view)) then
+  call render_minimap()
+end if
+```
+
+### Implementation Architecture
+
+#### Size Processing with class(*)
+```fortran
+subroutine process_viewport_size(width_arg, height_arg, ctx, w_dp, h_dp)
+  class(*), intent(in) :: width_arg, height_arg
+  type(ui_context), intent(in) :: ctx
+  real, intent(out) :: w_dp, h_dp
+  
+  ! Convert to dp using runtime type checking
+  w_dp = convert_to_dp(width_arg, ctx)
+  h_dp = convert_to_dp(height_arg, ctx)
+  
+  ! Ensure minimum usable size
+  w_dp = max(w_dp, ctx%em_dp * 2.0)  ! Minimum 2em width
+  h_dp = max(h_dp, ctx%em_dp * 1.5)  ! Minimum 1.5em height
+end subroutine
+```
+
+#### Cross-Backend Rendering Strategy
+
+**TUI Implementation (Cell-Based)**:
+- Convert dp dimensions to cells with snapping
+- Render viewport with ASCII borders
+- Handle mouse interaction within cell boundaries
+- Character-based content area
+
+**GUI Implementation (Pixel-Based)**:
+- Convert dp dimensions to pixels with precision
+- Pixel-perfect viewport with hardware clipping
+- Smooth pan and zoom with sub-pixel precision
+- Hardware-accelerated content transformation
+
+### Interaction Processing
+
+#### Pan Calculation
+```fortran
+subroutine update_pan(view, mouse_delta_x, mouse_delta_y, viewport_width, viewport_height)
+  type(view), intent(inout) :: view
+  real, intent(in) :: mouse_delta_x, mouse_delta_y, viewport_width, viewport_height
+  
+  ! Convert pixel delta to view coordinates
+  view%off_x = view%off_x - mouse_delta_x / (viewport_width * view%scale_x)
+  view%off_y = view%off_y - mouse_delta_y / (viewport_height * view%scale_y)
+end subroutine
+```
+
+#### Zoom Calculation (Around Mouse Position)
+```fortran
+subroutine update_zoom(view, zoom_factor, mouse_x, mouse_y, viewport_width, viewport_height)
+  type(view), intent(inout) :: view
+  real, intent(in) :: zoom_factor, mouse_x, mouse_y, viewport_width, viewport_height
+  
+  real :: old_scale_x, old_scale_y, view_x, view_y
+  
+  old_scale_x = view%scale_x
+  old_scale_y = view%scale_y
+  
+  view%scale_x = view%scale_x * zoom_factor
+  view%scale_y = view%scale_y * zoom_factor
+  
+  ! Adjust offset to zoom around mouse position
+  view_x = mouse_x / viewport_width
+  view_y = mouse_y / viewport_height
+  
+  view%off_x = view%off_x + view_x * (1.0/old_scale_x - 1.0/view%scale_x)
+  view%off_y = view%off_y + view_y * (1.0/old_scale_y - 1.0/view%scale_y)
+end subroutine
+```
+
+### Content Integration Framework
+
+**Rendering Hooks**: Framework for user content drawing within viewport
+**Coordinate Transformation**: Automatic view-to-screen coordinate mapping
+**Content Clipping**: Automatic content bounds management at viewport boundaries
+**Performance Optimization**: Efficient redraw and caching strategies for content
+
+### File Organization
+
+```
+src/
+├── fortui_widgets.f90       ! Viewport implementation with unified interface
+├── fortui_units.f90         ! class(*) conversion integration
+├── backends/
+│   ├── tui/
+│   │   └── tui_viewport.f90     ! TUI-specific viewport rendering
+│   └── gui/
+│       └── gui_viewport.f90     ! GUI-specific viewport rendering
+└── viewport/
+    ├── viewport_core.f90        ! Core viewport logic and state
+    ├── viewport_interaction.f90 ! Pan/zoom interaction processing
+    └── viewport_transform.f90   ! Coordinate transformation utilities
+```
+
+### Implementation Strategy
+
+1. **Core Viewport Logic**: Implement size processing and state management
+2. **TUI Backend Integration**: Cell-based rendering with ASCII borders  
+3. **GUI Backend Integration**: Pixel-based rendering with hardware acceleration
+4. **Interaction Processing**: Mouse and keyboard pan/zoom support
+5. **Content Framework**: Rendering hooks for user content
+6. **Performance Optimization**: Efficient update and redraw strategies
+
+### Success Criteria
+
+- [ ] viewport() function accepts class(*) for width/height parameters correctly
+- [ ] Required dimensions handled properly (no auto-sizing edge cases)
+- [ ] Bare real values treated as dp() correctly in all contexts
+- [ ] Runtime unit conversion maintains viewport proportions across backends
+- [ ] Pan interaction smooth and responsive in both TUI and GUI
+- [ ] Zoom interaction centers correctly around mouse position
+- [ ] Keyboard navigation (arrow keys, +/- zoom) functional
+- [ ] View state updates trigger correct return value (.true. on change)
+- [ ] TUI rendering provides usable content area with clear borders
+- [ ] GUI rendering supports hardware-accelerated content transformation
+- [ ] Coordinate transformation from view to screen coordinates accurate
+- [ ] Content clipping works correctly at viewport boundaries
+- [ ] Error handling clear for unsupported dimension types
+- [ ] Performance acceptable for real-time pan/zoom operations
+- [ ] Visual feedback clear for user interaction and viewport state
+- [ ] Client code significantly cleaner than alternative approaches
+- [ ] API learning curve minimal for new users
+
+### Dependencies
+
+**Requires**: #1 (Core types), #2 (Lifecycle functions), #3 (Layout), #21 (Units system with class(*)), #22 (Context integration)
+**Blocked by**: #6 (TUI backend), #11 (GUI backend) for unit-aware rendering and input
+**Enables**: #10 (Demo application with interactive viewports)
+**Priority**: **HIGH** - Essential widget for data visualization
+
+⸻
+
 ## 1) units system
 
 ### unit types & ergonomic api
