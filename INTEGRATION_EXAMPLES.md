@@ -278,4 +278,52 @@ RUN fpm build
 CMD ["./build/app"]
 ```
 
+## Advanced Build Features
+
+### Force Rebuild and Cache Management
+```bash
+# Force complete rebuild (ignores cache)
+FORCE_REBUILD=1 ./tools/build_fortui.sh build
+
+# Check cache status and size
+./tools/build_fortui.sh status
+
+# Offline builds for CI/CD
+./tools/build_fortui.sh build        # Initial download
+OFFLINE_MODE=1 ./tools/build_fortui.sh build  # Fast offline rebuild
+```
+
+### Enterprise CI/CD Integration
+```yaml
+# GitHub Actions with advanced features
+name: Build with Network Resilience
+steps:
+  - name: Build Dependencies with Retry
+    run: |
+      # Separate cache per build
+      export GUI_CACHE="/tmp/fortui_cache_${{ github.run_id }}"
+      
+      # Enable debug for troubleshooting
+      DEBUG=1 ./tools/build_fortui.sh build
+    
+  - name: Offline Build (Fast)
+    run: |
+      export GUI_CACHE="/tmp/fortui_cache_${{ github.run_id }}"
+      OFFLINE_MODE=1 ./tools/build_fortui.sh build
+      
+  - name: Check Configuration
+    run: ./tools/build_fortui.sh config
+```
+
+### Performance Optimization
+```bash
+# Monitor build performance
+time FORCE_REBUILD=1 ./tools/build_fortui.sh build
+
+# Cache-optimized development workflow
+./tools/build_fortui.sh build    # Once per environment
+# ... make code changes ...
+fpm build                        # Uses cached dependencies
+```
+
 All examples assume you've copied `tools/build_fortui.sh` to your project or are building fortui itself.

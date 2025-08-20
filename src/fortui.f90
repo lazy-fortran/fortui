@@ -24,6 +24,10 @@ public :: dp, em, sp, px, cw, ch
 public :: convert_to_dp, ui_get_context, ui_set_context
 
 ! Re-export all public widget functions from fortui_widgets
-public :: button
+public :: button, text, slider, checkbox
+public :: widget, viewport
+
+! Re-export widget node types from fortui_widgets
+public :: button_node_t, text_node_t, slider_node_t, checkbox_node_t
 
 end module fortui

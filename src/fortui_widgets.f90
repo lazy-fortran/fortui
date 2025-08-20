@@ -7,7 +7,7 @@ use fortui_units, only: ui_context, convert_to_dp, ui_get_context
 implicit none
 private
 
-! Public widget functions - dual interface support
+! Public widget functions
 public :: button, text, slider, checkbox
 public :: assignment(=)  ! Make assignment operators public
 public :: operator(.logical.)  ! Make logical operators public
@@ -79,6 +79,7 @@ end type slider_node_t
 type, extends(ui_element) :: checkbox_node_t
     character(len=256) :: id = ""
     character(len=256) :: label = ""
+    logical :: checked = .false.
     real :: width_dp = 0.0
     real :: height_dp = 0.0
     logical :: toggled = .false.  ! Interaction state
@@ -186,13 +187,14 @@ type(input_state_t), save :: input_state
 
 contains
 
+! Main button implementation WITHOUT class(*) - using real only
 function button(id, label, width, height) result(widget_node)
-    ! Immediate-mode button widget with unified interface
+    ! Immediate-mode button widget with real dimensions
     ! Returns ui_element for layout construction with interaction state
     character(*), intent(in) :: id
     character(*), intent(in), optional :: label
-    class(*), intent(in), optional :: width
-    class(*), intent(in), optional :: height
+    real, intent(in), optional :: width
+    real, intent(in), optional :: height
     type(button_node_t) :: widget_node
     
     integer :: state_index
@@ -230,7 +232,7 @@ function button(id, label, width, height) result(widget_node)
     
     ! Calculate dimensions - either explicit or auto-sized
     if (present(width)) then
-        button_width_dp = convert_to_dp(width, ctx)
+        button_width_dp = width
         ! Apply minimum width constraint for clickability
         button_width_dp = max(button_width_dp, 20.0)
     else
@@ -239,7 +241,7 @@ function button(id, label, width, height) result(widget_node)
     end if
     
     if (present(height)) then
-        button_height_dp = convert_to_dp(height, ctx)
+        button_height_dp = height
         ! Apply minimum height constraint for clickability
         button_height_dp = max(button_height_dp, 16.0)
     else
@@ -640,10 +642,11 @@ end subroutine ensure_button_exists_for_testing
 ! =========================
 
 function text(id, value, text_size, width, height) result(widget_node)
-    ! Immediate-mode text widget with unified interface
+    ! Immediate-mode text widget with real dimensions
     ! Returns ui_element for layout construction
-    character(*), intent(in) :: id, value
-    class(*), intent(in), optional :: text_size, width, height
+    character(*), intent(in) :: id
+    character(*), intent(in), optional :: value
+    real, intent(in), optional :: text_size, width, height
     type(text_node_t) :: widget_node
     
     integer :: state_index
@@ -680,7 +683,7 @@ function text(id, value, text_size, width, height) result(widget_node)
     
     ! Calculate text size - either explicit or use default
     if (present(text_size)) then
-        widget_text_size_dp = convert_to_dp(text_size, ctx)
+        widget_text_size_dp = text_size
         ! Apply minimum text size constraint for readability
         widget_text_size_dp = max(widget_text_size_dp, 8.0)
     else
@@ -690,7 +693,7 @@ function text(id, value, text_size, width, height) result(widget_node)
     
     ! Calculate dimensions - either explicit or auto-sized
     if (present(width)) then
-        widget_width_dp = convert_to_dp(width, ctx)
+        widget_width_dp = width
         ! Apply minimum width constraint
         widget_width_dp = max(widget_width_dp, 10.0)
     else
@@ -699,7 +702,7 @@ function text(id, value, text_size, width, height) result(widget_node)
     end if
     
     if (present(height)) then
-        widget_height_dp = convert_to_dp(height, ctx)
+        widget_height_dp = height
         ! Apply minimum height constraint
         widget_height_dp = max(widget_height_dp, 12.0)
     else
@@ -732,12 +735,12 @@ function text(id, value, text_size, width, height) result(widget_node)
 end function text
 
 function slider(id, min_val, max_val, step_val, value, width, height) result(widget_node)
-    ! Immediate-mode slider widget with unified interface
+    ! Immediate-mode slider widget with real dimensions
     ! Returns ui_element for layout construction with interaction state
     character(*), intent(in) :: id
-    real, intent(in) :: min_val, max_val, step_val  
-    real, intent(inout) :: value
-    class(*), intent(in), optional :: width, height
+    real, intent(in), optional :: min_val, max_val, step_val  
+    real, intent(inout), optional :: value
+    real, intent(in), optional :: width, height
     type(slider_node_t) :: widget_node
     
     integer :: state_index
@@ -802,7 +805,7 @@ function slider(id, min_val, max_val, step_val, value, width, height) result(wid
     
     ! Calculate dimensions
     if (present(width)) then
-        widget_width_dp = convert_to_dp(width, ctx)
+        widget_width_dp = width
         ! Apply minimum width constraints for usability
         widget_width_dp = max(widget_width_dp, 50.0)
     else
@@ -811,7 +814,7 @@ function slider(id, min_val, max_val, step_val, value, width, height) result(wid
     end if
     
     if (present(height)) then  
-        widget_height_dp = convert_to_dp(height, ctx)
+        widget_height_dp = height
         ! Apply minimum height constraints for usability
         widget_height_dp = max(widget_height_dp, 16.0)
     else
@@ -845,12 +848,12 @@ function slider(id, min_val, max_val, step_val, value, width, height) result(wid
 end function slider
 
 function checkbox(id, checked, label, width, height) result(widget_node)
-    ! Immediate-mode checkbox widget with unified interface
+    ! Immediate-mode checkbox widget with real dimensions
     ! Returns ui_element for layout construction with interaction state
     character(*), intent(in) :: id
-    logical, intent(inout) :: checked
+    logical, intent(inout), optional :: checked
     character(*), intent(in), optional :: label
-    class(*), intent(in), optional :: width, height
+    real, intent(in), optional :: width, height
     type(checkbox_node_t) :: widget_node
     
     integer :: state_index
@@ -889,7 +892,7 @@ function checkbox(id, checked, label, width, height) result(widget_node)
     
     ! Calculate dimensions - either explicit or auto-sized
     if (present(width)) then
-        widget_width_dp = convert_to_dp(width, ctx)
+        widget_width_dp = width
         ! Apply minimum width constraint for clickability
         widget_width_dp = max(widget_width_dp, 16.0)
     else
@@ -898,7 +901,7 @@ function checkbox(id, checked, label, width, height) result(widget_node)
     end if
     
     if (present(height)) then
-        widget_height_dp = convert_to_dp(height, ctx)
+        widget_height_dp = height
         ! Apply minimum height constraint for clickability
         widget_height_dp = max(widget_height_dp, 16.0)
     else
@@ -929,6 +932,7 @@ function checkbox(id, checked, label, width, height) result(widget_node)
     ! Create widget node with layout and interaction data
     widget_node%id = id
     widget_node%label = display_label
+    widget_node%checked = checkbox_states(state_index)%checked
     widget_node%width_dp = widget_width_dp
     widget_node%height_dp = widget_height_dp
     widget_node%toggled = toggled_this_frame
@@ -1168,41 +1172,6 @@ subroutine render_checkbox_placeholder(state_index)
     end if
 end subroutine render_checkbox_placeholder
 
-integer function find_or_create_slider_state(id) result(index)
-    ! Find existing slider state or create new one with security-hardened ID handling
-    character(*), intent(in) :: id
-    integer :: i
-    
-    ! Search for existing state
-    do i = 1, slider_count
-        if (trim(slider_states(i)%id) == trim(id)) then
-            index = i
-            return
-        end if
-    end do
-    
-    ! Create new state if space available
-    if (slider_count < MAX_SLIDERS) then
-        slider_count = slider_count + 1
-        index = slider_count
-        
-        ! Initialize new slider state with bounds checking
-        slider_states(index) = slider_state_t()
-        
-        ! Safe ID copying to prevent buffer overflow
-        call safe_copy_slider_id(id, slider_states(index)%id)
-        slider_states(index)%last_frame = slider_frame_counter
-    else
-        ! Reuse oldest slot if limit reached
-        print *, "slider: Warning - Maximum slider widget limit reached, reusing slot"
-        index = 1  ! Reuse first slot as fallback
-        slider_states(index) = slider_state_t()
-        
-        call safe_copy_slider_id(id, slider_states(index)%id)
-        slider_states(index)%last_frame = slider_frame_counter
-    end if
-end function find_or_create_slider_state
-
 subroutine safe_copy_slider_id(source_id, target_id)
     ! Securely copy slider ID with bounds checking to prevent buffer overflow
     character(*), intent(in) :: source_id
@@ -1254,13 +1223,13 @@ subroutine render_slider_placeholder(state_index)
     end if
 end subroutine render_slider_placeholder
 
-logical function slider(id, min_val, max_val, step_val, value, width, height) result(value_changed)
-    ! Immediate-mode slider widget with unified class(*) interface and value management
+logical function slider_immediate(id, min_val, max_val, step_val, value, width, height) result(value_changed)
+    ! Immediate-mode slider widget with real dimensions and value management
     ! Returns true only when value changes from user interaction
     character(*), intent(in) :: id
     real, intent(in) :: min_val, max_val, step_val  
     real, intent(inout) :: value
-    class(*), intent(in), optional :: width, height
+    real, intent(in), optional :: width, height
     
     integer :: state_index
     real :: widget_width_dp, widget_height_dp
@@ -1323,7 +1292,7 @@ logical function slider(id, min_val, max_val, step_val, value, width, height) re
     
     ! Calculate dimensions
     if (present(width)) then
-        widget_width_dp = convert_to_dp(width, ctx)
+        widget_width_dp = width
         ! Apply minimum width constraints for usability
         widget_width_dp = max(widget_width_dp, 50.0)
     else
@@ -1332,7 +1301,7 @@ logical function slider(id, min_val, max_val, step_val, value, width, height) re
     end if
     
     if (present(height)) then  
-        widget_height_dp = convert_to_dp(height, ctx)
+        widget_height_dp = height
         ! Apply minimum height constraints for usability
         widget_height_dp = max(widget_height_dp, 16.0)
     else
@@ -1354,7 +1323,7 @@ logical function slider(id, min_val, max_val, step_val, value, width, height) re
     ! Detect value change (immediate-mode behavior)
     value_changed = abs(clamped_value - previous_value) > 0.0001
     
-end function slider
+end function slider_immediate
 
 integer function find_or_create_slider_state(id) result(index)
     ! Find existing slider state or create new one with security-hardened ID handling
@@ -1390,57 +1359,6 @@ integer function find_or_create_slider_state(id) result(index)
         slider_states(index)%last_frame = slider_frame_counter
     end if
 end function find_or_create_slider_state
-
-subroutine safe_copy_slider_id(source_id, target_id)
-    ! Securely copy slider ID with bounds checking to prevent buffer overflow
-    character(*), intent(in) :: source_id
-    character(*), intent(out) :: target_id
-    integer :: copy_length
-    
-    copy_length = min(len(source_id), len(target_id))
-    target_id = source_id(1:copy_length)
-    
-    if (len_trim(source_id) > len(target_id)) then
-        print *, "slider: Warning - ID truncated to fit buffer: ", trim(target_id)
-    end if
-end subroutine safe_copy_slider_id
-
-subroutine handle_slider_interaction(state_index)
-    ! Handle slider interaction simulation for testing framework
-    integer, intent(in) :: state_index
-    
-    ! Basic interaction state management
-    ! In a full implementation, this would handle:
-    ! 1. Mouse drag detection and value updates
-    ! 2. Keyboard arrow key navigation
-    ! 3. Click positioning on slider track
-    ! 4. Focus and hover state management
-    
-    ! For now, maintain interaction state consistency
-    if (slider_states(state_index)%dragging) then
-        ! Simulate dragging interaction
-        slider_states(state_index)%hovered = .true.
-    end if
-    
-end subroutine handle_slider_interaction
-
-subroutine render_slider_placeholder(state_index)
-    ! Placeholder for slider rendering - would integrate with backend rendering system
-    integer, intent(in) :: state_index
-    
-    ! Full implementation would handle:
-    ! 1. Draw slider track (TUI: ASCII chars, GUI: filled rectangle)
-    ! 2. Draw slider thumb/handle at value position
-    ! 3. Handle cross-backend coordinate conversion
-    ! 4. Apply hover/focus visual feedback
-    ! 5. Render value text if space allows
-    
-    ! For testing, set up reasonable slider positions
-    if (slider_states(state_index)%x_dp == 0.0 .and. slider_states(state_index)%y_dp == 0.0) then
-        slider_states(state_index)%x_dp = 0.0
-        slider_states(state_index)%y_dp = 0.0
-    end if
-end subroutine render_slider_placeholder
 
 integer function find_or_create_text_state(id) result(index)
     ! Find existing text state or create new one
