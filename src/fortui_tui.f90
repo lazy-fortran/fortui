@@ -3,6 +3,7 @@ module fortui_tui
 ! Always compiled, provides terminal user interface capabilities
 use fortui_backend
 use fortui_hash, only: line_hash_t, calculate_line_hash, hash_equal, tb_cell
+use fortui_error, only: report_error
 use iso_c_binding
 use iso_fortran_env, only: int64
 implicit none
@@ -158,7 +159,8 @@ subroutine tui_init(self, width, height, title, target_fps, vsync)
     ! Initialize termbox2
     ret = tb_init()
     if (ret /= 0) then
-        print *, "Error: Failed to initialize termbox2"
+        call report_error("fortui_tui", "init_tui_backend_impl", &
+            "Failed to initialize termbox2")
         return
     end if
     
@@ -228,8 +230,37 @@ end subroutine tui_render
 
 logical function tui_is_available(self)
     class(tui_backend_t), intent(in) :: self
+    character(len=256) :: env_var
+    integer :: ios
     
-    ! TUI is always available (terminal always exists)
+    ! Check for explicit headless flag
+    call get_environment_variable("FORTUI_HEADLESS", env_var, status=ios)
+    if (ios == 0 .and. trim(env_var) == "1") then
+        tui_is_available = .false.
+        return
+    end if
+    
+    ! Check for CI environments where TUI won't work
+    call get_environment_variable("CI", env_var, status=ios)
+    if (ios == 0) then
+        tui_is_available = .false.
+        return
+    end if
+    
+    call get_environment_variable("GITHUB_ACTIONS", env_var, status=ios)
+    if (ios == 0) then
+        tui_is_available = .false.
+        return
+    end if
+    
+    ! Check if we have a proper terminal
+    call get_environment_variable("TERM", env_var, status=ios)
+    if (ios /= 0 .or. len_trim(env_var) == 0) then
+        tui_is_available = .false.
+        return
+    end if
+    
+    ! TUI is available if we have a terminal and not in headless mode
     tui_is_available = .true.
 end function tui_is_available
 

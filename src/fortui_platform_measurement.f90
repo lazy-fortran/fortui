@@ -2,6 +2,7 @@ module fortui_platform_measurement
 ! Cross-platform measurement detection for UI context integration
 ! Provides platform-specific measurement APIs with intelligent fallbacks
 use fortui_units, only: ui_context
+use fortui_error, only: report_warning
 implicit none
 private
 
@@ -345,33 +346,39 @@ end subroutine detect_macos_text_scaling
 subroutine validate_context(ctx)
     ! Validate UI context values and provide corrections
     type(ui_context), intent(inout) :: ctx
+    character(len=256) :: msg
     
     ! Validate DPI scale
     if (ctx%dpi_scale <= 0.0 .or. ctx%dpi_scale > 10.0) then
-        print *, "validate_context: Invalid dpi_scale", ctx%dpi_scale, "correcting to 1.0"
+        write(msg, '(A,F6.2,A)') "Invalid dpi_scale ", ctx%dpi_scale, " correcting to 1.0"
+        call report_warning("fortui_platform_measurement", "validate_context", trim(msg))
         ctx%dpi_scale = 1.0
     end if
     
     ! Validate em_dp
     if (ctx%em_dp <= 0.0 .or. ctx%em_dp > 200.0) then
-        print *, "validate_context: Invalid em_dp", ctx%em_dp, "correcting to 16.0"
+        write(msg, '(A,F6.2,A)') "Invalid em_dp ", ctx%em_dp, " correcting to 16.0"
+        call report_warning("fortui_platform_measurement", "validate_context", trim(msg))
         ctx%em_dp = 16.0
     end if
     
     ! Validate text_scale
     if (ctx%text_scale <= 0.0 .or. ctx%text_scale > 10.0) then
-        print *, "validate_context: Invalid text_scale", ctx%text_scale, "correcting to 1.0"
+        write(msg, '(A,F6.2,A)') "Invalid text_scale ", ctx%text_scale, " correcting to 1.0"
+        call report_warning("fortui_platform_measurement", "validate_context", trim(msg))
         ctx%text_scale = 1.0
     end if
     
     ! Validate cell dimensions
     if (ctx%cell_w_dp <= 0.0 .or. ctx%cell_w_dp > 100.0) then
-        print *, "validate_context: Invalid cell_w_dp", ctx%cell_w_dp, "correcting to 8.0"
+        write(msg, '(A,F6.2,A)') "Invalid cell_w_dp ", ctx%cell_w_dp, " correcting to 8.0"
+        call report_warning("fortui_platform_measurement", "validate_context", trim(msg))
         ctx%cell_w_dp = 8.0
     end if
     
     if (ctx%cell_h_dp <= 0.0 .or. ctx%cell_h_dp > 100.0) then
-        print *, "validate_context: Invalid cell_h_dp", ctx%cell_h_dp, "correcting to 16.0"
+        write(msg, '(A,F6.2,A)') "Invalid cell_h_dp ", ctx%cell_h_dp, " correcting to 16.0"
+        call report_warning("fortui_platform_measurement", "validate_context", trim(msg))
         ctx%cell_h_dp = 16.0
     end if
 end subroutine validate_context

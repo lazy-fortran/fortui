@@ -5,7 +5,7 @@ module fortui_context
 ! - Multiple UI instances (reentrancy) 
 ! - Clean testing without state bleed
 ! - Explicit state dependencies
-use iso_fortran_env, only: error_unit
+use fortui_error, only: report_error, report_warning
 use fortui_backend, only: backend_interface, backend_registry
 use fortui_units, only: ui_context
 use fortui_widget_renderer, only: widget_renderer_t
@@ -182,7 +182,7 @@ subroutine context_init(self, backend_name, width, height, title, target_fps, vs
     
     ! Validate context before initialization
     if (.not. self%is_valid()) then
-        write(error_unit, '(A)') "context_init: Error - Invalid context"
+        call report_error("fortui_context", "context_init", "Invalid context")
         return
     end if
     
@@ -259,17 +259,17 @@ subroutine context_begin_frame(self)
     class(fortui_context_t), intent(inout) :: self
     
     if (.not. self%is_valid()) then
-        write(error_unit, '(A)') "context_begin_frame: Error - Invalid context"
+        call report_error("fortui_context", "context_begin_frame", "Invalid context")
         return
     end if
     
     if (.not. self%initialized) then
-        write(error_unit, '(A)') "context_begin_frame: Error - Context not initialized"
+        call report_error("fortui_context", "context_begin_frame", "Context not initialized")
         return
     end if
     
     if (self%in_frame) then
-        write(error_unit, '(A)') "context_begin_frame: Warning - Already in frame"
+        call report_warning("fortui_context", "context_begin_frame", "Already in frame")
         return
     end if
     
@@ -281,7 +281,7 @@ subroutine context_end_frame(self)
     class(fortui_context_t), intent(inout) :: self
     
     if (.not. self%in_frame) then
-        write(error_unit, '(A)') "context_end_frame: Warning - Not in frame"
+        call report_warning("fortui_context", "context_end_frame", "Not in frame")
         return
     end if
     

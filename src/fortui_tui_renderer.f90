@@ -3,7 +3,7 @@ module fortui_tui_renderer
 ! Backend-specific renderer for terminal-based drawing operations
 ! Issue #61: Implements primitive drawing operations for TUI backend
 use fortui_widget_renderer
-use iso_fortran_env, only: error_unit
+use fortui_error, only: report_warning
 implicit none
 private
 
