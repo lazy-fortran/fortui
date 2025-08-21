@@ -212,6 +212,7 @@ program context_demo
   use fortui_core
   use fortui_context
   use fortui_widgets
+  use fortui_widgets_button, only: button_with_context
   implicit none
 
   type(fortui_context_t), pointer :: ctx
@@ -376,12 +377,12 @@ end program
 
 **All widgets support both legacy and context-aware APIs:**
 
-| Widget | Legacy API | Context-Aware API | Status |
-|--------|------------|-------------------|--------|
-| **button** | `button(id, label)` | `button_with_context(ctx, id, label)` | ✅ Complete |
-| **text** | `text(id, content)` | `text_with_context(ctx, id, content)` | ✅ Complete |
-| **slider** | `slider(id, min, max, step, value)` | `slider_with_context(ctx, id, min, max, step, value)` | ✅ Complete |
-| **checkbox** | `checkbox(id, checked, label)` | `checkbox_with_context(ctx, id, checked, label)` | ✅ Complete |
+| Widget | Legacy API | Context-Aware API | Module Required |
+|--------|------------|-------------------|-----------------|
+| **button** | `button(id, label)` | `button_with_context(ctx, id, label)` | `fortui_widgets_button` |
+| **text** | `text(id, content)` | `text_with_context(ctx, id, content)` | Available via `fortui_widgets` |
+| **slider** | `slider(id, min, max, step, value)` | `slider_with_context(ctx, id, min, max, step, value)` | Available via `fortui_widgets` |
+| **checkbox** | `checkbox(id, checked, label)` | `checkbox_with_context(ctx, id, checked, label)` | Available via `fortui_widgets` |
 
 **Layout functions use implicit context:**
 - `column()` and `row()` always use the current context (legacy or explicit)
