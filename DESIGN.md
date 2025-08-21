@@ -1663,6 +1663,617 @@ end subroutine
 
 ⸻
 
+## Widget Rendering Abstraction Architecture (Issue #61)
+
+### Problem Analysis
+
+The current widget system has fundamental architectural flaws identified in Issue #61:
+
+**Root Cause**: Widgets are data containers without behavior, forcing backends to know internal widget implementation details. This violates encapsulation and the "Tell, Don't Ask" principle.
+
+**Specific Issues**:
+1. **Incomplete abstraction**: Only `button_node_t` properly implemented; other widgets are placeholder types
+2. **No rendering interface**: Widgets cannot draw themselves - backends must inspect internal data
+3. **Tight coupling**: Backend implementations directly access widget internals
+4. **Missing visitor pattern**: No double dispatch mechanism for backend-specific rendering
+
+### Architecture Solution: Widget-Renderer Collaboration Pattern
+
+#### Design Principles
+
+**Behavioral Encapsulation**: Widgets encapsulate both data and rendering behavior through abstract interfaces.
+
+**Backend Abstraction**: Backends provide drawing primitives; widgets compose them through renderer interfaces.
+
+**Double Dispatch**: Visitor pattern enables widget-specific rendering without backend coupling.
+
+**Separation of Concerns**: Widget logic, state management, and rendering are cleanly separated.
+
+### Core Architecture Components
+
+#### 1. Abstract Widget Renderer Interface
+
+```fortran
+! fortui_widget_renderer.f90 - Widget rendering abstraction
+module fortui_widget_renderer
+  use fortui_core, only: ui_rect, ui_color
+  implicit none
+  private
+  
+  public :: widget_renderer_t, render_context_t
+  
+  ! Rendering context with backend-agnostic drawing primitives
+  type :: render_context_t
+    real :: viewport_x, viewport_y     ! Current viewport offset
+    real :: viewport_w, viewport_h     ! Current viewport dimensions
+    real :: scale_x, scale_y          ! Current scaling factors
+    logical :: clipping_enabled       ! Whether clipping is active
+  end type render_context_t
+  
+  ! Abstract widget renderer interface
+  type, abstract :: widget_renderer_t
+  contains
+    ! Primitive drawing operations (backend-specific)
+    procedure(draw_rect_interface), deferred :: draw_rectangle
+    procedure(draw_text_interface), deferred :: draw_text
+    procedure(draw_line_interface), deferred :: draw_line
+    procedure(draw_border_interface), deferred :: draw_border
+    procedure(set_clip_interface), deferred :: set_clip_region
+    procedure(get_text_size_interface), deferred :: get_text_size
+    
+    ! Composite drawing operations (default implementations)
+    procedure :: draw_button => render_button_default
+    procedure :: draw_checkbox => render_checkbox_default
+    procedure :: draw_slider => render_slider_default
+    procedure :: draw_text_input => render_text_input_default
+    procedure :: draw_viewport => render_viewport_default
+  end type widget_renderer_t
+  
+  ! Abstract interfaces for primitive operations
+  abstract interface
+    subroutine draw_rect_interface(self, x, y, width, height, color)
+      import :: widget_renderer_t, ui_color
+      class(widget_renderer_t), intent(inout) :: self
+      real, intent(in) :: x, y, width, height
+      type(ui_color), intent(in) :: color
+    end subroutine draw_rect_interface
+    
+    subroutine draw_text_interface(self, text, x, y, color)
+      import :: widget_renderer_t, ui_color
+      class(widget_renderer_t), intent(inout) :: self
+      character(*), intent(in) :: text
+      real, intent(in) :: x, y
+      type(ui_color), intent(in) :: color
+    end subroutine draw_text_interface
+    
+    subroutine get_text_size_interface(self, text, width, height)
+      import :: widget_renderer_t
+      class(widget_renderer_t), intent(in) :: self
+      character(*), intent(in) :: text
+      real, intent(out) :: width, height
+    end subroutine get_text_size_interface
+  end interface
+  
+contains
+  
+  ! Default button rendering using primitives
+  subroutine render_button_default(self, id, label, bounds, state, pressed)
+    class(widget_renderer_t), intent(inout) :: self
+    character(*), intent(in) :: id, label
+    type(ui_rect), intent(in) :: bounds
+    integer, intent(in) :: state  ! NORMAL, HOVER, PRESSED
+    logical, intent(out) :: pressed
+    
+    type(ui_color) :: bg_color, text_color, border_color
+    
+    ! Determine colors based on state
+    select case(state)
+    case(BUTTON_NORMAL)
+      bg_color = BUTTON_NORMAL_BG
+      text_color = BUTTON_NORMAL_TEXT
+      border_color = BUTTON_NORMAL_BORDER
+    case(BUTTON_HOVER)
+      bg_color = BUTTON_HOVER_BG
+      text_color = BUTTON_HOVER_TEXT
+      border_color = BUTTON_HOVER_BORDER
+    case(BUTTON_PRESSED)
+      bg_color = BUTTON_PRESSED_BG
+      text_color = BUTTON_PRESSED_TEXT
+      border_color = BUTTON_PRESSED_BORDER
+    end select
+    
+    ! Render using primitive operations
+    call self%draw_rectangle(bounds%x, bounds%y, bounds%width, bounds%height, bg_color)
+    call self%draw_border(bounds%x, bounds%y, bounds%width, bounds%height, border_color)
+    
+    ! Center text
+    real :: text_width, text_height
+    call self%get_text_size(label, text_width, text_height)
+    call self%draw_text(label, &
+      bounds%x + (bounds%width - text_width) * 0.5, &
+      bounds%y + (bounds%height - text_height) * 0.5, &
+      text_color)
+      
+    pressed = (state == BUTTON_PRESSED)
+  end subroutine render_button_default
+  
+end module fortui_widget_renderer
+```
+
+#### 2. Renderable Widget Interface
+
+```fortran
+! fortui_renderable.f90 - Widget rendering contract
+module fortui_renderable
+  use fortui_widget_renderer
+  use fortui_core, only: ui_rect
+  implicit none
+  private
+  
+  public :: renderable_widget_t, widget_state_t
+  
+  ! Widget state enumeration
+  integer, parameter :: WIDGET_NORMAL = 0
+  integer, parameter :: WIDGET_HOVER = 1
+  integer, parameter :: WIDGET_PRESSED = 2
+  integer, parameter :: WIDGET_FOCUSED = 3
+  integer, parameter :: WIDGET_DISABLED = 4
+  
+  ! Abstract widget state
+  type, abstract :: widget_state_t
+    character(len=256) :: id = ""
+    integer :: visual_state = WIDGET_NORMAL
+    logical :: visible = .true.
+    logical :: interactive = .true.
+  end type widget_state_t
+  
+  ! Abstract renderable widget interface
+  type, abstract :: renderable_widget_t
+  contains
+    procedure(render_interface), deferred :: render
+    procedure(update_state_interface), deferred :: update_state
+    procedure(get_bounds_interface), deferred :: get_bounds
+    procedure(hit_test_interface), deferred :: hit_test
+  end type renderable_widget_t
+  
+  abstract interface
+    subroutine render_interface(self, renderer, context, state)
+      import :: renderable_widget_t, widget_renderer_t, render_context_t, widget_state_t
+      class(renderable_widget_t), intent(in) :: self
+      class(widget_renderer_t), intent(inout) :: renderer
+      type(render_context_t), intent(in) :: context
+      class(widget_state_t), intent(in) :: state
+    end subroutine render_interface
+    
+    subroutine update_state_interface(self, mouse_x, mouse_y, mouse_pressed, state)
+      import :: renderable_widget_t, widget_state_t
+      class(renderable_widget_t), intent(in) :: self
+      real, intent(in) :: mouse_x, mouse_y
+      logical, intent(in) :: mouse_pressed
+      class(widget_state_t), intent(inout) :: state
+    end subroutine update_state_interface
+    
+    subroutine get_bounds_interface(self, bounds)
+      import :: renderable_widget_t, ui_rect
+      class(renderable_widget_t), intent(in) :: self
+      type(ui_rect), intent(out) :: bounds
+    end subroutine get_bounds_interface
+    
+    logical function hit_test_interface(self, x, y) result(hit)
+      import :: renderable_widget_t
+      class(renderable_widget_t), intent(in) :: self
+      real, intent(in) :: x, y
+    end function hit_test_interface
+  end interface
+  
+end module fortui_renderable
+```
+
+#### 3. Concrete Widget Implementations
+
+```fortran
+! fortui_button_widget.f90 - Button widget implementation
+module fortui_button_widget
+  use fortui_renderable
+  use fortui_widget_renderer
+  use fortui_core, only: ui_rect
+  implicit none
+  private
+  
+  public :: button_widget_t, button_state_t
+  
+  ! Button-specific state
+  type, extends(widget_state_t) :: button_state_t
+    character(len=256) :: label = ""
+    logical :: clicked_this_frame = .false.
+    logical :: was_pressed_last_frame = .false.
+  end type button_state_t
+  
+  ! Button widget implementation
+  type, extends(renderable_widget_t) :: button_widget_t
+    real :: x, y, width, height
+    character(len=256) :: label
+  contains
+    procedure :: render => button_render
+    procedure :: update_state => button_update_state
+    procedure :: get_bounds => button_get_bounds
+    procedure :: hit_test => button_hit_test
+  end type button_widget_t
+  
+contains
+  
+  subroutine button_render(self, renderer, context, state)
+    class(button_widget_t), intent(in) :: self
+    class(widget_renderer_t), intent(inout) :: renderer
+    type(render_context_t), intent(in) :: context
+    class(widget_state_t), intent(in) :: state
+    
+    type(ui_rect) :: bounds
+    logical :: pressed
+    
+    select type(btn_state => state)
+    type is (button_state_t)
+      ! Get widget bounds
+      call self%get_bounds(bounds)
+      
+      ! Use renderer's button drawing implementation
+      call renderer%draw_button(btn_state%id, btn_state%label, bounds, &
+                               btn_state%visual_state, pressed)
+    end select
+  end subroutine button_render
+  
+  subroutine button_update_state(self, mouse_x, mouse_y, mouse_pressed, state)
+    class(button_widget_t), intent(in) :: self
+    real, intent(in) :: mouse_x, mouse_y
+    logical, intent(in) :: mouse_pressed
+    class(widget_state_t), intent(inout) :: state
+    
+    logical :: hit, was_pressed
+    
+    select type(btn_state => state)
+    type is (button_state_t)
+      was_pressed = btn_state%was_pressed_last_frame
+      hit = self%hit_test(mouse_x, mouse_y)
+      
+      ! Update visual state
+      if (.not. hit) then
+        btn_state%visual_state = WIDGET_NORMAL
+      else if (mouse_pressed) then
+        btn_state%visual_state = WIDGET_PRESSED
+      else
+        btn_state%visual_state = WIDGET_HOVER
+      end if
+      
+      ! Detect click (release over button)
+      btn_state%clicked_this_frame = was_pressed .and. .not. mouse_pressed .and. hit
+      btn_state%was_pressed_last_frame = mouse_pressed .and. hit
+    end select
+  end subroutine button_update_state
+  
+  subroutine button_get_bounds(self, bounds)
+    class(button_widget_t), intent(in) :: self
+    type(ui_rect), intent(out) :: bounds
+    
+    bounds%x = self%x
+    bounds%y = self%y
+    bounds%width = self%width
+    bounds%height = self%height
+  end subroutine button_get_bounds
+  
+  logical function button_hit_test(self, x, y) result(hit)
+    class(button_widget_t), intent(in) :: self
+    real, intent(in) :: x, y
+    
+    hit = (x >= self%x .and. x <= self%x + self%width .and. &
+           y >= self%y .and. y <= self%y + self%height)
+  end function button_hit_test
+  
+end module fortui_button_widget
+```
+
+#### 4. Backend-Specific Renderers
+
+```fortran
+! fortui_tui_renderer.f90 - TUI renderer implementation
+module fortui_tui_renderer
+  use fortui_widget_renderer
+  use fortui_tui, only: tb_cell, tb_set_cell
+  implicit none
+  private
+  
+  public :: tui_renderer_t
+  
+  type, extends(widget_renderer_t) :: tui_renderer_t
+    integer :: terminal_width, terminal_height
+  contains
+    procedure :: draw_rectangle => tui_draw_rectangle
+    procedure :: draw_text => tui_draw_text
+    procedure :: draw_line => tui_draw_line
+    procedure :: draw_border => tui_draw_border
+    procedure :: set_clip_region => tui_set_clip_region
+    procedure :: get_text_size => tui_get_text_size
+  end type tui_renderer_t
+  
+contains
+  
+  subroutine tui_draw_rectangle(self, x, y, width, height, color)
+    class(tui_renderer_t), intent(inout) :: self
+    real, intent(in) :: x, y, width, height
+    type(ui_color), intent(in) :: color
+    
+    integer :: cell_x, cell_y, cell_w, cell_h, i, j
+    integer :: fg_color, bg_color
+    
+    ! Convert dp coordinates to cell coordinates
+    cell_x = int(x / 8.0) + 1  ! Convert to 1-based indexing
+    cell_y = int(y / 16.0) + 1
+    cell_w = int(width / 8.0)
+    cell_h = int(height / 16.0)
+    
+    ! Convert UI color to terminal colors
+    call ui_color_to_terminal(color, fg_color, bg_color)
+    
+    ! Fill rectangle with background color/character
+    do j = cell_y, cell_y + cell_h - 1
+      do i = cell_x, cell_x + cell_w - 1
+        if (i >= 1 .and. i <= self%terminal_width .and. &
+            j >= 1 .and. j <= self%terminal_height) then
+          call tb_set_cell(i - 1, j - 1, 32, fg_color, bg_color)  ! Space char
+        end if
+      end do
+    end do
+  end subroutine tui_draw_rectangle
+  
+  subroutine tui_draw_text(self, text, x, y, color)
+    class(tui_renderer_t), intent(inout) :: self
+    character(*), intent(in) :: text
+    real, intent(in) :: x, y
+    type(ui_color), intent(in) :: color
+    
+    integer :: cell_x, cell_y, fg_color, bg_color, i, char_code
+    
+    cell_x = int(x / 8.0) + 1
+    cell_y = int(y / 16.0) + 1
+    
+    call ui_color_to_terminal(color, fg_color, bg_color)
+    
+    do i = 1, len_trim(text)
+      if (cell_x + i - 1 <= self%terminal_width) then
+        char_code = ichar(text(i:i))
+        call tb_set_cell(cell_x + i - 2, cell_y - 1, char_code, fg_color, 0)
+      end if
+    end do
+  end subroutine tui_draw_text
+  
+  subroutine tui_get_text_size(self, text, width, height)
+    class(tui_renderer_t), intent(in) :: self
+    character(*), intent(in) :: text
+    real, intent(out) :: width, height
+    
+    ! TUI text size is predictable (monospace)
+    width = real(len_trim(text)) * 8.0  ! 8 dp per character
+    height = 16.0  ! 16 dp per line
+  end subroutine tui_get_text_size
+  
+end module fortui_tui_renderer
+
+! fortui_gui_renderer.f90 - GUI renderer implementation  
+module fortui_gui_renderer
+  use fortui_widget_renderer
+  use fortui_gui, only: DrawRectangle, DrawText, Color, MeasureText
+  implicit none
+  private
+  
+  public :: gui_renderer_t
+  
+  type, extends(widget_renderer_t) :: gui_renderer_t
+    real :: dpi_scale = 1.0
+    integer :: font_size = 16
+  contains
+    procedure :: draw_rectangle => gui_draw_rectangle
+    procedure :: draw_text => gui_draw_text
+    procedure :: get_text_size => gui_get_text_size
+    ! ... other primitive implementations
+  end type gui_renderer_t
+  
+contains
+  
+  subroutine gui_draw_rectangle(self, x, y, width, height, color)
+    class(gui_renderer_t), intent(inout) :: self
+    real, intent(in) :: x, y, width, height
+    type(ui_color), intent(in) :: color
+    
+    type(Color) :: raylib_color
+    integer :: pixel_x, pixel_y, pixel_w, pixel_h
+    
+    ! Apply DPI scaling
+    pixel_x = int(x * self%dpi_scale)
+    pixel_y = int(y * self%dpi_scale)
+    pixel_w = int(width * self%dpi_scale)
+    pixel_h = int(height * self%dpi_scale)
+    
+    ! Convert UI color to raylib Color
+    call ui_color_to_raylib(color, raylib_color)
+    
+    ! Draw using raylib
+    call DrawRectangle(pixel_x, pixel_y, pixel_w, pixel_h, raylib_color)
+  end subroutine gui_draw_rectangle
+  
+  subroutine gui_get_text_size(self, text, width, height)
+    class(gui_renderer_t), intent(in) :: self
+    character(*), intent(in) :: text
+    real, intent(out) :: width, height
+    
+    integer :: pixel_width, scaled_font_size
+    
+    scaled_font_size = int(real(self%font_size) * self%dpi_scale)
+    pixel_width = MeasureText(text // c_null_char, scaled_font_size)
+    
+    width = real(pixel_width) / self%dpi_scale
+    height = real(scaled_font_size) / self%dpi_scale
+  end subroutine gui_get_text_size
+  
+end module fortui_gui_renderer
+```
+
+#### 5. Widget System Integration
+
+```fortran
+! Updated fortui_widgets.f90 with new architecture
+module fortui_widgets
+  use fortui_context
+  use fortui_button_widget
+  use fortui_widget_renderer
+  implicit none
+  private
+  
+  public :: button, slider, checkbox, text, viewport
+  
+contains
+  
+  ! Updated button function using new architecture
+  logical function button(id, label, width, height) result(clicked)
+    character(*), intent(in) :: id
+    character(*), intent(in), optional :: label
+    real, intent(in), optional :: width, height
+    
+    type(fortui_context_t), pointer :: ctx
+    type(button_widget_t) :: widget
+    class(button_state_t), pointer :: state
+    class(widget_renderer_t), pointer :: renderer
+    type(render_context_t) :: render_ctx
+    real :: mouse_x, mouse_y
+    logical :: mouse_pressed
+    
+    clicked = .false.
+    
+    ! Get current context and renderer
+    ctx => get_default_context()
+    if (.not. associated(ctx)) return
+    
+    renderer => ctx%get_renderer()
+    if (.not. associated(renderer)) return
+    
+    ! Get or create widget state
+    state => get_or_create_button_state(ctx, id)
+    if (.not. associated(state)) return
+    
+    ! Configure widget
+    widget%label = id
+    if (present(label)) widget%label = label
+    
+    call get_current_layout_position(widget%x, widget%y)
+    widget%width = 100.0  ! Default width
+    widget%height = 24.0  ! Default height
+    if (present(width)) widget%width = width
+    if (present(height)) widget%height = height
+    
+    ! Update widget state with current input
+    call get_mouse_state(mouse_x, mouse_y, mouse_pressed)
+    call widget%update_state(mouse_x, mouse_y, mouse_pressed, state)
+    
+    ! Render widget
+    call get_render_context(render_ctx)
+    call widget%render(renderer, render_ctx, state)
+    
+    ! Return interaction result
+    clicked = state%clicked_this_frame
+    
+    ! Advance layout position
+    call advance_layout_position(widget%width, widget%height)
+    
+  end function button
+  
+  ! Helper function to get or create button state
+  function get_or_create_button_state(ctx, id) result(state)
+    type(fortui_context_t), intent(inout) :: ctx
+    character(*), intent(in) :: id
+    class(button_state_t), pointer :: state
+    
+    integer :: state_index
+    
+    ! Try to get existing state
+    state_index = ctx%widget_states%get(id, "button")
+    if (state_index > 0) then
+      select type(s => ctx%widget_states%entries(state_index)%state)
+      type is (button_state_t)
+        state => s
+      end select
+    else
+      ! Create new state
+      allocate(button_state_t :: state)
+      state%id = id
+      call ctx%widget_states%set(id, "button", state)
+    end if
+  end function get_or_create_button_state
+  
+end module fortui_widgets
+```
+
+### Implementation Benefits
+
+**Complete Encapsulation**: Widgets encapsulate both data and rendering behavior, hiding implementation details.
+
+**Backend Flexibility**: Backends only implement primitive operations; widget rendering logic is shared.
+
+**Type Safety**: Full compile-time checking despite runtime polymorphism.
+
+**Extensibility**: New widgets require only implementing the renderable interface.
+
+**Testability**: Widget behavior, state management, and rendering can be tested independently.
+
+**Performance**: Double dispatch overhead is minimal; rendering primitives are backend-optimized.
+
+### Migration Strategy
+
+#### Phase 1: Create Abstraction Layer
+1. Implement widget renderer interface
+2. Create renderable widget interface  
+3. Add concrete button widget implementation
+4. Write comprehensive unit tests
+
+#### Phase 2: Backend Integration
+1. Implement TUI renderer with terminal primitives
+2. Implement GUI renderer with raylib primitives
+3. Update context to provide appropriate renderer
+4. Test cross-backend widget consistency
+
+#### Phase 3: Widget Migration
+1. Migrate remaining widgets to new architecture
+2. Update widget functions to use renderable interface
+3. Remove old data-only widget types
+4. Validate all examples still work
+
+#### Phase 4: Optimization and Polish
+1. Profile rendering performance
+2. Optimize hot paths in primitives
+3. Add advanced features (animation, theming)
+4. Update documentation with architecture patterns
+
+### Success Criteria
+
+**Architectural Integrity**:
+- [ ] Widgets implement behavior, not just data structures
+- [ ] Backends only know about primitive operations
+- [ ] No widget internal knowledge in backend code
+- [ ] Clean separation between logic and rendering
+
+**Functional Completeness**:
+- [ ] All widget types properly abstracted
+- [ ] TUI and GUI rendering equivalent
+- [ ] State management working correctly
+- [ ] Input handling through widget interface
+
+**Code Quality**:
+- [ ] Full encapsulation maintained
+- [ ] Type safety preserved
+- [ ] No architectural violations
+- [ ] Comprehensive test coverage
+
+**Priority**: **CRITICAL** - This fixes fundamental architectural flaws blocking widget development.
+
+⸻
+
 ### Architecture Solution: Backend Registry Pattern
 Implement a backend abstraction layer using a registration pattern where backends register themselves with the core, rather than core importing backends directly. This eliminates compile-time dependencies and enables runtime backend selection.
 
