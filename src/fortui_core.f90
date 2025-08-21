@@ -213,7 +213,7 @@ contains
 ! Lifecycle & pacing procedures
 ! Context-aware initialization (new API)
 subroutine ui_init_with_context(ctx, backend, width, height, title, target_fps, vsync)
-    use fortui_backend_init, only: ensure_backends_registered
+    use fortui_backend_init, only: ensure_backends_registered_with_context
     type(fortui_context_t), intent(inout) :: ctx
     character(*), intent(in) :: backend        ! "tui" | "gui" | "auto"
     integer,      intent(in) :: width, height  ! grid units (gu)
@@ -225,8 +225,8 @@ subroutine ui_init_with_context(ctx, backend, width, height, title, target_fps, 
     integer :: t_fps
     logical :: v_sync
     
-    ! Ensure backends are registered
-    call ensure_backends_registered()
+    ! Ensure backends are registered in context
+    call ensure_backends_registered_with_context(ctx)
     
     ! Set defaults
     t_fps = 60
@@ -263,7 +263,6 @@ subroutine ui_init_with_context(ctx, backend, width, height, title, target_fps, 
 end subroutine ui_init_with_context
 
 subroutine ui_init_integer(backend, width, height, title, target_fps, vsync)
-    use fortui_backend_init, only: ensure_backends_registered
     character(*), intent(in) :: backend        ! "tui" | "gui" | "auto"
     integer,      intent(in) :: width, height  ! grid units (gu)
     character(*), intent(in) :: title
@@ -594,7 +593,6 @@ function resolve_backend(requested) result(backend)
     character(len=32) :: backend
     character(len=256) :: env_var
     integer :: ios
-    logical :: gui_available
     
     ! Check for environment variable override
     call get_environment_variable("FORTUI_BACKEND", env_var, status=ios)
@@ -738,7 +736,6 @@ function column(gap, children) result(n)
     
     type(ui_context) :: ctx
     real :: gap_dp_value
-    integer :: i
     
     ! Initialize column layout node
     n = node()
@@ -768,7 +765,6 @@ function row(gap, children) result(n)
     
     type(ui_context) :: ctx
     real :: gap_dp_value
-    integer :: i
     
     ! Initialize row layout node
     n = node()
@@ -794,8 +790,6 @@ end function row
 recursive subroutine assign_node(lhs, rhs)
     class(node), intent(out) :: lhs
     class(node), intent(in) :: rhs
-    
-    integer :: i
     
     ! Copy basic properties
     lhs%layout_type = rhs%layout_type
