@@ -102,10 +102,18 @@ acquire_cache_lock() {
         # Check if lock is stale (process no longer exists)
         if [[ -f "$lock_file" ]]; then
             local lock_pid
-            lock_pid=$(cat "$lock_file" 2>/dev/null)
-            if [[ -n "$lock_pid" ]] && ! kill -0 "$lock_pid" 2>/dev/null; then
+            # Security: Use safe PID reading with validation
+            if lock_pid=$(safe_read_pid "$lock_file"); then
+                if ! kill -0 "$lock_pid" 2>/dev/null; then
+                    [[ "${DEBUG}" == "1" ]] && \
+                        echo "DEBUG: Removing stale lock (PID $lock_pid)" >&2
+                    rm -f "$lock_file"
+                    continue
+                fi
+            else
+                # Invalid PID format - remove corrupted lock file
                 [[ "${DEBUG}" == "1" ]] && \
-                    echo "DEBUG: Removing stale lock (PID $lock_pid)" >&2
+                    echo "DEBUG: Removing corrupted lock file: $lock_file" >&2
                 rm -f "$lock_file"
                 continue
             fi
@@ -127,13 +135,20 @@ release_cache_lock() {
     
     if [[ -f "$lock_file" ]]; then
         local lock_pid
-        lock_pid=$(cat "$lock_file" 2>/dev/null)
-        if [[ "$lock_pid" == "$$" ]]; then
-            rm -f "$lock_file"
-            [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Released cache lock: $lock_file" >&2
+        # Security: Use safe PID reading with validation
+        if lock_pid=$(safe_read_pid "$lock_file"); then
+            if [[ "$lock_pid" == "$$" ]]; then
+                rm -f "$lock_file"
+                [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Released cache lock: $lock_file" >&2
+            else
+                [[ "${DEBUG}" == "1" ]] && \
+                    echo "DEBUG: Lock owned by different process (PID $lock_pid)" >&2
+            fi
         else
+            # Invalid PID format - remove corrupted lock file for safety
             [[ "${DEBUG}" == "1" ]] && \
-                echo "DEBUG: Lock owned by different process (PID $lock_pid)" >&2
+                echo "DEBUG: Removing corrupted lock file during release: $lock_file" >&2
+            rm -f "$lock_file"
         fi
     fi
     return 0
@@ -352,12 +367,21 @@ validate_dependency_compatibility() {
         
         # Get raylib version
         if [[ -n "${RAYLIB_ROOT}" ]]; then
-            # Try to extract version from headers
-            if [[ -f "${RAYLIB_ROOT}/include/raylib.h" ]]; then
-                raylib_version=$(grep -oE \
-                    '#define RAYLIB_VERSION "[0-9]+\.[0-9]+\.[0-9]+"' \
-                    "${RAYLIB_ROOT}/include/raylib.h" 2>/dev/null | \
-                    grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+            # Security: Validate RAYLIB_ROOT path before use
+            local validated_raylib_root
+            if validated_raylib_root=$(validate_path "${RAYLIB_ROOT}"); then
+                # Try to extract version from headers
+                local raylib_header="${validated_raylib_root}/include/raylib.h"
+                if [[ -f "$raylib_header" ]]; then
+                    # Security: Use safe grep with quoted paths
+                    raylib_version=$(grep -oE \
+                        '#define RAYLIB_VERSION "[0-9]+\.[0-9]+\.[0-9]+"' \
+                        "$raylib_header" 2>/dev/null | \
+                        grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+                fi
+            else
+                [[ "${DEBUG}" == "1" ]] && \
+                    echo "DEBUG: Invalid RAYLIB_ROOT path for version detection: ${RAYLIB_ROOT}" >&2
             fi
         elif command -v pkg-config >/dev/null 2>&1 && \
              call_pkg_config --exists raylib; then
@@ -390,6 +414,86 @@ validate_dependency_compatibility() {
     if [[ "$platform" == "windows" && "${DEBUG}" == "1" ]]; then
         echo "DEBUG: termbox2 may require additional setup" \
              "on Windows platform" >&2
+    fi
+    
+    return 0
+}
+
+# Security: Safe PID reading with input validation
+safe_read_pid() {
+    local lock_file="$1"
+    local lock_pid
+    
+    if [[ ! -f "$lock_file" ]]; then
+        return 1
+    fi
+    
+    # Read PID with proper input validation
+    if read -r lock_pid < "$lock_file" 2>/dev/null; then
+        # Security: Validate PID is numeric only (prevent injection)
+        if [[ "$lock_pid" =~ ^[0-9]+$ ]] && [[ ${#lock_pid} -le 10 ]]; then
+            [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Valid PID read: $lock_pid" >&2
+            echo "$lock_pid"
+            return 0
+        else
+            [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Invalid PID format in lock file: $lock_file" >&2
+            return 2  # Invalid PID format
+        fi
+    fi
+    
+    [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Failed to read PID from: $lock_file" >&2
+    return 1  # Read failed
+}
+
+# Security: Safe command output sanitization
+sanitize_command_output() {
+    local output="$1"
+    
+    # Security: Remove potentially dangerous characters from command output
+    # Keep only safe characters for compiler flags: alphanumeric, spaces, hyphens, underscores, dots, equals
+    output="${output//[$'\t\r\n']/ }"  # Replace newlines/tabs with spaces
+    
+    # Use sed for character class removal (bash parameter expansion doesn't support [^...])
+    output=$(echo "$output" | sed 's/[^a-zA-Z0-9 ._=/-]//g')
+    
+    # Remove multiple consecutive spaces
+    while [[ "$output" =~ "  " ]]; do
+        output="${output//  / }"
+    done
+    
+    # Trim leading/trailing spaces
+    output="${output# }"
+    output="${output% }"
+    
+    echo "$output"
+}
+
+# Security: Safe path validation and canonicalization  
+validate_path() {
+    local input_path="$1"
+    local canonical_path
+    
+    # Security: Basic path validation
+    if [[ -z "$input_path" ]]; then
+        [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Empty path provided" >&2
+        return 1
+    fi
+    
+    # Security: Reject paths with command injection patterns
+    if [[ "$input_path" =~ [\$\`\;] || "$input_path" =~ \&\& || "$input_path" =~ \|\| ]]; then
+        [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Path contains unsafe characters: $input_path" >&2
+        return 2  # Unsafe characters detected
+    fi
+    
+    # Security: Try to canonicalize path if it exists
+    if [[ -e "$input_path" ]]; then
+        if canonical_path=$(realpath "$input_path" 2>/dev/null); then
+            echo "$canonical_path"
+        else
+            echo "$input_path"
+        fi
+    else
+        echo "$input_path"
     fi
     
     return 0
@@ -485,14 +589,22 @@ detect_raylib() {
     
     # Check RAYLIB_ROOT if specified
     if [[ -n "${RAYLIB_ROOT}" ]]; then
-        if [[ -f "${RAYLIB_ROOT}/include/raylib.h" ]]; then
-            [[ "${DEBUG}" == "1" ]] && \
-                echo "DEBUG: Found raylib via RAYLIB_ROOT: ${RAYLIB_ROOT}" >&2
-            return 0
+        # Security: Validate RAYLIB_ROOT path before use
+        local validated_raylib_root
+        if validated_raylib_root=$(validate_path "${RAYLIB_ROOT}"); then
+            local raylib_header="${validated_raylib_root}/include/raylib.h"
+            if [[ -f "$raylib_header" ]]; then
+                [[ "${DEBUG}" == "1" ]] && \
+                    echo "DEBUG: Found raylib via RAYLIB_ROOT: ${validated_raylib_root}" >&2
+                return 0
+            else
+                [[ "${DEBUG}" == "1" ]] && \
+                    echo "DEBUG: RAYLIB_ROOT specified but raylib.h not found: $raylib_header" >&2
+                return 1
+            fi
         else
             [[ "${DEBUG}" == "1" ]] && \
-                echo "DEBUG: RAYLIB_ROOT specified but raylib.h not found:" \
-                     "${RAYLIB_ROOT}/include/raylib.h" >&2
+                echo "DEBUG: Invalid RAYLIB_ROOT path: ${RAYLIB_ROOT}" >&2
             return 1
         fi
     fi
@@ -826,10 +938,28 @@ get_dependency_flags() {
     if detect_raylib; then
         # Add raylib flags
         if [[ -n "${RAYLIB_ROOT}" ]]; then
-            flags+=" -I${RAYLIB_ROOT}/include -L${RAYLIB_ROOT}/lib -lraylib"
+            # Security: Validate RAYLIB_ROOT path before use
+            local validated_raylib_root
+            if validated_raylib_root=$(validate_path "${RAYLIB_ROOT}"); then
+                flags+=" -I${validated_raylib_root}/include -L${validated_raylib_root}/lib -lraylib"
+            else
+                echo "Error: Invalid RAYLIB_ROOT path: ${RAYLIB_ROOT}" >&2
+                return 1
+            fi
         elif command -v pkg-config >/dev/null 2>&1 && \
              call_pkg_config --exists raylib; then
-            flags+=" $(call_pkg_config --cflags --libs raylib)"
+            # Security: Safely capture and sanitize pkg-config output
+            local pkg_flags
+            if pkg_flags=$(call_pkg_config --cflags --libs raylib 2>/dev/null); then
+                # Security: Sanitize command output before use
+                pkg_flags=$(sanitize_command_output "$pkg_flags")
+                if [[ -n "$pkg_flags" ]]; then
+                    flags+=" $pkg_flags"
+                    [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Added sanitized pkg-config flags: $pkg_flags" >&2
+                fi
+            else
+                [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Failed to get pkg-config flags for raylib" >&2
+            fi
         fi
         
         # Add fortran-raylib flags
