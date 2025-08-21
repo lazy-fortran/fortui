@@ -213,7 +213,7 @@ contains
 ! Lifecycle & pacing procedures
 ! Context-aware initialization (new API)
 subroutine ui_init_with_context(ctx, backend, width, height, title, target_fps, vsync)
-    use fortui_backend_init, only: ensure_backends_registered_with_context
+    use fortui_backend_init, only: ensure_backends_registered_with_context, initialize_renderer
     type(fortui_context_t), intent(inout) :: ctx
     character(*), intent(in) :: backend        ! "tui" | "gui" | "auto"
     integer,      intent(in) :: width, height  ! grid units (gu)
@@ -260,6 +260,9 @@ subroutine ui_init_with_context(ctx, backend, width, height, title, target_fps, 
                                   ctx%vsync_enabled)
         end if
     end if
+    
+    ! Initialize the appropriate renderer
+    call initialize_renderer(ctx, trim(resolved_backend))
 end subroutine ui_init_with_context
 
 subroutine ui_init_integer(backend, width, height, title, target_fps, vsync)
