@@ -3148,3 +3148,101 @@ end program
 - Valgrind/AddressSanitizer for memory safety
 - Automated regression testing for all examples
 - Stress testing with many contexts/widgets
+
+## Issue #80: FPM Wrapper Script Validation
+
+### Problem Statement
+The FPM wrapper scripts use `exec` to replace the shell process but don't validate that the fpm command exists or is executable first. This leads to cryptic errors and abrupt script termination without proper cleanup.
+
+### Affected Files
+- `fpm_build.sh` line 43: `exec fpm "$@"`
+- `run_fpm.sh` line 39: `exec fpm "$@"`
+- `build.sh` line 57: `exec fpm build ${FPM_ARGS}`
+
+### Architectural Approach
+
+**Error Handling Pattern**:
+1. Pre-execution validation of command availability
+2. Clear error messaging with remediation instructions
+3. Consistent validation pattern across all build scripts
+4. Preserve exec efficiency while adding safety checks
+
+**Implementation Strategy**:
+```bash
+# Standard validation function to be sourced by all scripts
+validate_command() {
+    local cmd="$1"
+    local name="${2:-$cmd}"
+    local install_hint="$3"
+    
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "Error: $name not found in PATH" >&2
+        if [ -n "$install_hint" ]; then
+            echo "$install_hint" >&2
+        fi
+        return 1
+    fi
+}
+
+# Usage in wrapper scripts
+validate_command fpm "Fortran Package Manager (fpm)" \
+    "Please install FPM: https://github.com/fortran-lang/fpm" || exit 1
+exec fpm "$@"
+```
+
+### Design Decisions
+
+**Why Keep exec**:
+- Preserves signal handling between parent and child
+- Avoids unnecessary shell process overhead
+- Maintains proper exit code propagation
+- Cleaner process tree for build tools
+
+**Validation Scope**:
+- Check command existence (command -v)
+- Don't check execute permissions (command -v handles this)
+- Don't validate FPM version (out of scope)
+- Focus on user-friendly error messages
+
+### Implementation Tasks
+
+1. **Create shared validation utility** (`tools/validate_command.sh`):
+   - Reusable validation function
+   - Consistent error format
+   - Installation hints for common tools
+
+2. **Update fpm_build.sh**:
+   - Source validation utility
+   - Validate fpm before exec
+   - Preserve all existing functionality
+
+3. **Update run_fpm.sh**:
+   - Source validation utility
+   - Validate fpm before exec
+   - Maintain argument passing
+
+4. **Update build.sh**:
+   - Source validation utility
+   - Validate fpm before exec
+   - Keep FPM_ARGS handling intact
+
+### Testing Requirements
+
+- Verify scripts fail gracefully when fpm is not in PATH
+- Ensure helpful error messages are displayed
+- Confirm exec still works when fpm is available
+- Test signal propagation still functions correctly
+- Validate exit codes are preserved
+
+### Risk Assessment
+
+**Low Risk**:
+- Simple validation addition
+- No change to core functionality
+- Easy rollback if issues arise
+
+**Mitigation**:
+- Test on systems with/without fpm
+- Verify in CI environment
+- Manual testing of error cases
+- Stress testing with many contexts/widgets
