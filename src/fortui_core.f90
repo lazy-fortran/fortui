@@ -266,6 +266,7 @@ subroutine ui_init_with_context(ctx, backend, width, height, title, target_fps, 
 end subroutine ui_init_with_context
 
 subroutine ui_init_integer(backend, width, height, title, target_fps, vsync)
+    use fortui_units, only: ui_context, ui_set_context
     character(*), intent(in) :: backend        ! "tui" | "gui" | "auto"
     integer,      intent(in) :: width, height  ! grid units (gu)
     character(*), intent(in) :: title
@@ -273,6 +274,7 @@ subroutine ui_init_integer(backend, width, height, title, target_fps, vsync)
     logical,      intent(in), optional :: vsync        ! gui: default .true.
     
     type(fortui_context_t), pointer :: ctx
+    type(ui_context) :: unit_ctx
     
     ! Get or create default context
     ctx => get_default_context()
@@ -284,7 +286,22 @@ subroutine ui_init_integer(backend, width, height, title, target_fps, vsync)
     ! Use context-aware initialization
     call ui_init_with_context(ctx, backend, width, height, title, target_fps, vsync)
     
-    ! Context-aware initialization complete - no legacy state to maintain
+    ! Initialize global unit context for backward compatibility
+    ! Set appropriate defaults based on backend
+    if (backend == "tui" .or. backend == "TUI") then
+        unit_ctx%dpi_scale = 1.0
+        unit_ctx%em_dp = 16.0
+        unit_ctx%text_scale = 1.0
+        unit_ctx%cell_w_dp = 8.0
+        unit_ctx%cell_h_dp = 16.0
+    else  ! GUI or auto
+        unit_ctx%dpi_scale = 1.0  ! Default, should be measured from system
+        unit_ctx%em_dp = 16.0
+        unit_ctx%text_scale = 1.0
+        unit_ctx%cell_w_dp = 8.0   ! Still useful for monospace calculations
+        unit_ctx%cell_h_dp = 16.0
+    end if
+    call ui_set_context(unit_ctx)
 end subroutine ui_init_integer
 
 subroutine ui_init_abstract(backend, width, height, title, target_fps, vsync)
