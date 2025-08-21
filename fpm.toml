@@ -53,9 +53,10 @@ cpp.directories = ["src", "app", "test", "example"]
 cpp.macros = []
 
 # Build script integration:
-# - tools/fpm_build_wrapper.sh is executed before compilation
-# - Sets FPM_FFLAGS with CPP macros (ENABLE_GUI or TUI_ONLY)
-# - Sets FPM_LDFLAGS with dependency paths and libraries
-# - Manages termbox2 and fortran-raylib dependencies automatically
+# FPM doesn't support build-script in [build] section as expected
+# Use test_with_deps.sh wrapper script instead:
+# ./test_with_deps.sh test [test_name] - runs tests with dependencies
+# ./test_with_deps.sh build - builds project with dependencies
+# This sets FPM_FFLAGS and FPM_LDFLAGS environment variables automatically
 
 
