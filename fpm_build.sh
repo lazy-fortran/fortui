@@ -41,4 +41,5 @@ echo ""
 
 # Run FPM with the configured environment
 # Use env to explicitly pass environment variables to ensure propagation
+# This fixes termbox2 linking issues when GUI backend is enabled (Issues #75, #76)
 exec env FPM_FFLAGS="${FPM_FFLAGS}" FPM_LDFLAGS="${FPM_LDFLAGS}" LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" fpm "$@"
