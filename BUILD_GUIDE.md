@@ -16,6 +16,24 @@ fpm run --example tui_rendering_demo
 fpm test
 ```
 
+### Context-Aware Applications with Thread Safety
+
+**For applications using the Context Object Pattern with OpenMP:**
+```bash
+# Build dependencies first
+./tools/build_fortui.sh build
+
+# Set OpenMP compilation flags
+export FPM_FFLAGS="-cpp -fopenmp $(./tools/build_fortui.sh flags)"
+export FPM_LDFLAGS="$(./tools/build_fortui.sh ldflags) -fopenmp"
+
+# Build your application
+fpm build your_threaded_app.f90
+
+# Alternative: Use make with OpenMP
+OPENMP=1 make
+```
+
 ## Build System Overview
 
 Fortui uses an advanced two-stage build process with enterprise-grade reliability:
@@ -140,6 +158,73 @@ FRG_REF=feature-branch ./tools/build_fortui.sh build
 # Custom termbox2
 TERMBOX_URL=https://github.com/user/termbox2.git
 TERMBOX_REF=master ./tools/build_fortui.sh build
+```
+
+## Context Object Pattern Compilation
+
+### Thread Safety Requirements
+
+Applications using fortui's Context Object Pattern for thread safety need specific compilation flags:
+
+**FPM Method:**
+```bash
+# Build dependencies first
+./tools/build_fortui.sh build
+
+# Set flags for thread-safe applications
+export FPM_FFLAGS="-cpp -fopenmp $(./tools/build_fortui.sh flags)"
+export FPM_LDFLAGS="$(./tools/build_fortui.sh ldflags) -fopenmp"
+
+# Compile your application
+fpm build threaded_ui_app.f90
+fpm run threaded_ui_app
+```
+
+**Make Method:**
+```bash
+# Enable OpenMP during build
+OPENMP=1 make
+
+# Your application can now use OpenMP with fortui contexts
+```
+
+### Required Compiler Flags
+
+| Flag | Purpose | Required For |
+|------|---------|-------------|
+| `-cpp` | C preprocessor for conditional compilation | All fortui apps |
+| `-fopenmp` | OpenMP support for thread safety | Context Object Pattern with threads |
+| `$(build_script flags)` | Backend detection flags (`ENABLE_GUI=0/1`) | All fortui apps |
+| `$(build_script ldflags)` | Library linking flags | All fortui apps |
+
+### Verification
+
+**Test your threaded build:**
+```bash
+# Create simple test
+cat > test_threads.f90 << 'EOF'
+program test_threads
+  use fortui_core
+  use fortui_context  
+  use omp_lib
+  implicit none
+  
+  !$OMP PARALLEL
+  block
+    type(fortui_context_t), pointer :: ctx
+    ctx => create_context()
+    print *, "Thread", omp_get_thread_num(), "created context"
+    call destroy_context(ctx)
+  end block  
+  !$OMP END PARALLEL
+end program
+EOF
+
+# Compile and run
+export FPM_FFLAGS="-cpp -fopenmp $(./tools/build_fortui.sh flags)"
+export FPM_LDFLAGS="$(./tools/build_fortui.sh ldflags) -fopenmp"
+fpm build test_threads.f90
+fpm run test_threads
 ```
 
 ## GUI Backend Setup

@@ -1,17 +1,55 @@
 module fortui_widgets
-! Simplified widgets module to test compilation
+! Context-aware widgets module implementing Context Object Pattern
 use fortui_widgets_button, only: button_node_t, button
+use fortui_context, only: fortui_context_t, get_default_context
+use fortui_core, only: view
+use fortui_units, only: ui_context, ui_get_context, convert_to_dp
 implicit none
 private
 
 ! Re-export button widget
 public :: button_node_t, button
 
-! Placeholder types for other widgets
+! Widget types for other widgets
 public :: text_node_t, slider_node_t, checkbox_node_t, viewport_node_t
 public :: text, slider, checkbox, viewport
 
-! Widget node types (simplified placeholders)
+! Widget state types for context storage
+public :: text_state, slider_state, checkbox_state, viewport_state
+
+! Widget state types for context storage
+type :: text_state
+    character(len=1024) :: value = ""
+    logical :: focused = .false.
+    integer :: cursor_pos = 1
+end type text_state
+
+type :: slider_state
+    real :: current_value = 0.0
+    logical :: dragging = .false.
+    real :: last_mouse_x = 0.0
+end type slider_state
+
+type :: checkbox_state
+    logical :: checked = .false.
+    logical :: hover = .false.
+end type checkbox_state
+
+type :: viewport_state
+    logical :: dragging = .false.
+    real :: last_mouse_x = 0.0
+    real :: last_mouse_y = 0.0
+    real :: viewport_x = 0.0
+    real :: viewport_y = 0.0
+    real :: viewport_w = 0.0
+    real :: viewport_h = 0.0
+    real :: prev_scale_x = 1.0
+    real :: prev_scale_y = 1.0
+    real :: prev_off_x = 0.0
+    real :: prev_off_y = 0.0
+end type viewport_state
+
+! Widget node types
 type :: text_node_t
     character(len=256) :: id = ""
     character(len=1024) :: value = ""
@@ -40,7 +78,6 @@ type :: viewport_node_t
     real :: width_dp = 0.0
     real :: height_dp = 0.0
     logical :: view_changed = .false.
-    ! Store view state for tracking changes
     real :: current_scale_x = 1.0
     real :: current_scale_y = 1.0
     real :: current_off_x = 0.0
@@ -49,15 +86,42 @@ end type viewport_node_t
 
 contains
 
-! Placeholder implementations returning widget nodes
+! Context-aware text widget implementation
 function text(id, value, text_size, width, height) result(widget_node)
     character(*), intent(in) :: id
     character(*), intent(in), optional :: value
     real, intent(in), optional :: text_size, width, height
     type(text_node_t) :: widget_node
     
+    type(fortui_context_t), pointer :: ctx
+    integer :: state_index
+    type(text_state) :: new_state
+    
     widget_node%id = id
-    if (present(value)) widget_node%value = value
+    
+    ! Get context for state management
+    ctx => get_default_context()
+    if (associated(ctx)) then
+        ! Get or create text state
+        state_index = ctx%widget_states%get(id, "text")
+        if (state_index == 0) then
+            ! Create new text state
+            new_state = text_state()
+            if (present(value)) new_state%value = value
+            call ctx%widget_states%set(id, "text", new_state)
+        else
+            ! Update value if provided
+            select type(state_obj => ctx%widget_states%entries(state_index)%state)
+            type is (text_state)
+                if (present(value)) state_obj%value = value
+                widget_node%value = state_obj%value
+            end select
+        end if
+    else
+        ! Fallback without context
+        if (present(value)) widget_node%value = value
+    end if
+    
     if (present(width)) widget_node%width_dp = width
     if (present(height)) widget_node%height_dp = height
 end function text
@@ -69,8 +133,53 @@ logical function slider(id, min_val, max_val, step_val, value, width, height) &
     real, intent(inout), optional :: value
     real, intent(in), optional :: width, height
     
-    ! Placeholder - no value change
+    type(fortui_context_t), pointer :: ctx
+    integer :: state_index
+    type(slider_state) :: new_state
+    real :: min_v, max_v
+    
     value_changed = .false.
+    
+    ! Set defaults
+    min_v = 0.0
+    max_v = 100.0
+    if (present(min_val)) min_v = min_val
+    if (present(max_val)) max_v = max_val
+    
+    ! Get context for state management
+    ctx => get_default_context()
+    if (associated(ctx)) then
+        ! Get or create slider state
+        state_index = ctx%widget_states%get(id, "slider")
+        if (state_index == 0) then
+            ! Create new slider state
+            new_state = slider_state()
+            if (present(value)) then
+                new_state%current_value = max(min_v, min(max_v, value))
+            else
+                new_state%current_value = min_v
+            end if
+            call ctx%widget_states%set(id, "slider", new_state)
+        else
+            ! Update and return current value
+            select type(state_obj => ctx%widget_states%entries(state_index)%state)
+            type is (slider_state)
+                if (present(value)) then
+                    ! Check if value changed
+                    if (abs(state_obj%current_value - value) > 1e-6) then
+                        state_obj%current_value = max(min_v, min(max_v, value))
+                        value_changed = .true.
+                    end if
+                    value = state_obj%current_value
+                end if
+            end select
+        end if
+    else
+        ! Fallback without context - just clamp value
+        if (present(value)) then
+            value = max(min_v, min(max_v, value))
+        end if
+    end if
 end function slider
 
 logical function checkbox(id, checked, label, width, height) result(toggled)
@@ -79,138 +188,146 @@ logical function checkbox(id, checked, label, width, height) result(toggled)
     character(*), intent(in), optional :: label
     real, intent(in), optional :: width, height
     
-    ! Placeholder - no toggle
+    type(fortui_context_t), pointer :: ctx
+    integer :: state_index
+    type(checkbox_state) :: new_state
+    
     toggled = .false.
+    
+    ! Get context for state management
+    ctx => get_default_context()
+    if (associated(ctx)) then
+        ! Get or create checkbox state
+        state_index = ctx%widget_states%get(id, "checkbox")
+        if (state_index == 0) then
+            ! Create new checkbox state
+            new_state = checkbox_state()
+            if (present(checked)) new_state%checked = checked
+            call ctx%widget_states%set(id, "checkbox", new_state)
+        else
+            ! Update and return current state
+            select type(state_obj => ctx%widget_states%entries(state_index)%state)
+            type is (checkbox_state)
+                if (present(checked)) then
+                    ! Check if state changed
+                    if (state_obj%checked .neqv. checked) then
+                        state_obj%checked = checked
+                        toggled = .true.
+                    end if
+                    checked = state_obj%checked
+                end if
+            end select
+        end if
+    else
+        ! Fallback without context - no state persistence
+        if (present(checked)) then
+            ! Just return current value, no change detection
+        end if
+    end if
 end function checkbox
 
 logical function viewport(id, width, height, view_state) result(view_changed)
-    use fortui_core, only: view
-    use fortui_units, only: ui_context, ui_get_context, convert_to_dp
     character(*), intent(in) :: id
     class(*), intent(in) :: width, height
     type(view), intent(inout) :: view_state
     
-    type(ui_context) :: ctx
+    type(fortui_context_t), pointer :: ctx
+    type(ui_context) :: ui_ctx
+    integer :: state_index
+    type(viewport_state) :: new_state
     real :: width_dp, height_dp
     real :: mouse_x, mouse_y, scroll_x, scroll_y
     logical :: mouse_left, mouse_right, mouse_middle
     
-    ! Internal viewport state tracking with per-ID state management
-    type :: viewport_state_t
-        character(len=256) :: id = ""
-        logical :: dragging = .false.
-        real :: last_mouse_x = 0.0
-        real :: last_mouse_y = 0.0
-        real :: viewport_x = 0.0
-        real :: viewport_y = 0.0
-        real :: viewport_w = 0.0
-        real :: viewport_h = 0.0
-        real :: prev_scale_x = 1.0
-        real :: prev_scale_y = 1.0
-        real :: prev_off_x = 0.0
-        real :: prev_off_y = 0.0
-    end type
-    
-    type(viewport_state_t), save :: states(10)
-    integer, save :: state_count = 0
-    integer :: state_idx
-    
     view_changed = .false.
     
+    ! Get context for state management
+    ctx => get_default_context()
+    if (.not. associated(ctx)) then
+        ! Fallback without context
+        return
+    end if
+    
     ! Get UI context for conversions
-    call ui_get_context(ctx)
+    call ui_get_context(ui_ctx)
     
     ! Convert dimensions to dp using class(*) interface
-    call process_viewport_size(width, height, ctx, width_dp, height_dp)
+    call process_viewport_size(width, height, ui_ctx, width_dp, height_dp)
     
-    ! Find or create state for this ID
-    state_idx = find_or_create_state(id)
-    
-    ! Initialize state if this is the first time
-    if (trim(states(state_idx)%id) /= trim(id)) then
-        states(state_idx)%id = id
-        states(state_idx)%dragging = .false.
-        states(state_idx)%prev_scale_x = view_state%scale_x
-        states(state_idx)%prev_scale_y = view_state%scale_y
-        states(state_idx)%prev_off_x = view_state%off_x
-        states(state_idx)%prev_off_y = view_state%off_y
+    ! Get or create viewport state
+    state_index = ctx%widget_states%get(id, "viewport")
+    if (state_index == 0) then
+        ! Create new viewport state
+        new_state = viewport_state()
+        new_state%prev_scale_x = view_state%scale_x
+        new_state%prev_scale_y = view_state%scale_y
+        new_state%prev_off_x = view_state%off_x
+        new_state%prev_off_y = view_state%off_y
+        new_state%viewport_w = width_dp
+        new_state%viewport_h = height_dp
+        call ctx%widget_states%set(id, "viewport", new_state)
+        state_index = ctx%widget_states%get(id, "viewport")
     end if
     
-    ! Check if view has changed since last frame
-    view_changed = (abs(view_state%scale_x - states(state_idx)%prev_scale_x) > 1e-6) &
-                   .or. (abs(view_state%scale_y - states(state_idx)%prev_scale_y) > 1e-6) &
-                   .or. (abs(view_state%off_x - states(state_idx)%prev_off_x) > 1e-6) &
-                   .or. (abs(view_state%off_y - states(state_idx)%prev_off_y) > 1e-6)
+    if (state_index == 0) return
     
-    ! Store viewport dimensions for this frame
-    states(state_idx)%viewport_w = width_dp
-    states(state_idx)%viewport_h = height_dp
-    
-    ! Get input state
-    call get_input_state(mouse_x, mouse_y, mouse_left, mouse_right, mouse_middle, &
-                         scroll_x, scroll_y)
-    
-    ! Handle mouse scroll for zoom
-    if (abs(scroll_y) > 1e-6) then
-        call update_zoom(view_state, 1.0 + scroll_y * 0.1, &
-                        mouse_x - states(state_idx)%viewport_x, &
-                        mouse_y - states(state_idx)%viewport_y, &
-                        states(state_idx)%viewport_w, states(state_idx)%viewport_h)
-        view_changed = .true.
-    end if
-    
-    ! Handle mouse drag for pan
-    if (mouse_left) then
-        if (.not. states(state_idx)%dragging) then
-            ! Start dragging
-            states(state_idx)%dragging = .true.
-            states(state_idx)%last_mouse_x = mouse_x
-            states(state_idx)%last_mouse_y = mouse_y
-        else
-            ! Continue dragging - update pan
-            call update_pan(view_state, &
-                           mouse_x - states(state_idx)%last_mouse_x, &
-                           mouse_y - states(state_idx)%last_mouse_y, &
-                           states(state_idx)%viewport_w, &
-                           states(state_idx)%viewport_h)
-            states(state_idx)%last_mouse_x = mouse_x
-            states(state_idx)%last_mouse_y = mouse_y
+    ! Process viewport interaction
+    select type(state_obj => ctx%widget_states%entries(state_index)%state)
+    type is (viewport_state)
+        ! Check if view has changed since last frame
+        view_changed = (abs(view_state%scale_x - state_obj%prev_scale_x) > 1e-6) &
+                       .or. (abs(view_state%scale_y - state_obj%prev_scale_y) > 1e-6) &
+                       .or. (abs(view_state%off_x - state_obj%prev_off_x) > 1e-6) &
+                       .or. (abs(view_state%off_y - state_obj%prev_off_y) > 1e-6)
+        
+        ! Store viewport dimensions for this frame
+        state_obj%viewport_w = width_dp
+        state_obj%viewport_h = height_dp
+        
+        ! Get input state
+        call get_input_state(mouse_x, mouse_y, mouse_left, mouse_right, mouse_middle, &
+                             scroll_x, scroll_y)
+        
+        ! Handle mouse scroll for zoom
+        if (abs(scroll_y) > 1e-6) then
+            call update_zoom(view_state, 1.0 + scroll_y * 0.1, &
+                            mouse_x - state_obj%viewport_x, &
+                            mouse_y - state_obj%viewport_y, &
+                            state_obj%viewport_w, state_obj%viewport_h)
             view_changed = .true.
         end if
-    else
-        states(state_idx)%dragging = .false.
-    end if
-    
-    ! Store current view state for next frame's change detection
-    states(state_idx)%prev_scale_x = view_state%scale_x
-    states(state_idx)%prev_scale_y = view_state%scale_y
-    states(state_idx)%prev_off_x = view_state%off_x
-    states(state_idx)%prev_off_y = view_state%off_y
+        
+        ! Handle mouse drag for pan
+        if (mouse_left) then
+            if (.not. state_obj%dragging) then
+                ! Start dragging
+                state_obj%dragging = .true.
+                state_obj%last_mouse_x = mouse_x
+                state_obj%last_mouse_y = mouse_y
+            else
+                ! Continue dragging - update pan
+                call update_pan(view_state, &
+                               mouse_x - state_obj%last_mouse_x, &
+                               mouse_y - state_obj%last_mouse_y, &
+                               state_obj%viewport_w, &
+                               state_obj%viewport_h)
+                state_obj%last_mouse_x = mouse_x
+                state_obj%last_mouse_y = mouse_y
+                view_changed = .true.
+            end if
+        else
+            state_obj%dragging = .false.
+        end if
+        
+        ! Store current view state for next frame's change detection
+        state_obj%prev_scale_x = view_state%scale_x
+        state_obj%prev_scale_y = view_state%scale_y
+        state_obj%prev_off_x = view_state%off_x
+        state_obj%prev_off_y = view_state%off_y
+    end select
 
 contains
     
-    integer function find_or_create_state(viewport_id) result(idx)
-        character(*), intent(in) :: viewport_id
-        integer :: i
-        
-        ! First try to find existing state
-        do i = 1, state_count
-            if (trim(states(i)%id) == trim(viewport_id)) then
-                idx = i
-                return
-            end if
-        end do
-        
-        ! Create new state if not found and space available
-        if (state_count < size(states)) then
-            state_count = state_count + 1
-            idx = state_count
-        else
-            ! Reuse oldest state (simple LRU)
-            idx = 1
-        end if
-    end function find_or_create_state
-
     subroutine process_viewport_size(width_arg, height_arg, ctx, w_dp, h_dp)
         ! Convert class(*) dimensions to dp with minimum size enforcement
         class(*), intent(in) :: width_arg, height_arg
@@ -230,7 +347,6 @@ contains
 
     subroutine update_pan(view_state, mouse_delta_x, mouse_delta_y, &
                           viewport_width, viewport_height)
-        use fortui_core, only: view
         ! Update pan offsets based on mouse movement
         type(view), intent(inout) :: view_state
         real, intent(in) :: mouse_delta_x, mouse_delta_y
@@ -247,7 +363,6 @@ contains
 
     subroutine update_zoom(view_state, zoom_factor, mouse_x, mouse_y, &
                            viewport_width, viewport_height)
-        use fortui_core, only: view
         ! Update zoom scaling around mouse position with enhanced precision
         type(view), intent(inout) :: view_state
         real, intent(in) :: zoom_factor, mouse_x, mouse_y

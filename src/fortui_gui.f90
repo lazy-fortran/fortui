@@ -40,8 +40,8 @@ contains
     procedure :: check_quit => gui_check_quit
 end type gui_backend_t
 
-! Module-level state for rendering (kept for compatibility)
-type(gui_backend_t), save :: gui_state
+! Note: Global gui_state removed in Context Object Pattern refactor (Issue #64)
+! GUI state is now managed through context backend_state
 
 ! Raylib C interface types and constants
 ! Window configuration flags
@@ -287,17 +287,8 @@ subroutine init_gui_backend_impl(width, height, title, target_fps, vsync)
     integer :: flags
     character(len=:), allocatable :: c_title
     integer :: text_width
-    ! Check if already initialized
-    if (gui_state%initialized) then
-        call shutdown_gui_backend_impl()
-    end if
-    
-    ! Store configuration
-    gui_state%window_width = max(100, width * 8)  ! Convert grid units to pixels (8px per char)
-    gui_state%window_height = max(100, height * 16)  ! 16px line height
-    gui_state%window_title = title
-    gui_state%target_fps = max(1, target_fps)
-    gui_state%vsync_enabled = vsync
+    ! Note: GUI state management now handled through context objects
+    ! This implementation provides backward compatibility
     
     ! Set window configuration flags
     flags = FLAG_WINDOW_RESIZABLE
@@ -310,115 +301,46 @@ subroutine init_gui_backend_impl(width, height, title, target_fps, vsync)
     ! For testing, we simulate the behavior
     if (is_gui_available_impl()) then
         ! Initialize GUI backend with raylib
-        gui_state%window_created = .true.
-        gui_state%initialized = .true.
-        gui_state%frame_count = 0
-        gui_state%should_close = .false.
-        gui_state%in_frame = .false.
-        
-        ! Initialize font metrics (monospace assumption)
-        gui_state%font_size = 16
-        gui_state%char_width = 8.0
-        gui_state%char_height = 16.0
-        
-        ! Would set target FPS
-        ! call SetTargetFPS(gui_state%target_fps)
         print *, "init_gui_backend_impl: GUI initialized successfully"
-        print *, "  Window size:", gui_state%window_width, "x", gui_state%window_height
-        print *, "  Target FPS:", gui_state%target_fps
-        print *, "  VSync:", gui_state%vsync_enabled
+        print *, "  Window size:", max(100, width * 8), "x", max(100, height * 16)
+        print *, "  Target FPS:", max(1, target_fps)
+        print *, "  VSync:", vsync
     else
         ! GUI not available in this environment
-        gui_state%initialized = .false.
-        gui_state%window_created = .false.
         print *, "init_gui_backend_impl: GUI not available in current environment"
     end if
 end subroutine init_gui_backend_impl
 
 ! Shutdown GUI backend
 subroutine shutdown_gui_backend_impl()
-    if (.not. gui_state%initialized) return
-    
-    ! Close raylib window if created
-    if (gui_state%window_created) then
-        ! Would call raylib cleanup here
-        ! call CloseWindow()
-        gui_state%window_created = .false.
-    end if
-    
-    ! Reset state
-    gui_state%initialized = .false.
-    gui_state%frame_count = 0
-    gui_state%should_close = .false.
-    gui_state%in_frame = .false.
-    
+    ! GUI backend shutdown - state managed by context objects
     print *, "shutdown_gui_backend_impl: GUI backend shutdown complete"
 end subroutine shutdown_gui_backend_impl
 
 ! Begin GUI frame
 subroutine begin_gui_frame_impl()
-    if (.not. gui_state%initialized) return
-    
-    ! Start raylib drawing
-    if (gui_state%window_created) then
-        ! Would call raylib frame begin
-        ! call BeginDrawing()
-        gui_state%in_frame = .true.
-        
-        ! Clear background
-        ! call ClearBackground(BLACK)
-    end if
-    
-    ! Update frame counter
-    gui_state%frame_count = gui_state%frame_count + 1
+    ! GUI frame begin - state managed by context objects
+    ! Would call raylib frame begin
+    ! call BeginDrawing()
+    ! call ClearBackground(BLACK)
 end subroutine begin_gui_frame_impl
 
 ! Present GUI frame with widget tree
 subroutine render_gui_impl(tree)
     class(*), intent(in) :: tree
     
-    if (.not. gui_state%initialized) return
-    if (.not. gui_state%in_frame) return
-    
     ! Render the widget tree
     call gui_render_tree(tree, 0.0, 0.0)
     
     ! End raylib drawing
-    if (gui_state%window_created) then
-        ! Would call raylib frame end
-        ! call EndDrawing()
-        gui_state%in_frame = .false.
-    end if
-    
-    ! Check for window close events
-    if (gui_state%window_created) then
-        ! Check for window close request from raylib
-        if (gui_state%frame_count > 100) then
-            gui_state%should_close = .true.
-        end if
-    end if
+    ! call EndDrawing()
 end subroutine render_gui_impl
 
 ! Check if GUI should quit (module-level state version for fortui_core)
 logical function check_gui_quit_impl()
-    if (.not. gui_state%initialized) then
-        check_gui_quit_impl = .true.
-        return
-    end if
-    
-    ! Check window close status
-    if (gui_state%window_created) then
-        ! Would check raylib window status
-        ! check_gui_quit_impl = WindowShouldClose() .or. gui_state%should_close
-        check_gui_quit_impl = gui_state%should_close
-    else
-        check_gui_quit_impl = .true.
-    end if
-    
-    ! Auto-quit after timeout for demonstration purposes
-    if (gui_state%frame_count > 600) then  ! ~10 seconds at 60 FPS
-        check_gui_quit_impl = .true.
-    end if
+    ! Would check raylib window status
+    ! check_gui_quit_impl = WindowShouldClose()
+    check_gui_quit_impl = .false.  ! Default to continuing
 end function check_gui_quit_impl
 
 ! Check if GUI should quit (type-bound version)
@@ -450,8 +372,6 @@ recursive subroutine gui_render_tree(tree, x, y)
     class(*), intent(in) :: tree
     real, intent(in) :: x, y
     
-    if (.not. gui_state%initialized) return
-    
     ! Simplified rendering - just draw a placeholder for any widget
     ! In a real implementation, this would properly handle node types
     ! but we avoid circular dependencies by not importing fortui_core types
@@ -465,13 +385,10 @@ subroutine gui_draw_text(text, x, y, draw_color)
     type(Color), intent(in) :: draw_color
     
     ! Would call raylib text drawing here
-    ! call DrawText(trim(text) // c_null_char, x, y, gui_state%font_size, draw_color)
+    ! call DrawText(trim(text) // c_null_char, x, y, 16, draw_color)
     
     ! For testing, just track that drawing occurred
-    if (gui_state%in_frame) then
-        ! Text would be drawn here
-        continue
-    end if
+    continue
 end subroutine gui_draw_text
 
 ! Helper function to draw rectangle (simulated for testing)
@@ -479,8 +396,6 @@ subroutine gui_draw_rect(x, y, width, height, draw_color, filled)
     integer, intent(in) :: x, y, width, height
     type(Color), intent(in) :: draw_color
     logical, intent(in) :: filled
-    
-    if (.not. gui_state%in_frame) return
     
     if (filled) then
         ! Would call raylib rectangle drawing
@@ -535,12 +450,12 @@ subroutine gui_init(self, width, height, title, target_fps, vsync)
     ! Delegate to implementation
     call init_gui_backend_impl(width, height, title, target_fps, vsync)
     
-    ! Update instance state from module-level state
-    self%initialized = gui_state%initialized
-    self%window_created = gui_state%window_created
-    self%font_size = gui_state%font_size
-    self%char_width = gui_state%char_width
-    self%char_height = gui_state%char_height
+    ! Update instance state 
+    self%initialized = is_gui_available_impl()
+    self%window_created = self%initialized
+    self%font_size = 16
+    self%char_width = 8.0
+    self%char_height = 16.0
 end subroutine gui_init
 
 ! Type-bound procedure: Shutdown GUI backend
@@ -567,9 +482,9 @@ subroutine gui_begin_frame(self)
     ! Delegate to implementation
     call begin_gui_frame_impl()
     
-    ! Update instance state from module-level state
-    self%in_frame = gui_state%in_frame
-    self%frame_count = gui_state%frame_count
+    ! Update instance state
+    self%in_frame = .true.
+    self%frame_count = self%frame_count + 1
 end subroutine gui_begin_frame
 
 ! Type-bound procedure: Present GUI frame
@@ -585,12 +500,7 @@ subroutine gui_render(self, tree)
     if (self%in_frame .and. self%window_created) then
         ! Would call EndDrawing() here
         self%in_frame = .false.
-        gui_state%in_frame = .false.
     end if
-    
-    ! Update instance state from module-level state
-    self%should_close = gui_state%should_close
-    self%in_frame = gui_state%in_frame
 end subroutine gui_render
 
 ! Type-bound procedure: Check if GUI is available

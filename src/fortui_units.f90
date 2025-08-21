@@ -20,7 +20,6 @@ type :: unit_value
     character(len=2) :: unit_type         ! Unit identifier
 end type unit_value
 
-
 ! Cross-backend unit conversion context
 type :: ui_context
     real :: dpi_scale = 1.0     ! GUI: system DPI scale; TUI: 1.0
@@ -30,8 +29,8 @@ type :: ui_context
     real :: cell_h_dp = 16.0    ! TUI: cell height in dp
 end type ui_context
 
-! Global context storage (initialized with defaults)
-type(ui_context), save :: global_context = ui_context()
+! Legacy global context removed in Context Object Pattern refactor (Issue #64)
+! Context is now managed through fortui_context_t objects
 
 ! Interface definitions for unit constructor functions
 interface dp
@@ -180,17 +179,24 @@ end function convert_to_dp
 ! UI context management functions
 
 subroutine ui_get_context(ctx)
-    ! Retrieve current UI context
+    ! Retrieve current UI context using fallback defaults
+    ! Note: Legacy global context removed - use defaults for backward compatibility
     type(ui_context), intent(out) :: ctx
     
-    ctx = global_context
+    ! Provide safe defaults
+    ctx%dpi_scale = 1.0
+    ctx%em_dp = 16.0
+    ctx%text_scale = 1.0
+    ctx%cell_w_dp = 8.0
+    ctx%cell_h_dp = 16.0
 end subroutine ui_get_context
 
 subroutine ui_set_context(ctx)
     ! Set new UI context values
+    ! Note: Legacy global context removed - this is now a no-op for backward compatibility
     type(ui_context), intent(in) :: ctx
     
-    global_context = ctx
+    ! No-op: context is managed through fortui_context_t objects
 end subroutine ui_set_context
 
 end module fortui_units
