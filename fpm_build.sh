@@ -40,4 +40,5 @@ echo "  LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-}"
 echo ""
 
 # Run FPM with the configured environment
-exec fpm "$@"
+# Use env to explicitly pass environment variables to ensure propagation
+exec env FPM_FFLAGS="${FPM_FFLAGS}" FPM_LDFLAGS="${FPM_LDFLAGS}" LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" fpm "$@"
