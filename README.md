@@ -255,14 +255,14 @@ use fortui_widgets
 
 logical :: save_clicked, big_clicked
 
-! Basic usage - assignment operator pattern
+! Basic usage - returns logical for click detection
 save_clicked = button("save_btn", label="Save")
 if (save_clicked) then
     print *, "Save button clicked!"
 end if
 
-! Custom size with units
-big_clicked = button("big_btn", width=dp(80.0), height=dp(40.0))
+! Custom size with real values (width/height in dp)
+big_clicked = button("big_btn", width=80.0, height=40.0)
 if (big_clicked) then
     ! Handle click
 end if
@@ -278,11 +278,11 @@ type(text_node_t) :: label_widget, info_widget, terminal_widget
 ! Basic text display
 label_widget = text("label", "Hello World!")
 
-! Custom size with multiline content
-info_widget = text("info", "Line 1" // char(10) // "Line 2", text_size=sp(16.0))
+! Custom size with multiline content (text_size in points)
+info_widget = text("info", "Line 1" // char(10) // "Line 2", text_size=16.0)
 
-! Auto-sizing with TUI units
-terminal_widget = text("terminal", "Terminal Text", width=cw(25.0))
+! Auto-sizing with width in dp
+terminal_widget = text("terminal", "Terminal Text", width=200.0)
 ```
 
 ### Slider Widget
@@ -293,8 +293,8 @@ Interactive numeric input with range control and step quantization:
 real :: volume = 50.0, temperature = 20.0
 logical :: volume_changed, temp_changed
 
-! Assignment operator pattern for change detection
-volume_changed = slider("volume", 0.0, 100.0, 5.0, volume, width=dp(120.0))
+! Returns logical for value change detection
+volume_changed = slider("volume", 0.0, 100.0, 5.0, volume, width=120.0)
 if (volume_changed) then
     print *, "Volume changed to:", volume
 end if
@@ -312,17 +312,24 @@ Boolean input with toggle functionality:
 
 ```fortran
 logical :: sound_enabled = .true., enabled = .false.
-type(checkbox_node_t) :: sound_widget, notif_widget
+logical :: sound_toggled, notif_toggled
 
-! Checkbox widget returns widget node with toggle state
-sound_widget = checkbox("sound", sound_enabled, label="Enable Sound")
-if (sound_enabled) then
-    print *, "Sound is enabled"
+! Checkbox returns logical for toggle detection
+sound_toggled = checkbox("sound", sound_enabled, label="Enable Sound")
+if (sound_toggled) then
+    print *, "Sound setting changed to:", sound_enabled
 end if
 
 ! Auto-sizing with label
-notif_widget = checkbox("notifications", enabled, label="Email Notifications")
+notif_toggled = checkbox("notifications", enabled, label="Email Notifications")
+if (notif_toggled) then
+    print *, "Notifications enabled:", enabled
+end if
 ```
+
+**Parameter Types:**
+- **Widget functions**: Accept plain `real` values for width/height (e.g., `width=80.0`)
+- **Layout functions**: Accept unit types via `class(*)` (e.g., `gap=dp(12.0)`, `gap=cw(2.0)`)
 
 **Complete Documentation:** 
 - [Button Widget API](docs/BUTTON_WIDGET.md)

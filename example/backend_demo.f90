@@ -1,5 +1,7 @@
 program backend_demo
-  use fortui
+  use fortui_core
+  use fortui_units
+  use fortui_unit_types
   implicit none
 
   type(node) :: ui, inner_layout
