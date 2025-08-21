@@ -4,6 +4,8 @@ module fortui_backend_init
 use fortui_backend
 use fortui_tui, only: register_tui_backend
 use fortui_context, only: fortui_context_t, get_default_context
+use fortui_tui_renderer, only: tui_renderer_t
+use fortui_gui_renderer, only: gui_renderer_t
 #ifdef ENABLE_GUI
 use fortui_gui, only: register_gui_backend
 #endif
@@ -11,6 +13,7 @@ implicit none
 private
 
 public :: ensure_backends_registered, ensure_backends_registered_with_context
+public :: initialize_renderer
 
 ! Backend registration state type for context storage
 type :: backend_registration_state
@@ -72,5 +75,40 @@ subroutine ensure_backends_registered()
 #endif
     end if
 end subroutine ensure_backends_registered
+
+! Initialize appropriate renderer based on backend
+subroutine initialize_renderer(ctx, backend_name)
+    type(fortui_context_t), intent(inout) :: ctx
+    character(*), intent(in) :: backend_name
+    
+    select case(trim(backend_name))
+    case("tui")
+        ! Create and set TUI renderer
+        block
+            type(tui_renderer_t), pointer :: tui_renderer
+            allocate(tui_renderer)
+            call tui_renderer%initialize(ctx%window_width, ctx%window_height)
+            call ctx%set_renderer(tui_renderer)
+        end block
+        
+    case("gui")
+        ! Create and set GUI renderer
+        block
+            type(gui_renderer_t), pointer :: gui_renderer
+            allocate(gui_renderer)
+            call gui_renderer%initialize(ctx%window_width, ctx%window_height, ctx%dpi_scale)
+            call ctx%set_renderer(gui_renderer)
+        end block
+        
+    case default
+        ! Default to TUI renderer
+        block
+            type(tui_renderer_t), pointer :: default_renderer
+            allocate(default_renderer)
+            call default_renderer%initialize(80, 24)
+            call ctx%set_renderer(default_renderer)
+        end block
+    end select
+end subroutine initialize_renderer
 
 end module fortui_backend_init
