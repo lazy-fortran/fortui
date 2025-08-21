@@ -41,6 +41,7 @@ type :: fortui_context_t
     ! Core lifecycle state
     logical :: initialized = .false.
     logical :: is_valid_instance = .true.
+    logical :: shutting_down = .false.
     
     ! Backend management
     character(len=32) :: active_backend = ""
@@ -218,6 +219,9 @@ subroutine context_shutdown(self)
     
     if (.not. self%initialized) return
     
+    ! Mark as shutting down to suppress cleanup error messages
+    self%shutting_down = .true.
+    
     ! End current frame if in progress
     if (self%in_frame) then
         call self%end_frame()
@@ -270,7 +274,8 @@ subroutine context_begin_frame(self)
     
     if (self%in_frame) then
         call report_warning("fortui_context", "context_begin_frame", "Already in frame")
-        return
+        ! Auto-end previous frame to allow new frame to begin
+        call self%end_frame()
     end if
     
     self%in_frame = .true.
