@@ -136,15 +136,8 @@ subroutine destroy_context(ctx)
     ! Clear widget states
     call ctx%widget_states%clear()
     
-    ! Clean up backend registry
-    if (allocated(ctx%backends%entries)) then
-        deallocate(ctx%backends%entries)
-    end if
-    
-    ! Deallocate backend state if allocated
-    if (allocated(ctx%backend_state)) then
-        deallocate(ctx%backend_state)
-    end if
+    ! Backend registry and backend_state will be automatically deallocated
+    ! when context goes out of scope (Fortran automatic memory management)
     
     ! Mark as invalid to prevent use after free
     ctx%is_valid_instance = .false.
@@ -233,15 +226,8 @@ subroutine context_shutdown(self)
     ! Clear all widget states
     call self%widget_states%clear()
     
-    ! Clean up backend registry
-    if (allocated(self%backends%entries)) then
-        deallocate(self%backends%entries)
-    end if
-    
-    ! Deallocate backend-specific state
-    if (allocated(self%backend_state)) then
-        deallocate(self%backend_state)
-    end if
+    ! Backend registry and backend_state will be automatically deallocated
+    ! when context goes out of scope (Fortran automatic memory management)
     
     ! Reset state
     self%initialized = .false.
@@ -408,10 +394,7 @@ subroutine map_set_state(self, id, widget_type, state)
     self%entries(slot)%id = trim(id)
     self%entries(slot)%widget_type = trim(widget_type)
     
-    ! Deallocate existing state if present
-    if (allocated(self%entries(slot)%state)) then
-        deallocate(self%entries(slot)%state)
-    end if
+    ! State will be automatically deallocated when reassigned
     
     ! Allocate and copy new state
     allocate(self%entries(slot)%state, source=state)
@@ -423,14 +406,12 @@ subroutine map_clear(self)
     
     integer :: i
     
-    ! Deallocate all state objects
+    ! Clear all state objects (automatic deallocation on reassignment)
     do i = 1, self%count
-        if (allocated(self%entries(i)%state)) then
-            deallocate(self%entries(i)%state)
-        end if
         self%entries(i)%active = .false.
         self%entries(i)%id = ""
         self%entries(i)%widget_type = ""
+        ! Note: allocatable state is automatically deallocated
     end do
     
     self%count = 0

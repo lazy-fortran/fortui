@@ -13,6 +13,7 @@ A declarative UI library for modern Fortran with dual backends: terminal (TUI) a
 - **Monospace-first design**: Exact visual parity between TUI and GUI
 - **Performance optimized**: Event-driven TUI with diffed output, VSync-aware GUI
 - **Clean architecture**: Abstract interfaces, dependency injection, conditional compilation
+- **Memory safe**: Fortran 2003+ automatic memory management, no manual deallocations
 - **Production ready**: Circular dependency resolution, graceful error handling
 
 ## Installation

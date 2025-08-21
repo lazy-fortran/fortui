@@ -732,8 +732,55 @@ After integrating fortui core:
 4. **Performance Tuning**: Optimize for your specific use case
 5. **Testing Strategy**: Build robust test suites for your UI components
 
+## Fortran Best Practices
+
+### Memory Management
+
+fortui follows Fortran 2003+ automatic memory management:
+
+```fortran
+! CORRECT: Automatic cleanup
+type(fortui_context_t), allocatable :: context
+real, allocatable :: data(:)
+
+allocate(context)
+allocate(data(1000))
+
+! Use variables...
+
+! NO manual deallocate needed - automatic cleanup
+```
+
+**Key Principles:**
+- **Never manually deallocate allocatable variables** - violates Fortran best practices
+- **Use move_alloc() for ownership transfer** without copy
+- **Let scope handle cleanup** - variables clean up when leaving scope
+- **Use allocatable for large data** - avoid stack overflow
+
+See **[MEMORY_MANAGEMENT.md](MEMORY_MANAGEMENT.md)** for comprehensive memory safety patterns.
+
+### Code Quality Standards
+
+```fortran
+! typename_t naming convention
+type :: widget_state_t
+  real, allocatable :: values(:)
+end type
+
+! Avoid large stack allocations
+subroutine process_large_dataset()
+  real, allocatable :: dataset(:)  ! CORRECT
+  ! real :: dataset(1000000)      ! WRONG - stack overflow risk
+  
+  allocate(dataset(1000000))
+  ! Process data...
+  ! Automatic cleanup
+end subroutine
+```
+
 ## Additional Resources
 
+- **[MEMORY_MANAGEMENT.md](MEMORY_MANAGEMENT.md)**: Comprehensive memory safety guide
 - **[CORE_TYPES_API.md](CORE_TYPES_API.md)**: Detailed type documentation
 - **[LIFECYCLE_API.md](LIFECYCLE_API.md)**: Lifecycle procedure reference
 - **[BACKEND_SELECTION.md](BACKEND_SELECTION.md)**: Backend configuration guide
