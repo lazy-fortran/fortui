@@ -402,11 +402,15 @@ contains
                 view_y = max(0.0, min(1.0, view_y))
                 
                 if (old_scale_x > 0.0 .and. old_scale_y > 0.0) then
-                    ! Adjust pan to maintain mouse position in view
-                    view_state%off_x = view_state%off_x + &
-                                       view_x * (1.0/old_scale_x - 1.0/view_state%scale_x)
-                    view_state%off_y = view_state%off_y + &
-                                       view_y * (1.0/old_scale_y - 1.0/view_state%scale_y)
+                    ! Adjust pan to maintain mouse position in view (Issue #62 fix)
+                    if (abs(old_scale_x) > epsilon(1.0) .and. abs(view_state%scale_x) > epsilon(1.0)) then
+                        view_state%off_x = view_state%off_x + &
+                                           view_x * (1.0/old_scale_x - 1.0/view_state%scale_x)
+                    end if
+                    if (abs(old_scale_y) > epsilon(1.0) .and. abs(view_state%scale_y) > epsilon(1.0)) then
+                        view_state%off_y = view_state%off_y + &
+                                           view_y * (1.0/old_scale_y - 1.0/view_state%scale_y)
+                    end if
                 end if
             end if
         end if

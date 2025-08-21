@@ -201,11 +201,19 @@ real function sp_to_dp(this, ctx) result(dp_value)
 end function sp_to_dp
 
 real function px_to_dp(this, ctx) result(dp_value)
-    ! Convert px to dp using DPI scaling
+    ! Convert px to dp using safe coordinate conversion (Issue #62 fix)
+    use fortui_coordinates, only: safe_px_to_dp, coordinate_error_t, COORD_SUCCESS
     class(px_unit_t), intent(in) :: this
     type(ui_context), intent(in) :: ctx
+    type(coordinate_error_t) :: error
     
-    dp_value = this%value / ctx%dpi_scale
+    dp_value = safe_px_to_dp(this%value, ctx%dpi_scale, error)
+    
+    ! Log error but continue with fallback value (defensive recovery)
+    if (error%code /= COORD_SUCCESS) then
+        ! Error is already logged in safe_px_to_dp, just use the fallback
+        ! which returns px value as dp (1:1 mapping) for zero dpi_scale
+    end if
 end function px_to_dp
 
 real function cw_to_dp(this, ctx) result(dp_value)
