@@ -2,7 +2,6 @@ program test_hash_type_safety
 ! Test suite for Issue #63: Hash calculation integer overflow due to missing type safety
 ! Validates that the new hash implementation is overflow-safe and collision-resistant
 use fortui_hash
-use fortui_tui, only: tb_cell
 use iso_fortran_env, only: int32, int64
 implicit none
 

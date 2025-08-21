@@ -2,7 +2,7 @@ module fortui_tui
 ! TUI backend implementation using termbox2
 ! Always compiled, provides terminal user interface capabilities
 use fortui_backend
-use fortui_hash, only: line_hash_t, calculate_line_hash, hash_equal
+use fortui_hash, only: line_hash_t, calculate_line_hash, hash_equal, tb_cell
 use iso_c_binding
 use iso_fortran_env, only: int64
 implicit none
@@ -41,11 +41,6 @@ type, bind(C) :: tb_event
     integer(c_int) :: x, y
 end type tb_event
 
-type, bind(C) :: tb_cell
-    integer(c_int32_t) :: ch
-    integer(c_int) :: bg
-    integer(c_int) :: fg
-end type tb_cell
 
 ! Termbox2 constants
 integer, parameter :: TB_KEY_ESC = 27

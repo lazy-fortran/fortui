@@ -2,16 +2,23 @@ module fortui_hash
 ! Type-safe hash calculations for TUI diff optimization
 ! Addresses Issue #63: Hash calculation integer overflow due to missing type safety
 use iso_fortran_env, only: int32, int64
-use fortui_tui, only: tb_cell
+use iso_c_binding, only: c_int, c_int32_t
 implicit none
 private
 
-public :: line_hash_t, calculate_line_hash, hash_equal
+public :: line_hash_t, calculate_line_hash, hash_equal, tb_cell
 
 ! Hash type with overflow protection
 type :: line_hash_t
     integer(int64) :: value = 0_int64
 end type line_hash_t
+
+! Terminal cell type (moved here to avoid circular dependency)
+type, bind(C) :: tb_cell
+    integer(c_int32_t) :: ch
+    integer(c_int) :: bg
+    integer(c_int) :: fg
+end type tb_cell
 
 ! FNV-1a hash parameters (64-bit)
 integer(int64), parameter :: FNV_OFFSET_BASIS = int(z'CBF29CE484222325', int64)
