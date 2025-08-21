@@ -419,9 +419,18 @@ subroutine dp_to_cell_coords_with_context(dp_x, dp_y, cell_x, cell_y, ctx)
     integer, intent(out) :: cell_x, cell_y
     type(ui_context), intent(in) :: ctx
     
-    ! Convert and snap to cell boundaries
-    cell_x = nint(dp_x / ctx%cell_w_dp)
-    cell_y = nint(dp_y / ctx%cell_h_dp)
+    ! Validate cell dimensions to prevent division by zero
+    if (ctx%cell_w_dp <= 0.0) then
+        cell_x = 0
+    else
+        cell_x = nint(dp_x / ctx%cell_w_dp)
+    end if
+    
+    if (ctx%cell_h_dp <= 0.0) then
+        cell_y = 0
+    else
+        cell_y = nint(dp_y / ctx%cell_h_dp)
+    end if
 end subroutine dp_to_cell_coords_with_context
 
 subroutine dp_to_pixel_coords_with_context(dp_x, pixel_x, ctx)
