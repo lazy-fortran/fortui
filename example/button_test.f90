@@ -1,7 +1,6 @@
 program button_test
 ! Test button widget functionality with click detection
-use fortui_widgets
-use fortui_units
+use fortui
 implicit none
 
 logical :: btn1_clicked, btn2_clicked

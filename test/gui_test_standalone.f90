@@ -1,38 +1,47 @@
 program gui_test_standalone
 #ifdef ENABLE_GUI
-    use fortui_gui, only: is_gui_available_impl, init_gui_backend_impl, &
-                          begin_gui_frame_impl, present_gui_impl, &
-                          check_gui_quit_impl, shutdown_gui_backend_impl
+    use fortui_backend, only: backend_interface, get_backend
+    use fortui_backend_init, only: ensure_backends_registered
+    use fortui_gui, only: gui_backend_t
     
-    logical :: available, quit, gui_initialized
+    class(backend_interface), pointer :: backend => null()
+    logical :: available, quit
     integer :: i
+    integer :: dummy_tree = 0  ! Simple placeholder for tree parameter
     
     print *, "=== GUI Backend Test ==="
     
-    ! Test GUI availability detection
-    available = is_gui_available_impl()
-    print *, "  GUI Available:", available
+    ! Ensure backends are registered
+    call ensure_backends_registered()
     
-    if (available) then
-        ! Test GUI initialization
-        call init_gui_backend_impl(80, 24, "Test Window", 60, .true.)
-        gui_initialized = .true.
-        print *, "  GUI Initialized: SUCCESS"
+    ! Test GUI backend selection through registry
+    backend => get_backend("gui")
+    if (associated(backend)) then
+        available = backend%is_available()
+        print *, "  GUI Available:", available
         
-        ! Test frame cycle
-        do i = 1, 5
-            call begin_gui_frame_impl()
-            call present_gui_impl(0)  ! Pass dummy tree
-            quit = check_gui_quit_impl()
-            print *, "  Frame", i, "- Quit:", quit
-            if (quit) exit
-        end do
-        
-        ! Test GUI shutdown
-        call shutdown_gui_backend_impl()
-        print *, "  GUI Shutdown: SUCCESS"
+        if (available) then
+            ! Test GUI initialization
+            call backend%init(80, 24, "Test Window", 60, .true.)
+            print *, "  GUI Initialized: SUCCESS"
+            
+            ! Test frame cycle
+            do i = 1, 5
+                call backend%begin_frame()
+                call backend%render(dummy_tree)
+                quit = backend%check_quit()
+                print *, "  Frame", i, "- Quit:", quit
+                if (quit) exit
+            end do
+            
+            ! Test GUI shutdown
+            call backend%shutdown()
+            print *, "  GUI Shutdown: SUCCESS"
+        else
+            print *, "  GUI not available - running in headless mode"
+        end if
     else
-        print *, "  GUI not available - running in headless mode"
+        print *, "  GUI backend not registered"
     end if
     
     print *, "=== GUI Backend Test Complete ==="

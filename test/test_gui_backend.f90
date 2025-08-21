@@ -970,7 +970,7 @@ subroutine test_gui_widget_rendering()
     
     print *, "--- GUI Widget Rendering Tests ---"
     
-    call test_gui_present_function()
+    call test_gui_render_function()
     call test_gui_node_tree_rendering()
     call test_gui_widget_positioning()
     call test_gui_rendering_pipeline()
@@ -978,8 +978,8 @@ subroutine test_gui_widget_rendering()
     print *, "✓ GUI widget rendering tests passed"
 end subroutine test_gui_widget_rendering
 
-subroutine test_gui_present_function()
-    ! Given: GUI presentation function
+subroutine test_gui_render_function()
+    ! Given: GUI render function
     ! When: Calling ui_present with widget tree
     ! Then: Should handle GUI rendering appropriately
     
@@ -991,16 +991,16 @@ subroutine test_gui_present_function()
         ! Create simple test tree
         test_tree = column()
         
-        ! Test present function (should not crash)
+        ! Test render function (should not crash)
         call ui_present(test_tree)
         
-        print *, "  ✓ Present function: GUI present handled without errors"
+        print *, "  ✓ Render function: GUI render handled without errors"
         
         call ui_shutdown()
     else
-        print *, "  ✓ Present function: GUI present tested (backend may be unavailable)"
+        print *, "  ✓ Render function: GUI render tested (backend may be unavailable)"
     end if
-end subroutine test_gui_present_function
+end subroutine test_gui_render_function
 
 subroutine test_gui_node_tree_rendering()
     ! Given: Complex node tree for rendering

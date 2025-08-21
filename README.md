@@ -4,12 +4,14 @@ A declarative UI library for modern Fortran with dual backends: terminal (TUI) a
 
 ## Features
 
-- **One codebase, two backends**: Write once, run in terminal or GUI window
+- **Backend Registry Pattern**: Runtime backend selection with automatic fallback (GUI→TUI→Error)
+- **One codebase, dual backends**: Write once, run in terminal or GUI window with identical behavior
 - **Immediate-mode API**: Simple, declarative widget calls with automatic state management
 - **Cross-backend units system**: Consistent sizing with dp, em, sp, px, cw, ch units
 - **Monospace-first design**: Exact visual parity between TUI and GUI
 - **Performance optimized**: Event-driven TUI with diffed output, VSync-aware GUI
-- **Clean API**: Three modules, stable interface, minimal dependencies
+- **Clean architecture**: Abstract interfaces, dependency injection, conditional compilation
+- **Production ready**: Circular dependency resolution, graceful error handling
 
 ## Installation
 
@@ -125,7 +127,7 @@ TERMBOX_REF=custom-ref
 ## Quick Start
 
 ```fortran
-program layout_example
+program backend_demo
   use fortui_core
   use fortui_units
   use fortui_unit_types
@@ -136,15 +138,16 @@ program layout_example
   logical :: running
   integer :: frame = 0
 
-  ! Automatic backend selection with abstract units
-  call ui_init("auto", cw_unit(60.0), ch_unit(20.0), "Layout Demo")
+  ! Backend Registry Pattern - automatic selection with graceful fallback
+  call ui_init("auto", cw_unit(60.0), ch_unit(20.0), "Backend Demo")
+  ! GUI preferred → TUI fallback → Clear error message
   
   running = .true.
   do while (running)
     call ui_frame_begin(timeout_ms=200)
     frame = frame + 1
 
-    ! Create nested layout structure
+    ! Create nested layout structure (works in both TUI and GUI)
     allocate(children(2))
     children(1) = node()  ! placeholder child
     children(2) = node()  ! placeholder child
@@ -152,7 +155,7 @@ program layout_example
     
     deallocate(children)
     allocate(children(3))
-    children(1) = node()  ! header placeholder
+    children(1) = node()  ! header placeholder  
     children(2) = inner_layout
     children(3) = node()  ! footer placeholder
     
@@ -165,7 +168,7 @@ program layout_example
   end do
 
   call ui_shutdown()
-  print *, "Layout demo completed after", frame, "frames"
+  print *, "Demo completed after", frame, "frames"
 end program
 ```
 
@@ -252,14 +255,14 @@ use fortui_widgets
 
 logical :: save_clicked, big_clicked
 
-! Basic usage - assignment operator pattern
+! Basic usage - returns logical for click detection
 save_clicked = button("save_btn", label="Save")
 if (save_clicked) then
     print *, "Save button clicked!"
 end if
 
-! Custom size with units
-big_clicked = button("big_btn", width=dp(80.0), height=dp(40.0))
+! Custom size with real values (width/height in dp)
+big_clicked = button("big_btn", width=80.0, height=40.0)
 if (big_clicked) then
     ! Handle click
 end if
@@ -275,11 +278,11 @@ type(text_node_t) :: label_widget, info_widget, terminal_widget
 ! Basic text display
 label_widget = text("label", "Hello World!")
 
-! Custom size with multiline content
-info_widget = text("info", "Line 1" // char(10) // "Line 2", text_size=sp(16.0))
+! Custom size with multiline content (text_size in points)
+info_widget = text("info", "Line 1" // char(10) // "Line 2", text_size=16.0)
 
-! Auto-sizing with TUI units
-terminal_widget = text("terminal", "Terminal Text", width=cw(25.0))
+! Auto-sizing with width in dp
+terminal_widget = text("terminal", "Terminal Text", width=200.0)
 ```
 
 ### Slider Widget
@@ -290,8 +293,8 @@ Interactive numeric input with range control and step quantization:
 real :: volume = 50.0, temperature = 20.0
 logical :: volume_changed, temp_changed
 
-! Assignment operator pattern for change detection
-volume_changed = slider("volume", 0.0, 100.0, 5.0, volume, width=dp(120.0))
+! Returns logical for value change detection
+volume_changed = slider("volume", 0.0, 100.0, 5.0, volume, width=120.0)
 if (volume_changed) then
     print *, "Volume changed to:", volume
 end if
@@ -309,17 +312,24 @@ Boolean input with toggle functionality:
 
 ```fortran
 logical :: sound_enabled = .true., enabled = .false.
-type(checkbox_node_t) :: sound_widget, notif_widget
+logical :: sound_toggled, notif_toggled
 
-! Checkbox widget returns widget node with toggle state
-sound_widget = checkbox("sound", sound_enabled, label="Enable Sound")
-if (sound_enabled) then
-    print *, "Sound is enabled"
+! Checkbox returns logical for toggle detection
+sound_toggled = checkbox("sound", sound_enabled, label="Enable Sound")
+if (sound_toggled) then
+    print *, "Sound setting changed to:", sound_enabled
 end if
 
 ! Auto-sizing with label
-notif_widget = checkbox("notifications", enabled, label="Email Notifications")
+notif_toggled = checkbox("notifications", enabled, label="Email Notifications")
+if (notif_toggled) then
+    print *, "Notifications enabled:", enabled
+end if
 ```
+
+**Parameter Types:**
+- **Widget functions**: Accept plain `real` values for width/height (e.g., `width=80.0`)
+- **Layout functions**: Accept unit types via `class(*)` (e.g., `gap=dp(12.0)`, `gap=cw(2.0)`)
 
 **Complete Documentation:** 
 - [Button Widget API](docs/BUTTON_WIDGET.md)
@@ -450,55 +460,74 @@ program core_types_demo
 end program
 ```
 
-## Backend Selection
+## Backend Architecture
 
-### Automatic Selection (Recommended)
+fortui uses a **Backend Registry Pattern** for runtime backend selection with automatic fallback. This architecture resolves circular dependencies and provides clean separation between core functionality and backend implementations.
+
+### Backend Registry System
+
 ```fortran
-call ui_init(backend="auto", width=80, height=25, title="My App")
-```
-- Intelligent backend selection based on environment
-- GUI preferred when available and not in headless mode
-- TUI fallback for SSH sessions, CI environments, or no display
-- Environment variable overrides supported (`FORTUI_BACKEND=tui`)
+! Automatic backend detection with graceful fallback
+call ui_init("auto", 80, 25, "My App")  ! GUI→TUI→Error with clear feedback
 
-### Terminal UI (TUI)
-```fortran
-call ui_init(backend="tui", width=80, height=25, title="My App")
-```
-- **Visual rendering**: Layout characters (`|`, `-`, `*`) for widget visualization
-- **Event-driven**: Smart timeouts with keyboard/mouse support
-- **Cell-based display**: Perfect coordinate snapping to terminal grid
-- **Performance optimized**: Front/back buffer diffing for minimal writes
-- **Production ready**: Complete termbox2 integration with fallback testing
-
-### Graphical UI (GUI)  
-```fortran
-! Automatic backend selection (recommended)
-call ui_init("auto", 800, 600, "My App")
-
-! Explicit GUI mode with configuration
-call ui_init("gui", 800, 600, "My App", target_fps=60, vsync=.true.)
-call ui_set_idle_policy("adaptive", idle_fps=12)  ! Optional power saving
-
-! Same widgets work in both TUI and GUI
-clicked = button("save", "Save File", width=120.0, height=40.0)
+! Environment variable override
+export FORTUI_BACKEND=tui
+call ui_init("auto", 80, 25, "My App")  ! Forces TUI backend
 ```
 
-**GUI Features:**
-- **Conditional compilation**: Builds only when raylib available
-- **Automatic fallback**: Gracefully switches to TUI in headless environments  
-- **Pixel-perfect rendering**: Exact monospace alignment with TUI
-- **Performance optimized**: VSync, configurable FPS, adaptive idle
-- **Cross-platform**: Linux, macOS, Windows with raylib integration
+**Architecture Benefits:**
+- **Runtime Selection**: Choose backend dynamically based on availability
+- **Graceful Fallback**: GUI→TUI→Error with clear user feedback  
+- **Extensible**: Easy to add new backends without modifying core
+- **Clean Separation**: Backend implementations are self-contained
+- **Conditional Compilation**: GUI backend only compiled with `ENABLE_GUI=1`
+
+### Terminal UI (TUI) Backend
+```fortran
+call ui_init("tui", 80, 25, "Terminal App")
+```
+- **Always Available**: No external dependencies beyond termbox2
+- **Visual Layout**: Characters (`|`, `-`, `*`) show widget structure
+- **Event-Driven**: Smart timeouts with keyboard/mouse support
+- **Cell-Perfect**: Exact coordinate snapping to terminal grid
+- **Optimized Rendering**: Front/back buffer diffing minimizes terminal writes
+
+### Graphical UI (GUI) Backend  
+```fortran
+call ui_init("gui", 800, 600, "Graphics App", target_fps=60, vsync=.true.)
+call ui_set_idle_policy("adaptive", idle_fps=12)  ! Power-saving mode
+```
+- **Conditional Compilation**: Only builds with raylib available (`-DENABLE_GUI`)
+- **Environment Detection**: Automatically disabled in headless/SSH/CI environments
+- **Monospace Alignment**: Pixel-perfect consistency with TUI rendering  
+- **Performance Features**: VSync, configurable FPS, adaptive idle policies
+- **Cross-Platform**: Linux, macOS, Windows via raylib integration
+
+### Backend Selection Logic
+
+1. **Environment Variables**: `FORTUI_BACKEND=tui|gui` overrides selection
+2. **Availability Check**: Each backend reports runtime availability  
+3. **Auto-Detection**: GUI preferred → TUI fallback → clear error message
+4. **Headless Detection**: SSH/CI/no-display environments auto-select TUI
 
 ## Current Implementation Status
 
+✅ **Backend Registry Pattern**: Complete circular dependency resolution with runtime backend selection  
 ✅ **fortui_core module**: Complete with `node` and `view` types, lifecycle management, layout constructors  
+✅ **fortui_backend**: Abstract interface with dynamic registry and capability system
+✅ **fortui_tui/fortui_gui**: Backend implementations with conditional compilation
 ✅ **fortui_units module**: Complete with comprehensive cross-backend units system
 ✅ **Layout system**: `column()` and `row()` functions with gap parameters and children arrays - **PRODUCTION READY**
 ✅ **fortui_widgets module**: Button, text, slider, and checkbox widgets with interaction detection, auto-sizing, value management
-✅ **Backend selection**: TUI/GUI conditional compilation working  
 ✅ **Build system**: Automatic dependency detection and configuration
+
+**Backend Architecture Status:**
+- ✅ **Abstract Interface**: `backend_interface` with deferred procedures for all backends
+- ✅ **Dynamic Registry**: Runtime backend registration with automatic array resizing
+- ✅ **Capability System**: Feature flags (`graphics`, `colors`, `mouse`, `unicode`, `async_events`)
+- ✅ **Runtime Selection**: Backend selection by name or auto-detection with graceful fallback
+- ✅ **Conditional Compilation**: GUI backend only compiled with `#ifdef ENABLE_GUI`
+- ✅ **Dependency Resolution**: Core imports only abstraction layer, eliminating circular dependencies
 
 **Layout System Status:**
 - ✅ **Functions Implemented:** `column()` and `row()` with full functionality
@@ -509,10 +538,13 @@ clicked = button("save", "Save File", width=120.0, height=40.0)
 
 ## Architecture
 
-- **fortui_core**: ✅ Lifecycle management, core types, frame handling  
+- **fortui_backend**: ✅ Abstract interface with registry pattern for clean backend separation
+- **fortui_backend_init**: ✅ Automatic registration system avoiding circular dependencies  
+- **fortui_core**: ✅ Lifecycle management, core types, frame handling with backend abstraction
+- **fortui_tui**: ✅ Terminal backend with termbox2 integration (always available)
+- **fortui_gui**: ✅ GUI backend with raylib integration (conditional compilation)
 - **fortui_units**: ✅ Cross-backend units system with dp, em, sp, px, cw, ch support
 - **fortui_widgets**: ✅ Button, text, slider, and checkbox widgets with interaction detection, auto-sizing, value management
-- **Dual backends**: ✅ termbox2 (TUI) and raylib/raygui (GUI) support
 - **Monospace baseline**: ✅ Ensures pixel-perfect TUI/GUI consistency
 
 ## Documentation

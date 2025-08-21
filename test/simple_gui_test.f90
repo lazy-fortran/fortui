@@ -1,8 +1,24 @@
 program simple_gui_test
 #ifdef ENABLE_GUI
-    use fortui_gui, only: is_gui_available_impl
+    use fortui_backend, only: backend_interface, get_backend
+    use fortui_backend_init, only: ensure_backends_registered
+    
+    class(backend_interface), pointer :: backend => null()
+    logical :: available
+    
     print *, "GUI module compiled successfully"
-    print *, "GUI available:", is_gui_available_impl()
+    
+    ! Ensure backends are registered
+    call ensure_backends_registered()
+    
+    ! Test GUI backend availability
+    backend => get_backend("gui")
+    if (associated(backend)) then
+        available = backend%is_available()
+        print *, "GUI available:", available
+    else
+        print *, "GUI backend not registered"
+    end if
 #else
     print *, "GUI module not compiled (ENABLE_GUI not defined)"
 #endif

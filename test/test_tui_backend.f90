@@ -523,7 +523,7 @@ end subroutine test_dimension_calculation
 
 subroutine test_tui_cell_rendering()
     ! Given: Widget tree rendering to cell buffer
-    ! When: Testing present_tui function
+    ! When: Testing render_tui function
     ! Then: Should render node trees to terminal cell grid
     
     print *, "--- TUI Cell Rendering Tests ---"
@@ -545,7 +545,7 @@ subroutine test_widget_to_cell_mapping()
     
     ! Test simple widget positioning
     ! Note: present_tui will be implemented in the implementation phase
-    ! call present_tui(test_widget)  ! Will be uncommented when implemented
+    ! call render_tui(test_widget)  ! Will be uncommented when implemented
     print *, "  ✓ Widget mapping: simple widget positioned correctly"
     
     ! Test nested widget hierarchy

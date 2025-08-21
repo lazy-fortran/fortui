@@ -1,7 +1,6 @@
 program text_demo
   ! Demonstrate text widget functionality
-  use fortui_widgets
-  use fortui_units
+  use fortui
   implicit none
 
   type(text_node_t) :: text_widget

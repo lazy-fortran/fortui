@@ -1,6 +1,7 @@
 module fortui_core
 ! Core types and lifecycle management for fortui
 ! Provides backend-agnostic node and view types for UI tree construction
+use fortui_backend
 use iso_c_binding
 implicit none
 private
@@ -16,7 +17,7 @@ public :: ui_element, node, view, widget_wrapper
 public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
 public :: ui_set_idle_policy, ui_get_context
 public :: is_gui_available, is_headless_environment, resolve_backend
-public :: ui_state, check_gui_quit
+public :: ui_state
 public :: set_environment_variable_simulation, clear_environment_variable_simulation
 ! Layout constructors
 public :: column, row
@@ -27,6 +28,7 @@ public :: widget
 type :: ui_state_t
     logical :: initialized = .false.
     character(len=32) :: active_backend = ""
+    class(backend_interface), pointer :: backend => null()
     integer :: window_width = 0
     integer :: window_height = 0
     character(len=256) :: window_title = ""
@@ -220,6 +222,7 @@ contains
 
 ! Lifecycle & pacing procedures
 subroutine ui_init_integer(backend, width, height, title, target_fps, vsync)
+    use fortui_backend_init, only: ensure_backends_registered
     character(*), intent(in) :: backend        ! "tui" | "gui" | "auto"
     integer,      intent(in) :: width, height  ! grid units (gu)
     character(*), intent(in) :: title
@@ -229,6 +232,9 @@ subroutine ui_init_integer(backend, width, height, title, target_fps, vsync)
     character(len=32) :: resolved_backend
     character(len=256) :: display_var, ssh_client, ci_var
     integer :: ios
+    
+    ! Ensure backends are registered
+    call ensure_backends_registered()
     
     ! Reset state if reinitializing
     if (ui_state%initialized) then
@@ -257,25 +263,45 @@ subroutine ui_init_integer(backend, width, height, title, target_fps, vsync)
     ui_state%vsync_enabled = .true.
     if (present(vsync)) ui_state%vsync_enabled = vsync
     
-    ! Initialize backend-specific resources
-    select case (trim(resolved_backend))
-    case ("tui")
-        call init_tui_backend()
-    case ("gui")
-#ifdef ENABLE_GUI
-        call init_gui_backend()
-#else
-        print *, "ui_init: Error - GUI backend not available (disabled at compile time)"
-        print *, "ui_init: Falling back to TUI backend"
+    ! Get backend from registry
+    ui_state%backend => get_backend(trim(resolved_backend))
+    
+    if (.not. associated(ui_state%backend)) then
+        ! Try fallback to TUI
+        print *, "ui_init: Backend '", trim(resolved_backend), "' not found, trying TUI"
+        ui_state%backend => get_backend("tui")
         ui_state%active_backend = "tui"
-        call init_tui_backend()
-#endif
-    case default
-        print *, "ui_init: Error - Unsupported backend: ", trim(resolved_backend)
-        print *, "ui_init: Falling back to TUI backend"
-        ui_state%active_backend = "tui"
-        call init_tui_backend()
-    end select
+    end if
+    
+    if (.not. associated(ui_state%backend)) then
+        print *, "ui_init: Error - No backend available"
+        return
+    end if
+    
+    ! Check if backend is available in current environment
+    if (.not. ui_state%backend%is_available()) then
+        print *, "ui_init: Backend '", trim(ui_state%active_backend), &
+                 "' not available in current environment"
+        ! Try TUI as fallback
+        ui_state%backend => get_backend("tui")
+        if (associated(ui_state%backend)) then
+            if (ui_state%backend%is_available()) then
+                ui_state%active_backend = "tui"
+                print *, "ui_init: Falling back to TUI backend"
+            else
+                print *, "ui_init: Error - No backend available"
+                ui_state%backend => null()
+                return
+            end if
+        end if
+    end if
+    
+    ! Initialize the selected backend
+    if (associated(ui_state%backend)) then
+        call ui_state%backend%init(ui_state%window_width, ui_state%window_height, &
+                                   ui_state%window_title, ui_state%target_fps, &
+                                   ui_state%vsync_enabled)
+    end if
     
     ui_state%initialized = .true.
     ui_state%should_quit = .false.
@@ -425,18 +451,17 @@ subroutine ui_frame_begin(timeout_ms)
     end if
     
     ! Backend-specific frame preparation
-    select case (trim(ui_state%active_backend))
-    case ("tui")
-        ! TUI: Event-driven with timeout
+    if (associated(ui_state%backend)) then
+        call ui_state%backend%begin_frame()
+    else
+        print *, "ui_frame_begin: Error - No backend available"
+        return
+    end if
+    
+    ! For TUI backend, also handle event polling
+    if (trim(ui_state%active_backend) == "tui") then
         call begin_tui_frame(timeout_ms)
-    case ("gui")
-#ifdef ENABLE_GUI
-        ! GUI: Frame timing controlled by target_fps, timeout ignored
-        call begin_gui_frame()
-#else
-        print *, "ui_frame_begin: Error - GUI backend not available (disabled at compile time)"
-#endif
-    end select
+    end if
 end subroutine ui_frame_begin
 
 subroutine ui_present(tree)
@@ -448,16 +473,11 @@ subroutine ui_present(tree)
     end if
     
     ! Backend-specific presentation
-    select case (trim(ui_state%active_backend))
-    case ("tui")
-        call present_tui(tree)
-    case ("gui")
-#ifdef ENABLE_GUI
-        call present_gui(tree)
-#else
-        print *, "ui_present: Error - GUI backend not available (disabled at compile time)"
-#endif
-    end select
+    if (associated(ui_state%backend)) then
+        call ui_state%backend%render(tree)
+    else
+        print *, "ui_present: Error - No backend available"
+    end if
 end subroutine ui_present
 
 logical function ui_should_close()
@@ -470,18 +490,11 @@ logical function ui_should_close()
     end if
     
     ! Check backend-specific quit conditions
-    select case (trim(ui_state%active_backend))
-    case ("tui")
-        ui_should_close = check_tui_quit() .or. ui_state%should_quit
-    case ("gui")
-#ifdef ENABLE_GUI
-        ui_should_close = check_gui_quit() .or. ui_state%should_quit
-#else
-        ui_should_close = .true.  ! GUI backend disabled, force quit
-#endif
-    case default
-        ui_should_close = .true.  ! Unknown backend, force quit
-    end select
+    if (associated(ui_state%backend)) then
+        ui_should_close = ui_state%backend%check_quit() .or. ui_state%should_quit
+    else
+        ui_should_close = .true.  ! No backend available, force quit
+    end if
 end function ui_should_close
 
 subroutine ui_shutdown()
@@ -492,17 +505,11 @@ subroutine ui_shutdown()
         return
     end if
     
-    ! Backend-specific cleanup
-    select case (trim(ui_state%active_backend))
-    case ("tui")
-        call shutdown_tui_backend()
-    case ("gui")
-#ifdef ENABLE_GUI
-        call shutdown_gui_backend()
-#else
-        ! GUI backend disabled - no cleanup needed
-#endif
-    end select
+    ! Call backend's shutdown method
+    if (associated(ui_state%backend)) then
+        call ui_state%backend%shutdown()
+        ui_state%backend => null()
+    end if
     
     ! Reset all state
     ui_state%initialized = .false.
@@ -543,16 +550,10 @@ function resolve_backend(requested) result(backend)
         backend = "gui"
     case ("auto", "AUTO", "")
         ! Auto-detect best available backend
-#ifdef ENABLE_GUI
-        if (is_gui_available() .and. .not. is_headless_environment()) then
-            backend = "gui"
-        else
-            backend = "tui"
+        backend = select_best_backend()
+        if (len_trim(backend) == 0) then
+            backend = "tui"  ! Fallback if no backend available
         end if
-#else
-        ! GUI backend disabled at compile time
-        backend = "tui"
-#endif
     case default
         ! Invalid backend - fall back to TUI
         print *, "resolve_backend: Warning - Unknown backend '", trim(requested), &
@@ -569,14 +570,14 @@ end function resolve_backend
 
 logical function is_gui_available()
     ! Check if GUI backend can be initialized
-#ifdef ENABLE_GUI
-    use fortui_gui, only: is_gui_available_impl
+    class(backend_interface), pointer :: gui_backend
     
-    ! Use GUI backend's availability check
-    is_gui_available = is_gui_available_impl()
-#else
-    is_gui_available = .false.
-#endif
+    gui_backend => get_backend("gui")
+    if (associated(gui_backend)) then
+        is_gui_available = gui_backend%is_available()
+    else
+        is_gui_available = .false.
+    end if
 end function is_gui_available
 
 logical function is_headless_environment()
@@ -734,43 +735,7 @@ subroutine init_tui_backend()
     end if
 end subroutine init_tui_backend
 
-subroutine init_gui_backend()
-    ! Initialize GUI backend with enhanced measurement
-#ifdef ENABLE_GUI
-    use fortui_units, only: ui_get_context, ui_set_context, ui_context
-    use fortui_platform_measurement, only: detect_system_dpi, measure_font_metrics, &
-                                           detect_text_scaling, validate_context
-    use fortui_gui, only: init_gui_backend_impl, is_gui_available_impl
-    
-    type(ui_context) :: ctx
-    
-    ! Check if GUI is actually available at runtime
-    if (.not. is_gui_available_impl()) then
-        print *, "init_gui_backend: GUI not available in current environment"
-        print *, "init_gui_backend: Falling back to TUI backend"
-        ui_state%active_backend = "tui"
-        call init_tui_backend()
-        return
-    end if
-    
-    ! Initialize raylib/raygui backend
-    call init_gui_backend_impl(ui_state%window_width, ui_state%window_height, &
-                               ui_state%window_title, ui_state%target_fps, &
-                               ui_state%vsync_enabled)
-    
-    ! Setup enhanced GUI context with system measurement
-    call ui_get_context(ctx)
-    call detect_system_dpi(ctx%dpi_scale)
-    call measure_font_metrics(ctx%em_dp)
-    call detect_text_scaling(ctx%text_scale)
-    call validate_context(ctx)
-    call ui_set_context(ctx)
-    
-    print *, "init_gui_backend: GUI backend initialized"
-#else
-    print *, "init_gui_backend: Error - GUI backend not available (disabled at compile time)"
-#endif
-end subroutine init_gui_backend
+! GUI backend initialization is now handled through the backend interface
 
 ! TUI backend helper functions
 subroutine allocate_cell_buffers()
@@ -1073,36 +1038,9 @@ subroutine clear_back_buffer()
     end do
 end subroutine clear_back_buffer
 
-subroutine begin_gui_frame()
-#ifdef ENABLE_GUI
-    use fortui_gui, only: begin_gui_frame_impl
-    
-    ! Start GUI frame with raylib
-    call begin_gui_frame_impl()
-#else
-    print *, "begin_gui_frame: Error - GUI backend not available (disabled at compile time)"
-#endif
-end subroutine begin_gui_frame
+! All backend-specific operations now handled through backend interface
 
-! Backend-specific presentation stubs
-subroutine present_tui(tree)
-    class(ui_element), intent(in) :: tree
-    
-    if (.not. tui_state%initialized) return
-    
-    ! Render widget tree to back buffer
-    call render_node_to_buffer(tree, 0.0, 0.0)
-    
-    ! Apply diff-based updates to terminal
-    call apply_buffer_diff()
-    
-    ! Present the changes to the terminal using appropriate termbox2 implementation
-    if (tui_state%using_real_termbox) then
-        call real_tb_present()
-    else
-        call mock_tb_present()
-    end if
-end subroutine present_tui
+! TUI presentation now handled through backend interface
 
 recursive subroutine render_node_to_buffer(tree, offset_x_dp, offset_y_dp)
     ! Render ui_element tree to the back buffer using dp coordinates
@@ -1382,37 +1320,13 @@ subroutine apply_buffer_diff()
     end do
 end subroutine apply_buffer_diff
 
-subroutine present_gui(tree)
-#ifdef ENABLE_GUI
-    use fortui_gui, only: present_gui_impl
-#endif
-    class(ui_element), intent(in) :: tree
-    
-#ifdef ENABLE_GUI
-    ! Render widget tree with raylib/raygui
-    call present_gui_impl(tree)
-#else
-    print *, "present_gui: Error - GUI backend not available (disabled at compile time)"
-#endif
-end subroutine present_gui
+! GUI rendering is now handled through backend interface
 
 ! Backend-specific quit detection stubs
 logical function check_tui_quit()
     ! Check for TUI quit events (ESC, Ctrl+C, etc.)
     check_tui_quit = tui_state%quit_requested .or. .not. tui_state%initialized
 end function check_tui_quit
-
-logical function check_gui_quit()
-#ifdef ENABLE_GUI
-    use fortui_gui, only: check_gui_quit_impl
-    
-    ! Check for GUI quit events (window close, etc.)
-    check_gui_quit = check_gui_quit_impl()
-#else
-    ! GUI backend disabled - always return true to quit
-    check_gui_quit = .true.
-#endif
-end function check_gui_quit
 
 ! Backend-specific shutdown stubs
 subroutine shutdown_tui_backend()
@@ -1438,18 +1352,7 @@ subroutine shutdown_tui_backend()
     tui_state%using_real_termbox = .false.
 end subroutine shutdown_tui_backend
 
-subroutine shutdown_gui_backend()
-#ifdef ENABLE_GUI
-    use fortui_gui, only: shutdown_gui_backend_impl
-    
-    ! Cleanup raylib/raygui resources
-    call shutdown_gui_backend_impl()
-    print *, "shutdown_gui_backend: GUI backend shutdown"
-#else
-    ! GUI backend disabled - no cleanup needed
-    print *, "shutdown_gui_backend: GUI backend not available (disabled at compile time)"
-#endif
-end subroutine shutdown_gui_backend
+! GUI shutdown is now handled through backend interface
 
 ! Layout constructor implementations
 function column(gap, children) result(n)
