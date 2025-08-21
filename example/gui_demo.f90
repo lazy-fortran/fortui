@@ -10,6 +10,7 @@ integer :: frame_count = 0
 character(len=64) :: status_text
 type(view) :: plot_view
 type(text_node_t) :: title_node, subtitle_node, status_node
+type(node) :: root_node  ! Root node for UI tree
 
 print *, "=== fortui GUI Backend Demo ==="
 print *, ""
@@ -75,8 +76,10 @@ do while (running)
         print *, "Settings loaded (reset to defaults)"
     end if
     
-    ! For now, skip ui_present until tree structure is implemented
-    ! call ui_present(tree_root)
+    ! End the frame properly to avoid warning spam
+    ! Create a minimal tree structure with just a root node
+    root_node%layout_type = "none"
+    call ui_present(root_node)
     running = .not. ui_should_close()
 end do
 
