@@ -39,6 +39,7 @@ FORTUI_BACKEND=gui ./fpm_build.sh run --example simple_test  # GUI example (if r
 - Proper `ENABLE_GUI` compilation flags are set
 - Dependencies (raylib, termbox2) are linked correctly
 - Runtime library paths (`LD_LIBRARY_PATH`) are configured
+- Security validation and hardening features are active
 
 **3. Context-Aware Applications:**
 ```bash
@@ -152,10 +153,11 @@ TERMBOX_REF=custom-ref
 - **Concurrent safety**: File locking with 5-minute timeout and stale lock detection
 - **Version tracking**: Smart cache invalidation when build tools change
 - **Corruption recovery**: Automatic detection and repair of corrupted git repositories
+- **Security hardening**: Input validation, path sanitization, and shell injection prevention
 - **Cross-platform**: Linux, macOS, Windows with platform-specific optimizations
 - **FPM integration**: Build-script override with CPP preprocessing support
 
-**Complete Documentation**: [BUILD_GUIDE.md](BUILD_GUIDE.md) | [Integration Examples](INTEGRATION_EXAMPLES.md)
+**Complete Documentation**: [BUILD_GUIDE.md](BUILD_GUIDE.md) | [Integration Examples](INTEGRATION_EXAMPLES.md) | [Security Features](BUILD_GUIDE.md#security-features)
 
 ## Quick Start
 

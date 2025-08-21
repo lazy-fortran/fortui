@@ -315,6 +315,208 @@ jobs:
 
 ⸻
 
+## Build Security Architecture (Issue #77)
+
+### Security Vulnerability Assessment
+
+**CRITICAL**: Multiple shell command injection vulnerabilities identified in build scripts that could allow arbitrary command execution during builds.
+
+#### Vulnerable Patterns Identified
+
+1. **Unquoted command substitution for PID reading** (build_fortui.sh:105, 130)
+   ```bash
+   # VULNERABLE: lock_file path could contain backticks or $()
+   lock_pid=$(cat "$lock_file" 2>/dev/null)
+   ```
+
+2. **Unquoted pkg-config output expansion** (build_fortui.sh:832)
+   ```bash
+   # VULNERABLE: pkg-config output not quoted, allows injection
+   flags+=" $(call_pkg_config --cflags --libs raylib)"
+   ```
+
+3. **Complex command substitution for version extraction** (build_fortui.sh:357-360)
+   ```bash
+   # POTENTIALLY VULNERABLE: RAYLIB_ROOT path injection in grep target
+   raylib_version=$(grep -oE '#define RAYLIB_VERSION "[0-9]+\.[0-9]+\.[0-9]+"' \
+       "${RAYLIB_ROOT}/include/raylib.h" 2>/dev/null | \
+       grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+   ```
+
+#### Impact Analysis
+
+- **Attack Vector**: Malicious cache directories, environment variables, or build artifacts
+- **Scope**: All build operations, potentially with elevated privileges
+- **Severity**: HIGH - Remote command execution during build process
+- **Risk**: Compromised build environments, supply chain attacks
+
+### Secure Command Execution Design
+
+#### Core Security Principles
+
+1. **Input Validation First**: Validate all user-controlled paths and variables before use
+2. **Proper Quoting**: Quote all variable expansions and command substitutions
+3. **Restricted Operations**: Use built-in bash operations instead of external commands where possible
+4. **Fail-Safe Defaults**: Security failures should abort build, not continue
+
+#### Secure Implementation Patterns
+
+##### Pattern 1: Safe File Reading with Validation
+```bash
+# SECURE: Validate path and quote properly
+safe_read_pid_file() {
+    local lock_file="$1"
+    local lock_pid
+    
+    # Validate input path (no shell metacharacters)
+    if [[ "$lock_file" =~ [';`$(){}*?[]<>|&] ]]; then
+        echo "ERROR: Invalid lock file path contains shell metacharacters" >&2
+        return 1
+    fi
+    
+    # Safe file reading with proper quoting
+    if [[ -f "$lock_file" ]]; then
+        if ! lock_pid=$(cat "$lock_file" 2>/dev/null); then
+            echo "ERROR: Failed to read lock file" >&2
+            return 1
+        fi
+        
+        # Validate PID is numeric
+        if [[ ! "$lock_pid" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: Invalid PID format in lock file" >&2
+            return 1
+        fi
+        
+        echo "$lock_pid"
+        return 0
+    fi
+    
+    return 1
+}
+```
+
+##### Pattern 2: Safe Command Output Handling
+```bash
+# SECURE: Quote command output and validate content
+safe_pkg_config_flags() {
+    local pkg_name="$1"
+    local flags
+    
+    # Validate package name (alphanumeric, dash, underscore only)
+    if [[ ! "$pkg_name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        echo "ERROR: Invalid package name for pkg-config" >&2
+        return 1
+    fi
+    
+    # Get flags with proper error handling
+    if ! flags=$(call_pkg_config --cflags --libs "$pkg_name" 2>/dev/null); then
+        echo "ERROR: Failed to get pkg-config flags for $pkg_name" >&2
+        return 1
+    fi
+    
+    # Validate flags don't contain dangerous patterns
+    if [[ "$flags" =~ [';`$(){}] ]]; then
+        echo "ERROR: pkg-config output contains shell metacharacters" >&2
+        return 1
+    fi
+    
+    # Return safely quoted flags
+    printf '%s' "$flags"
+    return 0
+}
+```
+
+##### Pattern 3: Safe Path-Based Operations
+```bash
+# SECURE: Validate and sanitize file paths
+safe_version_extract() {
+    local raylib_root="$1"
+    local header_file
+    local raylib_version
+    
+    # Validate RAYLIB_ROOT path
+    if [[ ! "$raylib_root" =~ ^[a-zA-Z0-9/_.-]+$ ]]; then
+        echo "ERROR: RAYLIB_ROOT contains invalid characters" >&2
+        return 1
+    fi
+    
+    # Construct and validate header path
+    header_file="${raylib_root}/include/raylib.h"
+    if [[ ! -f "$header_file" ]]; then
+        echo "ERROR: raylib.h not found at expected location" >&2
+        return 1
+    fi
+    
+    # Safe version extraction with input validation
+    if ! raylib_version=$(grep -oE '#define RAYLIB_VERSION "[0-9]+\.[0-9]+\.[0-9]+"' \
+                         "$header_file" 2>/dev/null | \
+                         grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | \
+                         head -1); then
+        echo "ERROR: Failed to extract raylib version" >&2
+        return 1
+    fi
+    
+    # Validate version format
+    if [[ ! "$raylib_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "ERROR: Invalid version format extracted" >&2
+        return 1
+    fi
+    
+    echo "$raylib_version"
+    return 0
+}
+```
+
+#### Security Validation Framework
+
+##### Input Sanitization Rules
+1. **Path validation**: Reject paths with shell metacharacters `;`$(){}*?[]<>|&
+2. **Numeric validation**: Ensure PIDs are strictly numeric
+3. **Package name validation**: Allow only alphanumeric, dash, underscore for pkg-config
+4. **Version validation**: Strict semver pattern matching
+
+##### Error Handling Protocol
+1. **Fail fast**: Any security validation failure immediately aborts build
+2. **Clear error messages**: Specific error messages for each validation failure
+3. **No fallbacks**: Security failures should not have unsafe fallback paths
+4. **Audit logging**: Security-relevant operations should be logged when DEBUG=1
+
+#### Implementation Requirements
+
+##### Phase 1: Critical Vulnerability Fixes
+- [ ] Replace unsafe `cat "$lock_file"` with validated file reading
+- [ ] Quote all pkg-config command substitution outputs
+- [ ] Validate RAYLIB_ROOT before path construction
+- [ ] Add input sanitization functions
+
+##### Phase 2: Security Hardening
+- [ ] Implement comprehensive path validation
+- [ ] Add security audit logging
+- [ ] Create security test suite
+- [ ] Document security assumptions
+
+##### Phase 3: Defense in Depth
+- [ ] Runtime environment validation
+- [ ] Build isolation recommendations
+- [ ] Supply chain security measures
+- [ ] Security monitoring integration
+
+#### Testing Requirements
+
+##### Security Test Coverage
+1. **Injection tests**: Verify malicious inputs are rejected
+2. **Path traversal tests**: Ensure directory traversal attacks fail
+3. **Command injection tests**: Validate shell metacharacter filtering
+4. **Error handling tests**: Verify security failures abort build
+
+##### Test Data Scenarios
+- Malicious lock file paths containing `;rm -rf /`
+- pkg-config outputs with embedded shell commands
+- RAYLIB_ROOT paths with directory traversal attempts
+- Non-numeric PID values in lock files
+
+⸻
+
 ## Backend Abstraction Architecture (Issues #3, #10, #12)
 
 ### Overview
@@ -2269,6 +2471,7 @@ end module fortui_widgets
 - [ ] Type safety preserved
 - [ ] No architectural violations
 - [ ] Comprehensive test coverage
+- [ ] Security vulnerabilities addressed (see Build Security Architecture)
 
 **Priority**: **CRITICAL** - This fixes fundamental architectural flaws blocking widget development.
 

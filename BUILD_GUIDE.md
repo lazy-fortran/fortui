@@ -358,21 +358,109 @@ clean-deps:
   run: fpm build
 ```
 
+## Security Features
+
+The fortui build system implements comprehensive security hardening to protect against common build-time vulnerabilities. These features run automatically during every build.
+
+### Input Validation and Sanitization
+
+**Path Validation**: All file paths are validated before use:
+```bash
+# Safe - Validates custom raylib path
+RAYLIB_ROOT=/opt/raylib ./tools/build_fortui.sh build
+
+# Automatic rejection of unsafe paths
+RAYLIB_ROOT="; rm -rf /" ./tools/build_fortui.sh build  # Blocked automatically
+```
+
+**Command Output Sanitization**: External command outputs are sanitized before processing:
+```bash
+# Build system safely processes pkg-config output
+pkg-config --cflags raylib  # Output sanitized automatically
+
+# Compiler flags cleaned and validated
+./tools/build_fortui.sh ldflags  # Safe, sanitized output
+```
+
+### Process ID Security
+
+Cache locking uses validated process IDs with input sanitization:
+```bash
+# Safe concurrent builds - lock files validated automatically
+./tools/build_fortui.sh build  # PID validation prevents injection
+
+# Debug output shows security validation (when DEBUG=1)
+DEBUG=1 ./tools/build_fortui.sh build
+# Output: "DEBUG: Valid PID read: 12345"
+# Output: "DEBUG: Invalid PID format in lock file" (if corrupted)
+```
+
+### Environment Variable Safety
+
+All environment variables undergo validation before use:
+```bash
+# Safe repository customization
+FRG_URL=https://github.com/user/fortran-raylib.git ./tools/build_fortui.sh build
+
+# Automatic rejection of injection attempts
+TERMBOX_URL="https://example.com; malicious_command" ./tools/build_fortui.sh build  # Blocked
+```
+
+### Security Best Practices for Users
+
+**Use Trusted Repositories**:
+```bash
+# Recommended - Use default repositories
+./tools/build_fortui.sh build
+
+# If customization needed, use trusted sources only
+FRG_URL=https://trusted-mirror.example.com/fortran-raylib.git ./tools/build_fortui.sh build
+```
+
+**Verify Build Environment**:
+```bash
+# Check configuration before building
+./tools/build_fortui.sh config
+
+# Review dependencies and paths
+./tools/build_fortui.sh status
+```
+
+**Monitor Debug Output**:
+```bash
+# Enable debug mode to see security validations
+DEBUG=1 ./tools/build_fortui.sh build
+# Watch for "DEBUG: Valid PID read" and path validation messages
+```
+
+### What the Security Features Protect Against
+
+The build system automatically prevents:
+- **Path Traversal**: Malicious paths that could access unintended files
+- **Command Injection**: Attempts to execute arbitrary commands through input
+- **Process Tampering**: Invalid or malicious process IDs in lock files
+- **Environment Pollution**: Unsafe environment variable values
+
+All security validation happens transparently - builds that pass security checks work normally, while potentially dangerous inputs are safely blocked with clear error messages.
+
 ## Platform-Specific Notes
 
 ### Linux
 - System raylib detected via pkg-config
 - termbox2 builds using system compiler (gcc/clang)
 - Cache defaults to `~/.cache/fortui`
+- Security features fully supported on all distributions
 
 ### macOS  
 - Similar to Linux, uses Homebrew raylib if available
 - May require Xcode command line tools for compilation
+- Security hardening works identically to Linux
 
 ### Windows (Experimental)
 - Requires MSYS2 or similar environment
 - Set RAYLIB_ROOT to Windows raylib installation path
 - Use forward slashes in paths for cross-platform compatibility
+- Security validation adapted for Windows path formats
 
 ## Troubleshooting
 
@@ -467,6 +555,49 @@ ls ~/.cache/fortui/.build.lock
 GUI_CACHE=/tmp/fortui_$BUILD_ID ./tools/build_fortui.sh build
 ```
 
+### Security-Related Build Errors
+
+**"Invalid path" or "Path contains unsafe characters"**:
+```bash
+# Problem: Environment variable contains invalid characters
+RAYLIB_ROOT="/path; rm -rf /" ./tools/build_fortui.sh build
+# Error: DEBUG: Path contains unsafe characters: /path; rm -rf /
+
+# Solution: Use clean, absolute paths without special characters
+RAYLIB_ROOT="/opt/raylib" ./tools/build_fortui.sh build
+```
+
+**"Invalid PID format in lock file"**:
+```bash
+# Problem: Corrupted lock file (usually from interrupted builds)
+# Error: DEBUG: Invalid PID format in lock file: ~/.cache/fortui/.build.lock
+
+# Solution: Remove corrupted lock file (done automatically)
+ls ~/.cache/fortui/.build.lock  # Check if exists
+./tools/build_fortui.sh build   # Removes corrupted lock automatically
+```
+
+**"Network operation failed"**:
+```bash
+# Problem: Repository URLs contain suspicious content
+# Error: Network operation failed after 3 attempts
+
+# Solution: Use trusted repository URLs only
+FRG_URL=https://github.com/interkosmos/fortran-raylib.git ./tools/build_fortui.sh build
+TERMBOX_URL=https://github.com/termbox/termbox2.git ./tools/build_fortui.sh build
+```
+
+**Verification Commands**:
+```bash
+# Verify build environment security
+DEBUG=1 ./tools/build_fortui.sh config  # Shows path validation
+./tools/build_fortui.sh status          # Shows cache integrity
+
+# Test security with safe defaults
+unset RAYLIB_ROOT FRG_URL TERMBOX_URL   # Clear custom variables
+./tools/build_fortui.sh build           # Use secure defaults
+```
+
 ### FPM Integration Issues
 
 **Missing flags**:
@@ -529,6 +660,26 @@ DEBUG=1 ./tools/build_fortui.sh build
 
 # Fail-safe offline mode for air-gapped environments
 OFFLINE_MODE=1 DISABLE_GUI=1 ./tools/build_fortui.sh build
+
+# Security-hardened CI builds
+unset RAYLIB_ROOT FRG_URL TERMBOX_URL  # Use only trusted defaults
+DEBUG=1 ./tools/build_fortui.sh build  # Enable security validation logging
+```
+
+### Security Considerations in Production
+
+```bash
+# Production build with security best practices
+# 1. Use trusted repository defaults
+# 2. Enable debug logging for security validation
+# 3. Use dedicated cache directories
+# 4. Verify build configuration
+
+# Secure production build example
+export GUI_CACHE="/opt/fortui_cache"
+DEBUG=1 ./tools/build_fortui.sh build
+./tools/build_fortui.sh config  # Verify configuration
+./tools/build_fortui.sh status  # Check cache integrity
 ```
 
 ### Testing Different Configurations
@@ -561,6 +712,7 @@ The advanced build script provides enterprise-grade features:
 - **Concurrent safety**: File locking with 5-minute timeout and stale lock detection  
 - **Corruption recovery**: Automatic detection and repair of corrupted git repositories
 - **Version tracking**: Cache invalidation when build tools (git, make, gfortran, fpm) change
+- **Security hardening**: Input validation, path sanitization, and shell injection prevention
 - **Atomic operations**: Safe cache updates using temporary files and atomic moves
 - **Dependency compatibility**: Version checking for raylib/fortran-raylib compatibility
 - **Cross-platform paths**: Consistent behavior across Windows/Unix systems
