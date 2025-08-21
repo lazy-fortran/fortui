@@ -4,9 +4,11 @@ A declarative UI library for modern Fortran with dual backends: terminal (TUI) a
 
 ## Features
 
+- **Context Object Pattern**: Thread-safe architecture with multiple UI instance support
 - **Backend Registry Pattern**: Runtime backend selection with automatic fallback (GUI→TUI→Error)
 - **One codebase, dual backends**: Write once, run in terminal or GUI window with identical behavior
 - **Immediate-mode API**: Simple, declarative widget calls with automatic state management
+- **Thread safety**: OpenMP-compatible with isolated context objects per thread
 - **Cross-backend units system**: Consistent sizing with dp, em, sp, px, cw, ch units
 - **Monospace-first design**: Exact visual parity between TUI and GUI
 - **Performance optimized**: Event-driven TUI with diffed output, VSync-aware GUI
@@ -14,6 +16,33 @@ A declarative UI library for modern Fortran with dual backends: terminal (TUI) a
 - **Production ready**: Circular dependency resolution, graceful error handling
 
 ## Installation
+
+### Quick Start (5 minutes)
+
+**1. Clone and Build:**
+```bash
+git clone https://github.com/krystophny/fortui.git
+cd fortui
+
+# Automatic GUI/TUI build (detects raylib)
+source fpm_env.sh         # Builds dependencies, configures FPM
+fpm build                 # GUI+TUI if raylib found, TUI-only otherwise
+```
+
+**2. Test Installation:**
+```bash
+fpm test                  # Run test suite
+fpm run --example gui_demo    # GUI example (if raylib available)
+fpm run --example tui_demo    # TUI example (always works)
+```
+
+**3. Context-Aware Applications:**
+```bash
+# For OpenMP thread safety
+export FPM_FFLAGS="-cpp -fopenmp $(./tools/build_fortui.sh flags)"
+export FPM_LDFLAGS="$(./tools/build_fortui.sh ldflags) -fopenmp"
+fpm build your_app.f90
+```
 
 ### Prerequisites
 
@@ -30,7 +59,7 @@ A declarative UI library for modern Fortran with dual backends: terminal (TUI) a
   ```
 - **fortran-raygui bindings**: Fetched and built automatically when GUI enabled
 
-### Build
+### Build Methods
 
 fortui provides multiple build methods for different workflows:
 
@@ -172,6 +201,212 @@ program backend_demo
 end program
 ```
 
+## Context-Aware API (Thread Safety & Multiple Instances)
+
+fortui implements the **Context Object Pattern** for thread safety and multiple UI instance support. The new context-aware API is fully backward compatible.
+
+### Basic Context Usage
+
+```fortran
+program context_demo
+  use fortui_core
+  use fortui_context
+  use fortui_widgets
+  implicit none
+
+  type(fortui_context_t), pointer :: ctx
+  logical :: running, save_clicked
+
+  ! Create explicit context for this UI instance
+  ctx => create_context()
+  
+  ! Initialize with context-aware API
+  call ui_init_with_context(ctx, "auto", 80, 25, "Context Demo")
+  
+  running = .true.
+  do while (running)
+    call ui_frame_begin_with_context(ctx)
+    
+    ! Use context-aware widgets
+    save_clicked = button_with_context(ctx, "save", "Save File")
+    if (save_clicked) print *, "File saved!"
+    
+    running = .not. ui_should_close_with_context(ctx)
+  end do
+  
+  call ui_shutdown_with_context(ctx)
+  call destroy_context(ctx)
+end program
+```
+
+### Multiple UI Instances
+
+**Compilation Requirements:**
+```bash
+# Build dependencies and enable GUI backend
+./tools/build_fortui.sh build
+
+# Compile with GUI support for multiple instances
+export FPM_FFLAGS="-cpp $(./tools/build_fortui.sh flags)"
+export FPM_LDFLAGS="$(./tools/build_fortui.sh ldflags)"
+fpm build
+```
+
+```fortran
+program multiple_windows
+  use fortui_core
+  use fortui_context
+  implicit none
+
+  type(fortui_context_t), pointer :: main_ctx, settings_ctx
+  logical :: main_running, settings_running
+
+  ! Create independent contexts
+  main_ctx => create_context()
+  settings_ctx => create_context()
+  
+  ! Initialize separate UI instances
+  call ui_init_with_context(main_ctx, "gui", 800, 600, "Main Window")
+  call ui_init_with_context(settings_ctx, "tui", 60, 20, "Settings")
+  
+  ! Run both UI instances independently
+  main_running = .true.
+  settings_running = .true.
+  
+  do while (main_running .or. settings_running)
+    ! Main window frame
+    if (main_running) then
+      call ui_frame_begin_with_context(main_ctx)
+      ! ... main window UI ...
+      main_running = .not. ui_should_close_with_context(main_ctx)
+    end if
+    
+    ! Settings window frame  
+    if (settings_running) then
+      call ui_frame_begin_with_context(settings_ctx)
+      ! ... settings UI ...
+      settings_running = .not. ui_should_close_with_context(settings_ctx)
+    end if
+  end do
+  
+  ! Clean shutdown
+  call ui_shutdown_with_context(main_ctx)
+  call ui_shutdown_with_context(settings_ctx)
+  call destroy_context(main_ctx)
+  call destroy_context(settings_ctx)
+end program
+```
+
+### Thread Safety with OpenMP
+
+**Compilation Requirements:**
+```bash
+# Build fortui with dependencies first
+./tools/build_fortui.sh build
+
+# Compile with OpenMP support
+export FPM_FFLAGS="-cpp -fopenmp $(./tools/build_fortui.sh flags)"
+export FPM_LDFLAGS="$(./tools/build_fortui.sh ldflags) -fopenmp"
+fpm build
+
+# Alternative: Use make with OpenMP
+OPENMP=1 make
+```
+
+```fortran
+program threaded_ui
+  use fortui_core
+  use fortui_context
+  use omp_lib
+  implicit none
+
+  !$OMP PARALLEL
+  block
+    type(fortui_context_t), pointer :: thread_ctx
+    integer :: thread_id
+    character(len=32) :: title
+    
+    thread_id = omp_get_thread_num()
+    write(title, '(A,I0)') "Thread ", thread_id
+    
+    ! Each thread gets its own context
+    thread_ctx => create_context()
+    call ui_init_with_context(thread_ctx, "tui", 40, 15, trim(title))
+    
+    ! Thread-safe UI operations
+    call ui_frame_begin_with_context(thread_ctx)
+    ! ... thread-specific UI ...
+    
+    call ui_shutdown_with_context(thread_ctx)
+    call destroy_context(thread_ctx)
+  end block
+  !$OMP END PARALLEL
+end program
+```
+
+### Backward Compatibility
+
+```fortran
+program legacy_api_still_works
+  use fortui_core
+  use fortui_widgets
+  implicit none
+
+  logical :: running, clicked
+
+  ! Legacy API works unchanged via default context
+  call ui_init("auto", 80, 25, "Legacy Demo")
+  
+  running = .true.
+  do while (running)
+    call ui_frame_begin()
+    
+    ! Legacy widget API (uses default context internally)
+    clicked = button("legacy_btn", "Still Works!")
+    if (clicked) print *, "Legacy button clicked!"
+    
+    running = .not. ui_should_close()
+  end do
+  
+  call ui_shutdown()
+end program
+```
+
+### Widget Context API Completeness
+
+**All widgets support both legacy and context-aware APIs:**
+
+| Widget | Legacy API | Context-Aware API | Status |
+|--------|------------|-------------------|--------|
+| **button** | `button(id, label)` | `button_with_context(ctx, id, label)` | ✅ Complete |
+| **text** | `text(id, content)` | `text_with_context(ctx, id, content)` | ✅ Complete |
+| **slider** | `slider(id, min, max, step, value)` | `slider_with_context(ctx, id, min, max, step, value)` | ✅ Complete |
+| **checkbox** | `checkbox(id, checked, label)` | `checkbox_with_context(ctx, id, checked, label)` | ✅ Complete |
+
+**Layout functions use implicit context:**
+- `column()` and `row()` always use the current context (legacy or explicit)
+- No separate context-aware versions needed
+
+### Context Management Best Practices
+
+```fortran
+! ✓ GOOD: Explicit context management
+ctx => create_context()
+call ui_init_with_context(ctx, ...)
+! ... use context ...
+call ui_shutdown_with_context(ctx)
+call destroy_context(ctx)
+
+! ✓ GOOD: Legacy API for simple applications  
+call ui_init("auto", 80, 25, "Simple App")
+! ... use default context ...
+call ui_shutdown()
+
+! ✗ AVOID: Mixing context-aware and legacy APIs
+ctx => create_context()
+call ui_init("auto", 80, 25, "Mixed")  ! Uses different context!
+```
+
 ## Core Types
 
 ### node Type
@@ -255,10 +490,16 @@ use fortui_widgets
 
 logical :: save_clicked, big_clicked
 
-! Basic usage - returns logical for click detection
+! Legacy API - returns logical for click detection
 save_clicked = button("save_btn", label="Save")
 if (save_clicked) then
     print *, "Save button clicked!"
+end if
+
+! Context-aware API for explicit control
+save_clicked = button_with_context(ctx, "save_btn", label="Save")
+if (save_clicked) then
+    print *, "Context-specific button clicked!"
 end if
 
 ! Custom size with real values (width/height in dp)
@@ -378,16 +619,14 @@ gap = em(2.5)              ! equivalent to em_unit(2.5)
 ### Lifecycle Management
 
 ```fortran
+! ===== Legacy API (uses default context) =====
 ! Initialize UI system - integer units (backward compatible)
 call ui_init(backend, width, height, title [, target_fps, vsync])
 
-! Initialize UI system - abstract units (NEW)
+! Initialize UI system - abstract units
 call ui_init(backend, width_unit, height_unit, title [, target_fps, vsync])
 ! backend: "auto" | "tui" | "gui" ("auto" recommended)
 ! width_unit, height_unit: class(unit_type) - any abstract unit type
-
-! Optional: Configure GUI idle policy (ignored in TUI mode)
-call ui_set_idle_policy(mode [, idle_fps])  ! "adaptive" | "steady"
 
 ! Frame lifecycle
 call ui_frame_begin(timeout_ms)  ! TUI: event timeout; GUI: ignored
@@ -396,6 +635,26 @@ logical :: should_exit = ui_should_close()
 
 ! Cleanup
 call ui_shutdown()
+
+! ===== Context-Aware API (explicit context management) =====
+! Context management
+type(fortui_context_t), pointer :: ctx
+ctx => create_context()
+call destroy_context(ctx)
+
+! Initialize with explicit context
+call ui_init_with_context(ctx, backend, width, height, title [, target_fps, vsync])
+
+! Frame lifecycle with context
+call ui_frame_begin_with_context(ctx [, timeout_ms])
+call ui_present_with_context(ctx, tree)
+logical :: should_exit = ui_should_close_with_context(ctx)
+
+! Cleanup with context
+call ui_shutdown_with_context(ctx)
+
+! Optional: Configure GUI idle policy (ignored in TUI mode)
+call ui_set_idle_policy(mode [, idle_fps])  ! "adaptive" | "steady"
 ```
 
 ### Core Type Usage
@@ -414,6 +673,21 @@ plot_view%off_x = 100.0    ! Pan right by 100 units
 ```
 
 ## Complete Example
+
+**Compilation Requirements:**
+```bash
+# Build fortui first
+./tools/build_fortui.sh build
+
+# Compile with proper flags for abstract units
+export FPM_FFLAGS="-cpp $(./tools/build_fortui.sh flags)"
+export FPM_LDFLAGS="$(./tools/build_fortui.sh ldflags)"
+fpm build complete_demo.f90
+
+# Or use the simplified environment setup
+source fpm_env.sh
+fpm build complete_demo.f90
+```
 
 ```fortran
 program core_types_demo  
@@ -512,13 +786,15 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Power-saving mode
 
 ## Current Implementation Status
 
+✅ **Context Object Pattern**: Thread-safe architecture with multiple UI instance support and complete global state elimination  
 ✅ **Backend Registry Pattern**: Complete circular dependency resolution with runtime backend selection  
 ✅ **fortui_core module**: Complete with `node` and `view` types, lifecycle management, layout constructors  
+✅ **fortui_context module**: Context objects with widget state encapsulation and thread-local default contexts
 ✅ **fortui_backend**: Abstract interface with dynamic registry and capability system
 ✅ **fortui_tui/fortui_gui**: Backend implementations with conditional compilation
 ✅ **fortui_units module**: Complete with comprehensive cross-backend units system
 ✅ **Layout system**: `column()` and `row()` functions with gap parameters and children arrays - **PRODUCTION READY**
-✅ **fortui_widgets module**: Button, text, slider, and checkbox widgets with interaction detection, auto-sizing, value management
+✅ **fortui_widgets module**: Button, text, slider, and checkbox widgets with context-aware and legacy APIs
 ✅ **Build system**: Automatic dependency detection and configuration
 
 **Backend Architecture Status:**
@@ -538,13 +814,14 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Power-saving mode
 
 ## Architecture
 
+- **fortui_context**: ✅ Context Object Pattern with thread-safe state encapsulation and OpenMP support
 - **fortui_backend**: ✅ Abstract interface with registry pattern for clean backend separation
 - **fortui_backend_init**: ✅ Automatic registration system avoiding circular dependencies  
-- **fortui_core**: ✅ Lifecycle management, core types, frame handling with backend abstraction
+- **fortui_core**: ✅ Lifecycle management, core types, frame handling with context-aware and legacy APIs
 - **fortui_tui**: ✅ Terminal backend with termbox2 integration (always available)
 - **fortui_gui**: ✅ GUI backend with raylib integration (conditional compilation)
 - **fortui_units**: ✅ Cross-backend units system with dp, em, sp, px, cw, ch support
-- **fortui_widgets**: ✅ Button, text, slider, and checkbox widgets with interaction detection, auto-sizing, value management
+- **fortui_widgets**: ✅ Button, text, slider, and checkbox widgets with context-aware and legacy APIs
 - **Monospace baseline**: ✅ Ensures pixel-perfect TUI/GUI consistency
 
 ## Documentation
