@@ -2,7 +2,9 @@ module fortui_core
 ! Core types and lifecycle management for fortui
 ! Provides backend-agnostic node and view types for UI tree construction
 use fortui_backend
+use fortui_context, only: fortui_context_t, get_default_context, create_context, set_default_context
 use iso_c_binding
+use iso_fortran_env, only: error_unit
 implicit none
 private
 
@@ -13,16 +15,21 @@ real, parameter :: DEFAULT_COLUMN_WIDTH_DP = 64.0  ! Basic column width
 ! Public types  
 public :: ui_element, node, view, widget_wrapper
 
-! Public procedures
+! Public procedures - with context-aware overloads
 public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
 public :: ui_set_idle_policy, ui_get_context
 public :: is_gui_available, is_headless_environment, resolve_backend
 public :: ui_state
 public :: set_environment_variable_simulation, clear_environment_variable_simulation
+! Context-aware function variants (new API)
+public :: ui_init_with_context, ui_shutdown_with_context
+public :: ui_frame_begin_with_context, ui_present_with_context, ui_should_close_with_context
 ! Layout constructors
 public :: column, row
 ! Widget wrapper for layout integration
 public :: widget
+! Context management (for new API)
+public :: fortui_context_t, create_context
 
 ! Internal state management
 type :: ui_state_t
@@ -46,6 +53,27 @@ type(ui_state_t), save :: ui_state
 interface ui_init
     module procedure ui_init_integer
     module procedure ui_init_abstract
+end interface
+
+! Context-aware function interfaces for overloading
+interface ui_shutdown
+    module procedure ui_shutdown_default
+    module procedure ui_shutdown_with_context
+end interface
+
+interface ui_frame_begin
+    module procedure ui_frame_begin_default
+    module procedure ui_frame_begin_with_context
+end interface
+
+interface ui_present
+    module procedure ui_present_default
+    module procedure ui_present_with_context
+end interface
+
+interface ui_should_close
+    module procedure ui_should_close_default
+    module procedure ui_should_close_with_context
 end interface
 
 ! Abstract UI element hierarchy for tree construction
@@ -221,6 +249,57 @@ end interface
 contains
 
 ! Lifecycle & pacing procedures
+! Context-aware initialization (new API)
+subroutine ui_init_with_context(ctx, backend, width, height, title, target_fps, vsync)
+    use fortui_backend_init, only: ensure_backends_registered
+    type(fortui_context_t), intent(inout) :: ctx
+    character(*), intent(in) :: backend        ! "tui" | "gui" | "auto"
+    integer,      intent(in) :: width, height  ! grid units (gu)
+    character(*), intent(in) :: title
+    integer,      intent(in), optional :: target_fps   ! gui: default 60; tui: ignored
+    logical,      intent(in), optional :: vsync        ! gui: default .true.
+    
+    character(len=32) :: resolved_backend
+    integer :: t_fps
+    logical :: v_sync
+    
+    ! Ensure backends are registered
+    call ensure_backends_registered()
+    
+    ! Set defaults
+    t_fps = 60
+    if (present(target_fps)) t_fps = target_fps
+    
+    v_sync = .true.
+    if (present(vsync)) v_sync = vsync
+    
+    ! Resolve backend
+    resolved_backend = resolve_backend(backend)
+    
+    ! Initialize context
+    call ctx%init(resolved_backend, width, height, title, t_fps, v_sync)
+    
+    ! Get backend from registry and store in context
+    ctx%backend => get_backend(trim(resolved_backend))
+    
+    if (.not. associated(ctx%backend)) then
+        ! Try fallback to TUI
+        ctx%backend => get_backend("tui")
+        if (associated(ctx%backend)) then
+            ctx%active_backend = "tui"
+        end if
+    end if
+    
+    ! Initialize the selected backend if available
+    if (associated(ctx%backend)) then
+        if (ctx%backend%is_available()) then
+            call ctx%backend%init(ctx%window_width, ctx%window_height, &
+                                  ctx%window_title, ctx%target_fps, &
+                                  ctx%vsync_enabled)
+        end if
+    end if
+end subroutine ui_init_with_context
+
 subroutine ui_init_integer(backend, width, height, title, target_fps, vsync)
     use fortui_backend_init, only: ensure_backends_registered
     character(*), intent(in) :: backend        ! "tui" | "gui" | "auto"
@@ -229,86 +308,31 @@ subroutine ui_init_integer(backend, width, height, title, target_fps, vsync)
     integer,      intent(in), optional :: target_fps   ! gui: default 60; tui: ignored
     logical,      intent(in), optional :: vsync        ! gui: default .true.
     
-    character(len=32) :: resolved_backend
-    character(len=256) :: display_var, ssh_client, ci_var
-    integer :: ios
+    type(fortui_context_t), pointer :: ctx
     
-    ! Ensure backends are registered
-    call ensure_backends_registered()
-    
-    ! Reset state if reinitializing
-    if (ui_state%initialized) then
-        call ui_shutdown()
+    ! Get or create default context
+    ctx => get_default_context()
+    if (.not. associated(ctx)) then
+        ctx => create_context()
+        call set_default_context(ctx)
     end if
     
-    ! Validate and resolve backend
-    resolved_backend = resolve_backend(backend)
+    ! Use context-aware initialization
+    call ui_init_with_context(ctx, backend, width, height, title, target_fps, vsync)
     
-    ! Validate parameters
-    if (width <= 0 .or. height <= 0) then
-        print *, "ui_init: Warning - Invalid dimensions (", width, "x", height, &
-             "), using defaults"
-        ui_state%window_width = max(1, width)
-        ui_state%window_height = max(1, height)
-    else
-        ui_state%window_width = width
-        ui_state%window_height = height
-    end if
-    
-    ! Store configuration
-    ui_state%active_backend = resolved_backend
-    ui_state%window_title = title
-    ui_state%target_fps = 60
-    if (present(target_fps)) ui_state%target_fps = max(1, target_fps)
-    ui_state%vsync_enabled = .true.
-    if (present(vsync)) ui_state%vsync_enabled = vsync
-    
-    ! Get backend from registry
-    ui_state%backend => get_backend(trim(resolved_backend))
-    
-    if (.not. associated(ui_state%backend)) then
-        ! Try fallback to TUI
-        print *, "ui_init: Backend '", trim(resolved_backend), "' not found, trying TUI"
-        ui_state%backend => get_backend("tui")
-        ui_state%active_backend = "tui"
-    end if
-    
-    if (.not. associated(ui_state%backend)) then
-        print *, "ui_init: Error - No backend available"
-        return
-    end if
-    
-    ! Check if backend is available in current environment
-    if (.not. ui_state%backend%is_available()) then
-        print *, "ui_init: Backend '", trim(ui_state%active_backend), &
-                 "' not available in current environment"
-        ! Try TUI as fallback
-        ui_state%backend => get_backend("tui")
-        if (associated(ui_state%backend)) then
-            if (ui_state%backend%is_available()) then
-                ui_state%active_backend = "tui"
-                print *, "ui_init: Falling back to TUI backend"
-            else
-                print *, "ui_init: Error - No backend available"
-                ui_state%backend => null()
-                return
-            end if
-        end if
-    end if
-    
-    ! Initialize the selected backend
-    if (associated(ui_state%backend)) then
-        call ui_state%backend%init(ui_state%window_width, ui_state%window_height, &
-                                   ui_state%window_title, ui_state%target_fps, &
-                                   ui_state%vsync_enabled)
-    end if
-    
-    ui_state%initialized = .true.
-    ui_state%should_quit = .false.
-    
-    ! Debug output for tests
-    print *, "ui_init: backend=", trim(ui_state%active_backend), " size=", &
-             ui_state%window_width, "x", ui_state%window_height
+    ! Copy context state to legacy ui_state for backward compatibility
+    ui_state%initialized = ctx%initialized
+    ui_state%active_backend = ctx%active_backend
+    ui_state%backend => ctx%backend
+    ui_state%window_width = ctx%window_width
+    ui_state%window_height = ctx%window_height
+    ui_state%window_title = ctx%window_title
+    ui_state%target_fps = ctx%target_fps
+    ui_state%vsync_enabled = ctx%vsync_enabled
+    ui_state%idle_mode = ctx%idle_mode
+    ui_state%idle_fps = ctx%idle_fps
+    ui_state%should_quit = ctx%should_quit
+    ui_state%dpi_scale = ctx%dpi_scale
 end subroutine ui_init_integer
 
 subroutine ui_init_abstract(backend, width, height, title, target_fps, vsync)
@@ -323,30 +347,48 @@ subroutine ui_init_abstract(backend, width, height, title, target_fps, vsync)
     integer, intent(in), optional :: target_fps
     logical, intent(in), optional :: vsync
     
-    type(ui_context) :: ctx
+    type(fortui_context_t), pointer :: ctx
     real :: width_dp, height_dp
     integer :: width_int, height_int
     
-    ! Get current context for unit conversion
-    call ui_get_context(ctx)
+    ! Get or create default context
+    ctx => get_default_context()
+    if (.not. associated(ctx)) then
+        ctx => create_context()
+        call set_default_context(ctx)
+    end if
     
     ! Convert abstract units to dp using polymorphic interface
-    width_dp = width%to_dp(ctx)
-    height_dp = height%to_dp(ctx)
+    width_dp = width%to_dp(ctx%units)
+    height_dp = height%to_dp(ctx%units)
     
     ! Convert dp to integer grid units for backend initialization
-    width_int = nint(width_dp / ctx%cell_w_dp)
-    height_int = nint(height_dp / ctx%cell_h_dp)
+    width_int = nint(width_dp / ctx%units%cell_w_dp)
+    height_int = nint(height_dp / ctx%units%cell_h_dp)
     
     ! Ensure minimum dimensions
     width_int = max(1, width_int)
     height_int = max(1, height_int)
     
-    ! Call integer-based initialization
-    call ui_init_integer(backend, width_int, height_int, title, target_fps, vsync)
+    ! Call context-aware initialization
+    call ui_init_with_context(ctx, backend, width_int, height_int, title, target_fps, vsync)
     
     ! Update context with enhanced measurement if backend supports it
-    call setup_enhanced_context(backend, ctx)
+    call setup_enhanced_context(backend, ctx%units)
+    
+    ! Copy to legacy ui_state for backward compatibility
+    ui_state%initialized = ctx%initialized
+    ui_state%active_backend = ctx%active_backend
+    ui_state%backend => ctx%backend
+    ui_state%window_width = ctx%window_width
+    ui_state%window_height = ctx%window_height
+    ui_state%window_title = ctx%window_title
+    ui_state%target_fps = ctx%target_fps
+    ui_state%vsync_enabled = ctx%vsync_enabled
+    ui_state%idle_mode = ctx%idle_mode
+    ui_state%idle_fps = ctx%idle_fps
+    ui_state%should_quit = ctx%should_quit
+    ui_state%dpi_scale = ctx%dpi_scale
 end subroutine ui_init_abstract
 
 subroutine ui_get_context(ctx)
@@ -442,70 +484,187 @@ subroutine ui_set_idle_policy(mode, idle_fps)        ! gui only
 #endif
 end subroutine ui_set_idle_policy
 
-subroutine ui_frame_begin(timeout_ms)
-    integer, intent(in) :: timeout_ms                  ! tui uses; gui ignores
+! Context-aware frame begin (new API)
+subroutine ui_frame_begin_with_context(ctx, timeout_ms)
+    type(fortui_context_t), intent(inout) :: ctx
+    integer, intent(in), optional :: timeout_ms
     
-    if (.not. ui_state%initialized) then
-        print *, "ui_frame_begin: Error - UI not initialized. Call ui_init first."
+    integer :: timeout_val
+    
+    if (.not. ctx%initialized) then
+        write(error_unit, '(A)') "ui_frame_begin_with_context: Error - Context not initialized"
         return
     end if
     
+    ! Set default timeout
+    timeout_val = 16  ! Default 16ms for responsive UI
+    if (present(timeout_ms)) timeout_val = timeout_ms
+    
+    ! Call context frame begin
+    call ctx%begin_frame()
+    
     ! Backend-specific frame preparation
-    if (associated(ui_state%backend)) then
-        call ui_state%backend%begin_frame()
+    if (associated(ctx%backend)) then
+        call ctx%backend%begin_frame()
     else
-        print *, "ui_frame_begin: Error - No backend available"
+        write(error_unit, '(A)') "ui_frame_begin_with_context: Error - No backend available"
         return
     end if
     
     ! For TUI backend, also handle event polling
-    if (trim(ui_state%active_backend) == "tui") then
-        call begin_tui_frame(timeout_ms)
+    if (trim(ctx%active_backend) == "tui") then
+        call begin_tui_frame(timeout_val)
     end if
-end subroutine ui_frame_begin
+end subroutine ui_frame_begin_with_context
 
-subroutine ui_present(tree)
+subroutine ui_frame_begin_default(timeout_ms)
+    integer, intent(in), optional :: timeout_ms
+    type(fortui_context_t), pointer :: ctx
+    
+    ! Use default context if available
+    ctx => get_default_context()
+    if (associated(ctx)) then
+        call ui_frame_begin_with_context(ctx, timeout_ms)
+        return
+    end if
+    
+    ! Fall back to legacy implementation
+    if (.not. ui_state%initialized) then
+        write(error_unit, '(A)') "ui_frame_begin: Error - UI not initialized. Call ui_init first."
+        return
+    end if
+    
+    if (associated(ui_state%backend)) then
+        call ui_state%backend%begin_frame()
+    else
+        write(error_unit, '(A)') "ui_frame_begin: Error - No backend available"
+        return
+    end if
+    
+    if (trim(ui_state%active_backend) == "tui") then
+        call begin_tui_frame(16)  ! Default timeout
+        if (present(timeout_ms)) call begin_tui_frame(timeout_ms)
+    end if
+end subroutine ui_frame_begin_default
+
+! Context-aware present (new API)
+subroutine ui_present_with_context(ctx, tree)
+    type(fortui_context_t), intent(inout) :: ctx
     class(ui_element), intent(in) :: tree
     
-    if (.not. ui_state%initialized) then
-        print *, "ui_present: Error - UI not initialized. Call ui_init first."
+    if (.not. ctx%initialized) then
+        write(error_unit, '(A)') "ui_present_with_context: Error - Context not initialized"
+        return
+    end if
+    
+    if (.not. ctx%in_frame) then
+        write(error_unit, '(A)') "ui_present_with_context: Error - Not in frame. Call ui_frame_begin first."
         return
     end if
     
     ! Backend-specific presentation
+    if (associated(ctx%backend)) then
+        call ctx%backend%render(tree)
+    else
+        write(error_unit, '(A)') "ui_present_with_context: Error - No backend available"
+    end if
+    
+    ! End frame
+    call ctx%end_frame()
+end subroutine ui_present_with_context
+
+subroutine ui_present_default(tree)
+    class(ui_element), intent(in) :: tree
+    type(fortui_context_t), pointer :: ctx
+    
+    ! Use default context if available
+    ctx => get_default_context()
+    if (associated(ctx)) then
+        call ui_present_with_context(ctx, tree)
+        return
+    end if
+    
+    ! Fall back to legacy implementation
+    if (.not. ui_state%initialized) then
+        write(error_unit, '(A)') "ui_present: Error - UI not initialized. Call ui_init first."
+        return
+    end if
+    
     if (associated(ui_state%backend)) then
         call ui_state%backend%render(tree)
     else
-        print *, "ui_present: Error - No backend available"
+        write(error_unit, '(A)') "ui_present: Error - No backend available"
     end if
-end subroutine ui_present
+end subroutine ui_present_default
 
-logical function ui_should_close()
-    ! Check if application should terminate
-    ! Returns true for quit events (ESC key, window close, etc.)
+! Context-aware should close (new API)
+logical function ui_should_close_with_context(ctx) result(should_close)
+    type(fortui_context_t), intent(in) :: ctx
     
-    if (.not. ui_state%initialized) then
-        ui_should_close = .true.  ! Force quit if not initialized
+    if (.not. ctx%initialized) then
+        should_close = .true.
         return
     end if
     
-    ! Check backend-specific quit conditions
-    if (associated(ui_state%backend)) then
-        ui_should_close = ui_state%backend%check_quit() .or. ui_state%should_quit
+    if (associated(ctx%backend)) then
+        should_close = ctx%backend%check_quit() .or. ctx%should_quit
     else
-        ui_should_close = .true.  ! No backend available, force quit
+        should_close = .true.
     end if
-end function ui_should_close
+end function ui_should_close_with_context
 
-subroutine ui_shutdown()
-    ! Clean shutdown of UI backend
+logical function ui_should_close_default() result(should_close)
+    ! Check if application should terminate using default context
+    type(fortui_context_t), pointer :: ctx
     
-    if (.not. ui_state%initialized) then
-        ! Safe to call multiple times
+    ! Check default context first
+    ctx => get_default_context()
+    if (associated(ctx)) then
+        should_close = ui_should_close_with_context(ctx)
         return
     end if
     
-    ! Call backend's shutdown method
+    ! Fall back to legacy ui_state
+    if (.not. ui_state%initialized) then
+        should_close = .true.
+        return
+    end if
+    
+    if (associated(ui_state%backend)) then
+        should_close = ui_state%backend%check_quit() .or. ui_state%should_quit
+    else
+        should_close = .true.
+    end if
+end function ui_should_close_default
+
+! Context-aware shutdown (new API)
+subroutine ui_shutdown_with_context(ctx)
+    type(fortui_context_t), intent(inout) :: ctx
+    
+    ! Call backend's shutdown method if available
+    if (associated(ctx%backend)) then
+        call ctx%backend%shutdown()
+    end if
+    
+    ! Shutdown context
+    call ctx%shutdown()
+end subroutine ui_shutdown_with_context
+
+subroutine ui_shutdown_default()
+    ! Clean shutdown of UI backend using default context
+    type(fortui_context_t), pointer :: ctx
+    
+    ! Use default context if available
+    ctx => get_default_context()
+    if (associated(ctx)) then
+        call ui_shutdown_with_context(ctx)
+    end if
+    
+    ! Also clean up legacy ui_state for backward compatibility
+    if (.not. ui_state%initialized) then
+        return
+    end if
+    
     if (associated(ui_state%backend)) then
         call ui_state%backend%shutdown()
         ui_state%backend => null()
@@ -522,9 +681,7 @@ subroutine ui_shutdown()
     ui_state%idle_mode = "adaptive"
     ui_state%idle_fps = 12
     ui_state%should_quit = .false.
-    
-    print *, "ui_shutdown: cleaning up backend resources"
-end subroutine ui_shutdown
+end subroutine ui_shutdown_default
 
 ! Internal backend resolution and management functions
 

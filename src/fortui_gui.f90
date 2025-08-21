@@ -40,8 +40,8 @@ contains
     procedure :: check_quit => gui_check_quit
 end type gui_backend_t
 
-! Module-level state for rendering (kept for compatibility)
-type(gui_backend_t), save :: gui_state
+! Note: Global gui_state removed in Context Object Pattern refactor (Issue #64)
+! GUI state is now managed through context backend_state
 
 ! Raylib C interface types and constants
 ! Window configuration flags
