@@ -6,7 +6,7 @@ module fortui_context
 ! - Clean testing without state bleed
 ! - Explicit state dependencies
 use iso_fortran_env, only: error_unit
-use fortui_backend, only: backend_interface
+use fortui_backend, only: backend_interface, backend_registry
 use fortui_units, only: ui_context
 implicit none
 private
@@ -63,6 +63,9 @@ type :: fortui_context_t
     ! Widget state storage (hash table for scalability)
     type(widget_state_map) :: widget_states
     
+    ! Backend registry (moved from global module state)
+    type(backend_registry) :: backends
+    
     ! Frame management
     logical :: in_frame = .false.
     integer :: frame_count = 0
@@ -99,6 +102,8 @@ function create_context() result(ctx)
     allocate(ctx%widget_states%entries(ctx%widget_states%capacity))
     ctx%widget_states%count = 0
     
+    ! Backend registry is initialized on first use
+    
     ! Initialize units context with defaults
     ctx%units%dpi_scale = 1.0
     ctx%units%em_dp = 16.0
@@ -123,6 +128,11 @@ subroutine destroy_context(ctx)
     
     ! Clear widget states
     call ctx%widget_states%clear()
+    
+    ! Clean up backend registry
+    if (allocated(ctx%backends%entries)) then
+        deallocate(ctx%backends%entries)
+    end if
     
     ! Deallocate backend state if allocated
     if (allocated(ctx%backend_state)) then
@@ -212,6 +222,11 @@ subroutine context_shutdown(self)
     
     ! Clear all widget states
     call self%widget_states%clear()
+    
+    ! Clean up backend registry
+    if (allocated(self%backends%entries)) then
+        deallocate(self%backends%entries)
+    end if
     
     ! Deallocate backend-specific state
     if (allocated(self%backend_state)) then
