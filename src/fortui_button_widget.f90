@@ -48,7 +48,7 @@ subroutine button_render(self, renderer, context, state)
         
         ! Use renderer's button drawing implementation
         call renderer%draw_button(btn_state%id, btn_state%label, bounds, &
-                                 btn_state%visual_state, btn_state%clicked_this_frame)
+                                 btn_state%visual_state, btn_state%was_pressed_last_frame)
     end select
 end subroutine button_render
 
