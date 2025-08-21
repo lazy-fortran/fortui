@@ -61,7 +61,7 @@ run: deps
 .PHONY: clean
 clean:
 	@echo "Cleaning build artifacts..."
-	@$(FPM) clean
+	@$(FPM) clean --skip
 	@rm -rf build/
 
 # Clean everything including dependencies
