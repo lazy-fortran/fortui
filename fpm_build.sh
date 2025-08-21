@@ -7,6 +7,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_SCRIPT="$SCRIPT_DIR/tools/build_fortui.sh"
 
+# Source utilities for command validation
+# shellcheck source=tools/lib/utils.sh
+source "$SCRIPT_DIR/tools/lib/utils.sh"
+
 echo "Building fortui with FPM..."
 
 # Build dependencies first
@@ -38,6 +42,10 @@ echo "  FPM_FFLAGS: ${FPM_FFLAGS}"
 echo "  FPM_LDFLAGS: ${FPM_LDFLAGS}"
 echo "  LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-}"
 echo ""
+
+# Validate FPM is available before exec
+require_command fpm "Fortran Package Manager (fpm)" \
+    "Please install FPM: https://github.com/fortran-lang/fpm" || exit 1
 
 # Run FPM with the configured environment
 # Use env to explicitly pass environment variables to ensure propagation

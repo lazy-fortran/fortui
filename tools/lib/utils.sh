@@ -195,3 +195,37 @@ setup_fpm_flags() {
         echo "-cpp -DTUI_ONLY"
     fi
 }
+
+# Command validation utilities for build script robustness (Issue #80)
+validate_command_available() {
+    # Given: Command name to check
+    # When: Validating command availability in PATH
+    # Then: Returns 0 if available, 1 if not
+    local cmd="$1"
+    
+    if command -v "$cmd" >/dev/null 2>&1; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+require_command() {
+    # Given: Command name, optional display name, optional install hint
+    # When: Validating command is available before exec
+    # Then: Exits with helpful error if command not found
+    local cmd="$1"
+    local display_name="${2:-$cmd}"
+    local install_hint="${3:-"Please install $display_name and ensure it's in your PATH"}"
+    
+    if ! validate_command_available "$cmd"; then
+        echo "Error: $display_name (command '$cmd') not found in PATH" >&2
+        echo "" >&2
+        echo "$install_hint" >&2
+        echo "" >&2
+        echo "Current PATH: $PATH" >&2
+        return 1
+    fi
+    
+    return 0
+}
