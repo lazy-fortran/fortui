@@ -518,6 +518,15 @@ setup_cpp_flags() {
     fi
 }
 
+# FPM-specific compiler flags
+setup_fpm_flags() {
+    if detect_raylib; then
+        echo "-cpp -DENABLE_GUI"
+    else
+        echo "-cpp -DTUI_ONLY"
+    fi
+}
+
 # Cache directory setup
 setup_cache() {
     if ! mkdir -p "${GUI_CACHE}" 2>/dev/null; then
@@ -894,6 +903,10 @@ main() {
             setup_cpp_flags
             return 0
             ;;
+        "fpmflags")
+            setup_fpm_flags
+            return 0
+            ;;
         "ldflags")
             get_dependency_flags
             return 0
@@ -917,10 +930,11 @@ main() {
             return 0
             ;;
         *)
-            echo "Usage: $0 [build|flags|ldflags|config|clean|status]" >&2
-            echo "  build   - Build all dependencies" >&2
-            echo "  flags   - Print CPP flags (ENABLE_GUI=0|1)" >&2
-            echo "  ldflags - Print linker flags for dependencies" >&2
+            echo "Usage: $0 [build|flags|fpmflags|ldflags|config|clean|status]" >&2
+            echo "  build    - Build all dependencies" >&2
+            echo "  flags    - Print CPP flags (ENABLE_GUI=0|1)" >&2
+            echo "  fpmflags - Print FPM compiler flags (-cpp -DENABLE_GUI/-DTUI_ONLY)" >&2
+            echo "  ldflags  - Print linker flags for dependencies" >&2
             echo "  config  - Print configuration summary" >&2
             echo "  clean   - Clean dependency cache" >&2
             echo "  status  - Show cache status and size information" >&2
