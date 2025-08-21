@@ -106,9 +106,7 @@ subroutine register_backend(name, backend)
     do i = 1, num_backends
         if (registered_backends(i)%name == name) then
             ! Replace existing backend
-            if (associated(registered_backends(i)%backend)) then
-                deallocate(registered_backends(i)%backend)
-            end if
+            ! Old backend will be automatically deallocated when reassigned
             allocate(registered_backends(i)%backend, source=backend)
             return
         end if
@@ -184,9 +182,7 @@ subroutine register_backend_ctx(registry, name, backend)
     do i = 1, registry%count
         if (registry%entries(i)%name == name) then
             ! Replace existing backend
-            if (associated(registry%entries(i)%backend)) then
-                deallocate(registry%entries(i)%backend)
-            end if
+            ! Old backend will be automatically deallocated when reassigned
             allocate(registry%entries(i)%backend, source=backend)
             return
         end if
