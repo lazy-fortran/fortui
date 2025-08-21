@@ -26,6 +26,11 @@ name = "tui_rendering_demo"
 source-dir = "example"
 main = "tui_rendering_demo.f90"
 
+[[example]]
+name = "test_context_validation"
+source-dir = "example"
+main = "test_context_validation.f90"
+
 [build]
 auto-executables = true
 auto-tests = true

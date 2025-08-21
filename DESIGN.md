@@ -101,1690 +101,811 @@ FORTUI_VERBOSE=1 fpm build
 #endif
 ```
 
-#### Source File Organization
-```
-src/
-├── fortui_core.f90          ! Always compiled
-├── fortui_widgets.f90       ! Always compiled  
-├── fortui_units.f90         ! Always compiled
-├── backends/
-│   ├── tui/
-│   │   ├── tui_backend.F90      ! CPP: #ifdef ENABLE_TUI
-│   │   └── termbox2_c.f90       ! Interface to termbox2 C library
-│   └── gui/
-│       ├── gui_backend.F90      ! CPP: #ifdef ENABLE_GUI  
-│       └── raygui_interface.f90 ! Interface to fortran-raygui
-└── fortui_runtime.F90       ! CPP: Backend selection logic
+#### Backend Runtime Detection
+```fortran
+function is_gui_available() result(available)
+  logical :: available
+  
+#ifdef ENABLE_GUI
+  ! Check if we're in a graphical environment
+  available = check_display_environment()
+#else
+  available = .false.
+#endif
+end function
+
+function check_display_environment() result(has_display)
+  logical :: has_display
+  character(len=256) :: display_var
+  
+  ! Check for X11 or Wayland display
+  call get_environment_variable("DISPLAY", display_var)
+  if (len_trim(display_var) > 0) then
+    has_display = .true.
+    return
+  end if
+  
+  call get_environment_variable("WAYLAND_DISPLAY", display_var)
+  has_display = len_trim(display_var) > 0
+end function
 ```
 
 ### Build Process Flow
 
 #### Phase 1: Environment Assessment
-```bash
-# 1. Detect build environment and set baseline flags
-export ENABLE_TUI=1  # Always available
-
-# 2. Probe for GUI dependencies
-if probe_raylib_installation; then
-    if [ "$DISABLE_GUI" != "1" ]; then
-        export ENABLE_GUI=1
-        log "GUI backend: Enabled (raylib found)"
-    else
-        log "GUI backend: Disabled (DISABLE_GUI=1)"
-    fi
-else
-    log "GUI backend: Unavailable (raylib not found)"
-fi
-```
+1. Detect operating system and architecture
+2. Check for GUI environment (DISPLAY, WAYLAND_DISPLAY)
+3. Probe for raylib installation
+4. Determine available backends
+5. Set compilation mode (TUI-only or TUI+GUI)
 
 #### Phase 2: Dependency Resolution
-```bash
-# 1. Ensure TUI dependencies (termbox2)
-fetch_and_build_termbox2() {
-    local cache_dir="${GUI_CACHE:-$HOME/.cache/fortui}/termbox2"
-    local commit_sha="v2.0.0"  # Pin to stable release
-    
-    if needs_rebuild "$cache_dir" "$commit_sha"; then
-        git clone https://github.com/termbox/termbox2.git "$cache_dir"
-        cd "$cache_dir" && git checkout "$commit_sha"
-        make clean && make
-    fi
-    
-    export TB2_INCLUDE="$cache_dir"
-    export TB2_LIB="$cache_dir/libtermbox2.a"
-}
+1. **termbox2** (always required):
+   - Check cache or clone from GitHub
+   - Build static library with appropriate flags
+   - Verify successful compilation
 
-# 2. Fetch GUI dependencies if enabled
-fetch_and_build_gui_deps() {
-    if [ "$ENABLE_GUI" = "1" ]; then
-        local cache_dir="${GUI_CACHE:-$HOME/.cache/fortui}/fortran-raygui"
-        local repo_url="${FRG_URL:-https://github.com/lazy-fortran/fortran-raygui.git}"
-        local ref="${FRG_REF:-main}"
-        
-        if needs_rebuild "$cache_dir" "$ref"; then
-            git clone "$repo_url" "$cache_dir"
-            cd "$cache_dir" && git checkout "$ref"
-            # Build fortran-raygui against system raylib
-            make clean && make RAYLIB_ROOT="$RAYLIB_ROOT"
-        fi
-        
-        export FRG_INCLUDE="$cache_dir/include"
-        export FRG_LIB="$cache_dir/lib"
-    fi
-}
-```
+2. **fortran-raygui** (if GUI enabled):
+   - Verify raylib availability first
+   - Check cache or clone fortran-raygui
+   - Build with detected raylib paths
+   - Handle failure gracefully (fallback to TUI-only)
 
 #### Phase 3: FPM Configuration Generation
-```bash
-# Generate dynamic fmp.toml additions based on available backends
-generate_fmp_config() {
-    cat > fpm_backend.toml <<EOF
-[preprocess]
-[preprocess.cpp]
-suffixes = ["F90", "f90"]
-directories = ["src"]
+1. Generate preprocessor definitions:
+   - `-DENABLE_TUI=1` (always)
+   - `-DENABLE_GUI=1` (if available)
+   
+2. Set include paths:
+   - termbox2 headers
+   - fortran-raygui modules (if GUI)
+   
+3. Configure link flags:
+   - `-ltermbox2` (static)
+   - `-lraylib -lraygui` (if GUI)
 
-[build]
-preprocessor = "cpp"
-link = [$(generate_link_flags)]
-
-[dependencies]
-$(generate_dependencies)
-EOF
-}
-
-generate_link_flags() {
-    local flags=""
-    
-    # TUI backend (always available)
-    flags="\"$TB2_LIB\""
-    
-    # GUI backend (conditional)
-    if [ "$ENABLE_GUI" = "1" ]; then
-        flags="$flags, \"$FRG_LIB/libfortran-raygui.a\""
-        flags="$flags, $(pkg-config --libs raylib)"
-    fi
-    
-    echo "$flags"
-}
-```
+4. Write temporary FPM response file
 
 #### Phase 4: Compilation with Backend Selection
-```bash
-# Set CPP flags for conditional compilation
-export FFLAGS="${FFLAGS:-} -DENABLE_TUI"
-if [ "$ENABLE_GUI" = "1" ]; then
-    export FFLAGS="$FFLAGS -DENABLE_GUI"
-fi
+1. Preprocess Fortran sources with CPP
+2. Compile backend-specific implementations
+3. Link appropriate libraries
+4. Validate executable
 
-# Add include paths for C libraries
-export FFLAGS="$FFLAGS -I$TB2_INCLUDE"
-if [ "$ENABLE_GUI" = "1" ]; then
-    export FFLAGS="$FFLAGS -I$FRG_INCLUDE"
-fi
+### Error Handling and Fallback
 
-# Execute FPM build with dynamic configuration
-fpm build --flag "$FFLAGS"
+#### Graceful Degradation Path
+```
+GUI requested → raylib not found → Build TUI-only (warning)
+GUI requested → headless environment → Runtime TUI fallback
+TUI requested → termbox2 build fails → Fatal error (required)
 ```
 
-### Cache Management and Performance
-
-#### Intelligent Caching Strategy
+#### Build Diagnostics
 ```bash
-# Cache invalidation triggers:
-needs_rebuild() {
-    local cache_dir="$1"
-    local expected_ref="$2"
-    
-    # Missing cache directory
-    [ ! -d "$cache_dir" ] && return 0
-    
-    # Force rebuild requested
-    [ "$FORCE_REBUILD" = "1" ] && return 0
-    
-    # Different commit/ref than cached
-    local current_ref=$(cd "$cache_dir" && git rev-parse HEAD)
-    [ "$current_ref" != "$(resolve_ref $expected_ref)" ] && return 0
-    
-    # Missing built artifacts
-    [ ! -f "$cache_dir/libtermbox2.a" ] && return 0  # TUI
-    [ "$ENABLE_GUI" = "1" ] && [ ! -f "$cache_dir/lib/libfortran-raygui.a" ] && return 0
-    
-    return 1  # Cache is valid
-}
-
-# Parallel dependency building
-build_dependencies_parallel() {
-    fetch_and_build_termbox2 &
-    local tb2_pid=$!
-    
-    if [ "$ENABLE_GUI" = "1" ]; then
-        fetch_and_build_gui_deps &
-        local gui_pid=$!
-        wait $gui_pid
-    fi
-    
-    wait $tb2_pid
-}
+# Verbose output shows:
+[fortui] Detecting environment...
+[fortui] Found raylib via pkg-config: -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
+[fortui] GUI backend enabled
+[fortui] Building termbox2...
+[fortui] termbox2 built successfully
+[fortui] Fetching fortran-raygui...
+[fortui] fortran-raygui ready
+[fortui] Configuring FPM with dual backends...
+[fortui] Build configuration complete
 ```
 
-#### Cross-Platform Considerations
-```bash
-# Platform-specific adaptations
-detect_platform() {
-    case "$(uname -s)" in
-        Linux*)   PLATFORM=linux;;
-        Darwin*)  PLATFORM=macos;;
-        CYGWIN*)  PLATFORM=windows;;
-        MINGW*)   PLATFORM=windows;;
-        *)        PLATFORM=unknown;;
-    esac
-    export PLATFORM
-}
+### Testing Infrastructure
 
-# Platform-specific raylib detection
-probe_raylib_macos() {
-    # Check Homebrew installations
-    for prefix in /opt/homebrew /usr/local; do
-        if [ -f "$prefix/lib/libraylib.a" ] && [ -f "$prefix/include/raylib.h" ]; then
-            export RAYLIB_ROOT="$prefix"
-            return 0
-        fi
-    done
-    return 1
-}
-
-probe_raylib_linux() {
-    # Check pkg-config first (most reliable)
-    if pkg-config --exists raylib 2>/dev/null; then
-        export RAYLIB_CFLAGS="$(pkg-config --cflags raylib)"
-        export RAYLIB_LIBS="$(pkg-config --libs raylib)"
-        return 0
-    fi
-    
-    # Check standard system paths
-    for prefix in /usr/local /usr /opt/raylib; do
-        if [ -f "$prefix/lib/libraylib.so" ] && [ -f "$prefix/include/raylib.h" ]; then
-            export RAYLIB_ROOT="$prefix"
-            return 0
-        fi
-    done
-    return 1
-}
+#### Multi-Backend Test Suite
+```fortran
+program test_backends
+  use fortui
+  implicit none
+  
+  ! Test TUI backend (always available)
+  call test_tui_backend()
+  
+  ! Test GUI backend (if available)
+  if (is_gui_available()) then
+    call test_gui_backend()
+  else
+    print *, "GUI backend not available - skipping GUI tests"
+  end if
+  
+  ! Test backend switching
+  call test_backend_selection()
+  
+contains
+  
+  subroutine test_tui_backend()
+    call ui_init("tui", 80.0, 24.0, "TUI Test")
+    ! ... test TUI functionality
+    call ui_shutdown()
+  end subroutine
+  
+  subroutine test_gui_backend()
+    call ui_init("gui", 800.0, 600.0, "GUI Test")
+    ! ... test GUI functionality
+    call ui_shutdown()
+  end subroutine
+  
+end program
 ```
 
-### Error Handling and Robustness
+### CI/CD Integration
 
-#### Build Failure Recovery
-```bash
-# Graceful degradation strategy
-handle_build_failure() {
-    local component="$1"
-    local error_code="$2"
-    
-    case "$component" in
-        "termbox2")
-            echo "FATAL: TUI backend required but termbox2 build failed"
-            echo "Try: FORCE_REBUILD=1 fpm build"
-            exit 1
-            ;;
-        "fortran-raygui"|"raylib")
-            echo "WARNING: GUI backend disabled due to build failure"
-            echo "Continuing with TUI-only build..."
-            export ENABLE_GUI=0
-            ;;
-    esac
-}
-
-# Network failure handling
-fetch_with_retry() {
-    local url="$1"
-    local dest="$2"
-    local attempts=3
-    
-    for i in $(seq 1 $attempts); do
-        if git clone "$url" "$dest"; then
-            return 0
-        else
-            echo "Fetch attempt $i/$attempts failed, retrying..."
-            rm -rf "$dest"
-            sleep $((i * 2))  # Exponential backoff
-        fi
-    done
-    
-    echo "ERROR: Failed to fetch $url after $attempts attempts"
-    return 1
-}
+#### GitHub Actions Workflow
+```yaml
+jobs:
+  test-tui-only:
+    runs-on: ubuntu-latest
+    env:
+      DISABLE_GUI: 1
+    steps:
+      - uses: actions/checkout@v3
+      - run: ./tools/build_fortui.sh
+      - run: fpm test
+  
+  test-with-gui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: |
+          # Install raylib
+          sudo apt-get update
+          sudo apt-get install -y libraylib-dev
+      - run: ./tools/build_fortui.sh
+      - run: |
+          # Run with virtual display for GUI tests
+          xvfb-run -a fpm test
 ```
 
-### Success Criteria and Validation
+### Platform-Specific Considerations
 
-#### Build System Validation Tests
-```bash
-# Automated test scenarios:
-test_tui_only_build() {
-    DISABLE_GUI=1 fpm build
-    [ $? -eq 0 ] || fail "TUI-only build failed"
-    
-    # Verify no GUI symbols in binary
-    ! objdump -t build/fortui | grep -q "gui_" || fail "GUI symbols in TUI-only build"
-}
+#### Linux
+- Primary development platform
+- Both X11 and Wayland support
+- Package manager integration (apt, dnf, pacman)
 
-test_dual_backend_build() {
-    fpm build
-    [ $? -eq 0 ] || fail "Dual backend build failed"
-    
-    # Verify both backends available
-    objdump -t build/fortui | grep -q "tui_" || fail "Missing TUI symbols"
-    objdump -t build/fortui | grep -q "gui_" || fail "Missing GUI symbols"
-}
+#### macOS
+- Homebrew for raylib installation
+- Framework linking considerations
+- Accelerate framework for performance
 
-test_cache_persistence() {
-    fpm build  # First build
-    local cache_mtime=$(stat -c %Y "$HOME/.cache/fortui/termbox2/libtermbox2.a")
-    
-    fmp build  # Second build
-    local new_mtime=$(stat -c %Y "$HOME/.cache/fortui/termbox2/libtermbox2.a")
-    
-    [ "$cache_mtime" -eq "$new_mtime" ] || fail "Cache not reused"
-}
+#### Windows
+- MSYS2/MinGW64 environment
+- Windows Terminal for TUI
+- Native Windows GUI via raylib
 
-test_environment_controls() {
-    RAYLIB_ROOT=/nonexistent fpm build
-    [ $? -eq 0 ] || fail "Build failed with invalid RAYLIB_ROOT"
-    
-    FRG_URL=https://github.com/invalid/repo.git fpm build
-    [ $? -eq 0 ] || fail "Build failed with invalid FRG_URL"
-}
-```
+### Performance Optimization
 
-### Implementation Priority and MVP Strategy
+#### Build Caching
+- Compiled dependencies cached in `~/.cache/fortui/`
+- Incremental rebuilds when dependencies unchanged
+- Parallel compilation where possible
+
+#### Link-Time Optimization
+- LTO enabled for release builds
+- Dead code elimination
+- Symbol visibility control
+
+### Implementation Roadmap
 
 #### Phase 1: Core Build Infrastructure (Critical MVP)
-1. **Create `tools/build_fortui.sh`** with basic dependency management
-2. **Update `fpm.toml`** with build-script override and CPP preprocessing
-3. **Implement termbox2 fetching and building** (TUI backend requirement)
-4. **Basic raylib detection** (pkg-config and RAYLIB_ROOT support)
-5. **CPP conditional compilation** for TUI/GUI separation
+- [x] Basic build script with termbox2 compilation
+- [x] TUI-only build working
+- [x] FPM integration with preprocessor
+- [ ] Cache management for dependencies
+- [ ] Error handling and diagnostics
 
 #### Phase 2: Robustness and Developer Experience
-1. **Advanced raylib detection** (multiple search paths, platform-specific)
-2. **fortran-raygui integration** with caching and version control
-3. **Comprehensive error handling** and graceful degradation
-4. **Environment variable controls** for developer workflow
-5. **Build system validation tests**
+- [ ] Multi-method raylib detection
+- [ ] Verbose build diagnostics
+- [ ] Dependency version pinning
+- [ ] Cross-platform testing
+- [ ] CI/CD integration
 
 #### Phase 3: Optimization and Polish
-1. **Parallel dependency building** for faster build times
-2. **Intelligent cache invalidation** and management
-3. **Cross-platform adaptation** (macOS, Windows support)
-4. **Build performance profiling** and optimization
-5. **Advanced developer debugging** tools
-
-This architecture ensures that fortui never fails to build while providing powerful conditional compilation and dependency management capabilities. The TUI backend serves as the robust foundation, with GUI enhancements layered on top when system capabilities allow.
+- [ ] Parallel dependency builds
+- [ ] Incremental compilation
+- [ ] Binary distribution support
+- [ ] Performance profiling
+- [ ] Documentation generation
 
 ⸻
 
-## UI Context Integration with Backend Measurement
+## Backend Abstraction Architecture (Issues #3, #10, #12)
 
 ### Overview
 
-The UI context system provides runtime measurement and conversion between unit types and backend-specific coordinates. This architecture integrates with the abstract type system from Issue #21 to enable context-aware unit conversion during initialization and runtime updates.
+The backend abstraction layer enables fortui to support multiple rendering backends (TUI via termbox2, GUI via raylib/raygui) through a clean, extensible interface. The architecture uses a registration pattern where backends self-register with the core system, eliminating compile-time dependencies and enabling runtime backend selection.
 
-**Core Principle**: Abstract type integration with backend-specific measurement for optimal cross-platform unit handling and context-aware rendering.
+### Design Goals
 
-### Context Architecture Design
+**Modularity**: Backends are independent modules that can be compiled conditionally based on available dependencies.
 
-#### Abstract Type Integration Framework
+**Extensibility**: New backends can be added without modifying core code, following the Open/Closed Principle.
+
+**Runtime Selection**: Backend choice happens at runtime based on environment capabilities and user preference.
+
+**Zero Overhead**: Abstract interface adds no runtime cost through proper use of Fortran's type-bound procedures.
+
+**Type Safety**: Full compile-time type checking despite runtime polymorphism.
+
+### Core Components
+
+#### Backend Interface (fortui_backend.f90)
 ```fortran
-! Enhanced ui_init with abstract unit type support
-subroutine ui_init(backend, width, height, title, target_fps, vsync)
-  character(*), intent(in) :: backend
-  class(unit_type), intent(in) :: width, height    ! Abstract unit interface
-  character(*), intent(in) :: title
-  integer, intent(in), optional :: target_fps
-  logical, intent(in), optional :: vsync
+module fortui_backend
+  implicit none
+  private
   
-  type(ui_context) :: ctx
-  real :: width_dp, height_dp
+  public :: backend_interface, register_backend, get_backend
+  public :: list_backends, backend_available
   
-  ! Initialize context based on backend
-  select case(backend)
-    case("tui")
-      call setup_tui_context(ctx)
-    case("gui") 
-      call setup_gui_context(ctx)
-  end select
+  ! Abstract backend interface - all backends must implement
+  type, abstract :: backend_interface
+    character(len=32) :: name = ""
+    logical :: active = .false.
+  contains
+    procedure(init_interface), deferred :: init
+    procedure(shutdown_interface), deferred :: shutdown
+    procedure(begin_frame_interface), deferred :: begin_frame
+    procedure(render_interface), deferred :: render
+    procedure(should_quit_interface), deferred :: should_quit
+    procedure(is_available_interface), deferred :: is_available
+    procedure(get_screen_size_interface), deferred :: get_screen_size
+  end type backend_interface
   
-  ! Store context globally for API access
-  call ui_set_context(ctx)
+  ! Interface definitions
+  abstract interface
+    subroutine init_interface(self, width, height, title)
+      import :: backend_interface
+      class(backend_interface), intent(inout) :: self
+      integer, intent(in) :: width, height
+      character(*), intent(in) :: title
+    end subroutine
+    
+    subroutine shutdown_interface(self)
+      import :: backend_interface
+      class(backend_interface), intent(inout) :: self
+    end subroutine
+    
+    subroutine begin_frame_interface(self)
+      import :: backend_interface
+      class(backend_interface), intent(inout) :: self
+    end subroutine
+    
+    subroutine render_interface(self, tree)
+      import :: backend_interface
+      class(backend_interface), intent(inout) :: self
+      class(*), intent(in) :: tree
+    end subroutine
+    
+    logical function should_quit_interface(self)
+      import :: backend_interface
+      class(backend_interface), intent(in) :: self
+    end function
+    
+    logical function is_available_interface(self)
+      import :: backend_interface
+      class(backend_interface), intent(in) :: self
+    end function
+    
+    subroutine get_screen_size_interface(self, width, height)
+      import :: backend_interface
+      class(backend_interface), intent(in) :: self
+      integer, intent(out) :: width, height
+    end subroutine
+  end interface
   
-  ! Convert window dimensions using abstract interface
-  width_dp = width%to_dp(ctx)    ! Abstract interface call
-  height_dp = height%to_dp(ctx)  ! Abstract interface call
+  ! Backend registry
+  type :: backend_entry
+    class(backend_interface), pointer :: backend => null()
+    character(len=32) :: name = ""
+  end type backend_entry
   
-  ! Initialize backend with dp dimensions
-  call init_backend(backend, width_dp, height_dp, ctx)
-end subroutine
+  integer, parameter :: MAX_BACKENDS = 8
+  type(backend_entry) :: registry(MAX_BACKENDS)
+  integer :: backend_count = 0
+  
+contains
+  
+  ! Register a backend with the system
+  subroutine register_backend(name, backend)
+    character(*), intent(in) :: name
+    class(backend_interface), target :: backend
+    
+    if (backend_count >= MAX_BACKENDS) then
+      error stop "Backend registry full"
+    end if
+    
+    backend_count = backend_count + 1
+    registry(backend_count)%name = name
+    registry(backend_count)%backend => backend
+    backend%name = name
+  end subroutine
+  
+  ! Get backend by name
+  function get_backend(name) result(backend)
+    character(*), intent(in) :: name
+    class(backend_interface), pointer :: backend
+    integer :: i
+    
+    backend => null()
+    do i = 1, backend_count
+      if (registry(i)%name == name) then
+        backend => registry(i)%backend
+        return
+      end if
+    end do
+  end function
+  
+  ! Check if backend is available
+  logical function backend_available(name)
+    character(*), intent(in) :: name
+    class(backend_interface), pointer :: backend
+    
+    backend => get_backend(name)
+    if (associated(backend)) then
+      backend_available = backend%is_available()
+    else
+      backend_available = .false.
+    end if
+  end function
+  
+  ! List all registered backends
+  subroutine list_backends(names, count)
+    character(len=32), intent(out) :: names(:)
+    integer, intent(out) :: count
+    integer :: i
+    
+    count = min(backend_count, size(names))
+    do i = 1, count
+      names(i) = registry(i)%name
+    end do
+  end subroutine
+  
+end module fortui_backend
 ```
 
-#### Backend-Specific Context Setup
-
-**TUI Context Initialization**:
+#### TUI Backend Implementation (fortui_tui.f90)
 ```fortran
-subroutine setup_tui_context(ctx)
-  type(ui_context), intent(out) :: ctx
+module fortui_tui
+  use fortui_backend
+  use termbox2_bindings
+  implicit none
+  private
   
-  ! Measure terminal cell dimensions in dp equivalents
-  call measure_terminal_cells(ctx%cell_w_dp, ctx%cell_h_dp)
+  public :: tui_backend_t, register_tui_backend
   
-  ! TUI-specific defaults
-  ctx%dpi_scale = 1.0       ! No DPI scaling in terminal
-  ctx%em_dp = ctx%cell_h_dp * 0.8  ! Approximate font size from cell height
-  ctx%text_scale = 1.0      ! No accessibility scaling in terminal
-end subroutine
+  ! TUI backend implementation
+  type, extends(backend_interface) :: tui_backend_t
+    integer :: tb_initialized = 0
+    integer :: width = 0
+    integer :: height = 0
+  contains
+    procedure :: init => tui_init
+    procedure :: shutdown => tui_shutdown
+    procedure :: begin_frame => tui_begin_frame
+    procedure :: render => tui_render
+    procedure :: should_quit => tui_should_quit
+    procedure :: is_available => tui_is_available
+    procedure :: get_screen_size => tui_get_screen_size
+  end type tui_backend_t
+  
+  ! Module-level instance for registration
+  type(tui_backend_t), target :: tui_instance
+  
+contains
+  
+  ! Self-registration function
+  subroutine register_tui_backend()
+    call register_backend("tui", tui_instance)
+  end subroutine
+  
+  subroutine tui_init(self, width, height, title)
+    class(tui_backend_t), intent(inout) :: self
+    integer, intent(in) :: width, height
+    character(*), intent(in) :: title
+    
+    ! Initialize termbox2
+    self%tb_initialized = tb_init()
+    if (self%tb_initialized < 0) then
+      error stop "Failed to initialize termbox2"
+    end if
+    
+    ! Enable mouse support
+    call tb_set_input_mode(TB_INPUT_ESC + TB_INPUT_MOUSE)
+    
+    ! Get actual terminal size
+    self%width = tb_width()
+    self%height = tb_height()
+    
+    self%active = .true.
+  end subroutine
+  
+  subroutine tui_shutdown(self)
+    class(tui_backend_t), intent(inout) :: self
+    
+    if (self%tb_initialized >= 0) then
+      call tb_shutdown()
+      self%tb_initialized = -1
+    end if
+    self%active = .false.
+  end subroutine
+  
+  subroutine tui_begin_frame(self)
+    class(tui_backend_t), intent(inout) :: self
+    call tb_clear()
+  end subroutine
+  
+  subroutine tui_render(self, tree)
+    class(tui_backend_t), intent(inout) :: self
+    class(*), intent(in) :: tree
+    
+    ! Render tree to termbox2 cells
+    call render_tree_to_cells(tree)
+    
+    ! Present to terminal
+    call tb_present()
+  end subroutine
+  
+  logical function tui_should_quit(self)
+    class(tui_backend_t), intent(in) :: self
+    type(tb_event) :: event
+    integer :: poll_result
+    
+    ! Non-blocking poll for quit events
+    poll_result = tb_peek_event(event, 0)
+    tui_should_quit = (event%type == TB_EVENT_KEY .and. &
+                      (event%key == TB_KEY_ESC .or. event%key == TB_KEY_CTRL_C))
+  end function
+  
+  logical function tui_is_available(self)
+    class(tui_backend_t), intent(in) :: self
+    ! TUI is always available (terminal assumed)
+    tui_is_available = .true.
+  end function
+  
+  subroutine tui_get_screen_size(self, width, height)
+    class(tui_backend_t), intent(in) :: self
+    integer, intent(out) :: width, height
+    
+    if (self%active) then
+      width = tb_width()
+      height = tb_height()
+    else
+      width = 80
+      height = 24
+    end if
+  end subroutine
+  
+end module fortui_tui
 ```
 
-**GUI Context Initialization**:
+#### Core Integration (fortui_core.f90)
 ```fortran
-subroutine setup_gui_context(ctx)
-  type(ui_context), intent(out) :: ctx
+module fortui_core
+  use fortui_backend
+  implicit none
+  private
   
-  ! Detect system settings via platform-specific APIs
-  call detect_system_dpi(ctx%dpi_scale)
-  call measure_font_metrics(ctx%em_dp)
-  call detect_text_scaling(ctx%text_scale)
+  public :: ui_init, ui_shutdown, ui_frame_begin, ui_present
+  public :: ui_should_close
   
-  ! Calculate equivalent cell sizes for TUI compatibility
-  ctx%cell_w_dp = ctx%em_dp * 0.6  ! Monospace width ratio
-  ctx%cell_h_dp = ctx%em_dp * 1.2  ! Line height ratio
-end subroutine
+  ! Current active backend
+  class(backend_interface), pointer :: current_backend => null()
+  
+contains
+  
+  subroutine ui_init(backend_name, width, height, title)
+    character(*), intent(in), optional :: backend_name
+    real, intent(in) :: width, height
+    character(*), intent(in), optional :: title
+    
+    character(len=32) :: backend_to_use
+    character(len=256) :: window_title
+    integer :: width_cells, height_cells
+    
+    ! Determine backend
+    if (present(backend_name)) then
+      backend_to_use = backend_name
+    else
+      backend_to_use = select_best_backend()
+    end if
+    
+    ! Get backend from registry
+    current_backend => get_backend(backend_to_use)
+    
+    if (.not. associated(current_backend)) then
+      error stop "Backend not found: " // backend_to_use
+    end if
+    
+    if (.not. current_backend%is_available()) then
+      error stop "Backend not available: " // backend_to_use
+    end if
+    
+    ! Set title
+    if (present(title)) then
+      window_title = title
+    else
+      window_title = "Fortui Application"
+    end if
+    
+    ! Convert dimensions
+    width_cells = int(width)
+    height_cells = int(height)
+    
+    ! Initialize backend
+    call current_backend%init(width_cells, height_cells, window_title)
+  end subroutine
+  
+  subroutine ui_shutdown()
+    if (associated(current_backend)) then
+      call current_backend%shutdown()
+      current_backend => null()
+    end if
+  end subroutine
+  
+  subroutine ui_frame_begin()
+    if (associated(current_backend)) then
+      call current_backend%begin_frame()
+    end if
+  end subroutine
+  
+  subroutine ui_present()
+    if (associated(current_backend)) then
+      ! Build tree from current frame
+      ! ... tree construction ...
+      
+      ! Render through backend
+      call current_backend%render(tree)
+    end if
+  end subroutine
+  
+  logical function ui_should_close()
+    if (associated(current_backend)) then
+      ui_should_close = current_backend%should_quit()
+    else
+      ui_should_close = .true.
+    end if
+  end function
+  
+  ! Select best available backend
+  function select_best_backend() result(name)
+    character(len=32) :: name
+    
+    ! Prefer GUI if available
+    if (backend_available("gui")) then
+      name = "gui"
+    else if (backend_available("tui")) then
+      name = "tui"
+    else
+      error stop "No backends available"
+    end if
+  end function
+  
+end module fortui_core
 ```
 
-### Cross-Platform Measurement Routines
+### Backend Registration Pattern
 
-#### Terminal Cell Measurement (TUI)
-```fortran
-subroutine measure_terminal_cells(cell_w_dp, cell_h_dp)
-  real, intent(out) :: cell_w_dp, cell_h_dp
-  
-  ! Platform-specific terminal measurement strategies:
-  ! 1. Query terminal for cell pixel dimensions via escape sequences
-  ! 2. Use terminfo/termcap database queries where available
-  ! 3. Fallback to conservative defaults for unknown terminals
-  
-  ! Implementation: termbox2 integration for precise cell measurements
-  call tb_query_cell_size(cell_w_dp, cell_h_dp)
-  
-  ! Sanity check and fallback
-  if (cell_w_dp <= 0.0 .or. cell_h_dp <= 0.0) then
-    cell_w_dp = 8.0   ! Default monospace character width
-    cell_h_dp = 16.0  ! Default line height
-  end if
-end subroutine
-```
+#### Automatic Registration
+Backends register themselves when their modules are loaded:
 
-#### System DPI Detection (GUI)
 ```fortran
-subroutine detect_system_dpi(dpi_scale)
-  real, intent(out) :: dpi_scale
+! In fortui_main.f90 or initialization
+program fortui_app
+  use fortui_core
   
-  ! Platform-specific DPI detection
-  dpi_scale = 1.0  ! Default for 96 DPI baseline
-  
-#ifdef __linux__
-  ! Linux: X11/Wayland DPI queries
-  call linux_detect_dpi(dpi_scale)
-#elif defined(_WIN32)
-  ! Windows: GetDpiForWindow API
-  call windows_detect_dpi(dpi_scale)
-#elif defined(__APPLE__)
-  ! macOS: NSScreen backingScaleFactor
-  call macos_detect_dpi(dpi_scale)
+  ! Conditional backend registration based on compilation
+#ifdef ENABLE_TUI
+  use fortui_tui, only: register_tui_backend
 #endif
-end subroutine
 
-! Platform-specific implementations
-#ifdef __linux__
-subroutine linux_detect_dpi(dpi_scale)
-  real, intent(out) :: dpi_scale
-  ! Implementation: X11 XDisplayWidth/XDisplayWidthMM ratio
-  ! Or Wayland wl_output logical_size/physical_size
-  dpi_scale = query_x11_dpi_scale()
-end subroutine
+#ifdef ENABLE_GUI
+  use fortui_gui, only: register_gui_backend
 #endif
-```
-
-#### Font Metrics Measurement (GUI)
-```fortran
-subroutine measure_font_metrics(em_dp)
-  real, intent(out) :: em_dp
   
-  ! Measure actual font metrics in current rendering context
-  ! Use raylib/raygui font measurement functions for precision
-  em_dp = measure_default_font_em()
+  implicit none
   
-  ! Sanity check and fallback
-  if (em_dp <= 0.0) then
-    em_dp = 16.0  ! Default reasonable base font size
-  end if
-end subroutine
-
-real function measure_default_font_em() result(em_size)
-  ! Integration with raylib font measurement
-  ! MeasureTextEx() with default font and size
-  em_size = real(MeasureText("M", default_font_size))
-end function
-```
-
-#### Accessibility Text Scaling Detection
-```fortran
-subroutine detect_text_scaling(text_scale)
-  real, intent(out) :: text_scale
-  
-  ! Query system accessibility settings
-  text_scale = 1.0  ! Default no scaling
-  
-#ifdef __linux__
-  ! Linux: gsettings text-scaling-factor
-  call linux_detect_text_scaling(text_scale)
-#elif defined(_WIN32)
-  ! Windows: SystemParametersInfo for font scaling
-  call windows_detect_text_scaling(text_scale)
-#elif defined(__APPLE__)
-  ! macOS: NSUserDefaults preferredContentSizeCategory
-  call macos_detect_text_scaling(text_scale)
+  ! Register available backends
+#ifdef ENABLE_TUI
+  call register_tui_backend()
 #endif
+
+#ifdef ENABLE_GUI  
+  call register_gui_backend()
+#endif
+  
+  ! Now initialize with desired backend
+  call ui_init("auto", 80.0, 24.0, "My App")
+  
+  ! ... application code ...
+  
+end program
+```
+
+### Tree Rendering Architecture
+
+#### Widget Tree Structure
+```fortran
+! Generic tree node for backend-agnostic representation
+type :: render_node
+  integer :: type  ! CONTAINER, BUTTON, TEXT, etc.
+  real :: x, y, width, height  ! Normalized coordinates
+  character(len=256) :: text
+  integer :: style_flags
+  type(render_node), pointer :: children(:) => null()
+  type(render_node), pointer :: next => null()
+end type
+```
+
+#### Backend-Specific Rendering
+Each backend traverses the tree and renders using its native primitives:
+
+```fortran
+! TUI: Convert to terminal cells
+subroutine render_tree_to_cells(tree)
+  ! Walk tree, convert to tb_cell operations
+end subroutine
+
+! GUI: Convert to raylib draw calls  
+subroutine render_tree_to_gui(tree)
+  ! Walk tree, convert to DrawRectangle, DrawText, etc.
 end subroutine
 ```
 
-### Context-Aware Rendering Integration
+### Event Handling Architecture
 
-#### TUI Rendering with Context
+#### Unified Event Model
 ```fortran
-subroutine render_tui_element(x_dp, y_dp, w_dp, h_dp, ctx)
-  real, intent(in) :: x_dp, y_dp, w_dp, h_dp
-  type(ui_context), intent(in) :: ctx
-  
-  ! Convert dp coordinates to cell positions with snapping
-  integer :: x_cells, y_cells, w_cells, h_cells
-  
-  x_cells = nint(x_dp / ctx%cell_w_dp)
-  y_cells = nint(y_dp / ctx%cell_h_dp)
-  w_cells = max(1, nint(w_dp / ctx%cell_w_dp))
-  h_cells = max(1, nint(h_dp / ctx%cell_h_dp))
-  
-  ! Render using termbox2 with cell coordinates
-  call tb_render_rect(x_cells, y_cells, w_cells, h_cells)
-end subroutine
+type :: ui_event
+  integer :: type  ! KEY, MOUSE, RESIZE, etc.
+  integer :: key
+  integer :: mouse_x, mouse_y
+  integer :: mouse_button
+  logical :: shift, ctrl, alt
+end type
 ```
 
-#### GUI Rendering with Context
+#### Backend Event Translation
 ```fortran
-subroutine render_gui_element(x_dp, y_dp, w_dp, h_dp, ctx)
-  real, intent(in) :: x_dp, y_dp, w_dp, h_dp
-  type(ui_context), intent(in) :: ctx
+! TUI backend translates termbox events
+subroutine tui_poll_events(self, event)
+  class(tui_backend_t), intent(inout) :: self
+  type(ui_event), intent(out) :: event
+  type(tb_event) :: tb_ev
   
-  ! Convert dp coordinates to pixel positions (subpixel precision)
-  real :: x_pixels, y_pixels, w_pixels, h_pixels
-  
-  x_pixels = x_dp * ctx%dpi_scale
-  y_pixels = y_dp * ctx%dpi_scale
-  w_pixels = w_dp * ctx%dpi_scale
-  h_pixels = h_dp * ctx%dpi_scale
-  
-  ! Render using raylib with precise pixel coordinates
-  call DrawRectangle(int(x_pixels), int(y_pixels), &
-                     int(w_pixels), int(h_pixels), color)
-end subroutine
-```
-
-### Abstract Type System Integration
-
-#### Enhanced Unit Processing with Context
-```fortran
-! Helper function for converting any abstract unit to dp with context
-real function unit_to_dp_with_context(unit_arg) result(dp_value)
-  class(unit_type), intent(in) :: unit_arg
-  type(ui_context) :: ctx
-  
-  call ui_get_context(ctx)
-  dp_value = unit_arg%to_dp(ctx)  ! Abstract interface call
-end function
-
-! Widget integration example with abstract unit handling
-subroutine process_widget_size(width_arg, height_arg, w_dp, h_dp)
-  class(unit_type), intent(in), optional :: width_arg, height_arg
-  real, intent(out) :: w_dp, h_dp
-  type(ui_context) :: ctx
-  
-  call ui_get_context(ctx)
-  
-  if (present(width_arg)) then
-    w_dp = width_arg%to_dp(ctx)   ! Abstract interface conversion
-  else
-    w_dp = auto_width(ctx)        ! Context-aware default
-  end if
-  
-  if (present(height_arg)) then
-    h_dp = height_arg%to_dp(ctx)  ! Abstract interface conversion
-  else
-    h_dp = auto_height(ctx)       ! Context-aware default
+  if (tb_poll_event(tb_ev) > 0) then
+    event%type = translate_tb_event_type(tb_ev%type)
+    ! ... translation logic
   end if
 end subroutine
-```
 
-### Context Lifecycle Management
-
-#### Runtime Context Updates
-```fortran
-! Support for runtime context updates (DPI changes, accessibility changes)
-subroutine ui_update_context(new_ctx)
-  type(ui_context), intent(in) :: new_ctx
-  call ui_set_context(new_ctx)
+! GUI backend translates raylib events
+subroutine gui_poll_events(self, event)
+  class(gui_backend_t), intent(inout) :: self
+  type(ui_event), intent(out) :: event
   
-  ! Trigger layout recalculation for affected widgets
-  call invalidate_widget_layouts()
-end subroutine
-
-! Event-driven context updates
-subroutine handle_system_dpi_change()
-  type(ui_context) :: ctx
-  call ui_get_context(ctx)
-  call detect_system_dpi(ctx%dpi_scale)  ! Re-measure DPI
-  call ui_update_context(ctx)
-end subroutine
-```
-
-#### Context Validation and Error Handling
-```fortran
-subroutine validate_context(ctx, is_valid)
-  type(ui_context), intent(in) :: ctx
-  logical, intent(out) :: is_valid
-  
-  is_valid = .true.
-  
-  ! Sanity check context values
-  if (ctx%dpi_scale <= 0.0 .or. ctx%dpi_scale > 10.0) is_valid = .false.
-  if (ctx%em_dp <= 0.0 .or. ctx%em_dp > 200.0) is_valid = .false.
-  if (ctx%text_scale <= 0.0 .or. ctx%text_scale > 5.0) is_valid = .false.
-  if (ctx%cell_w_dp <= 0.0 .or. ctx%cell_h_dp <= 0.0) is_valid = .false.
-  
-  if (.not. is_valid) then
-    ! Log warning and apply fallback context
-    call apply_fallback_context()
+  if (IsKeyPressed(KEY_ANY)) then
+    event%type = EVENT_KEY
+    ! ... translation logic
   end if
 end subroutine
 ```
 
-### Implementation Architecture
+### Context and State Management
 
-#### File Organization
-```
-src/
-├── fortui_core.f90           ! ui_init integration with abstract types
-├── fortui_context.f90        ! Context lifecycle and measurement
-├── fortui_units.f90          ! Abstract unit type interfaces  
-├── backends/
-│   ├── tui/
-│   │   ├── tui_context.f90       ! TUI-specific context setup
-│   │   └── tui_measurement.f90   ! Terminal cell measurement
-│   └── gui/
-│       ├── gui_context.f90       ! GUI-specific context setup
-│       └── gui_measurement.f90   ! DPI and font measurement
-└── platform/
-    ├── linux_measurement.f90     ! Linux-specific DPI/accessibility
-    ├── windows_measurement.f90   ! Windows-specific APIs
-    └── macos_measurement.f90     ! macOS-specific APIs
-```
+#### Backend-Specific Context
+Each backend maintains its own state and context:
 
-#### Key Integration Points
-
-**1. ui_init() Enhancement**:
-- Accept `class(unit_type)` for width/height parameters
-- Automatic context setup based on backend selection
-- Abstract interface calls for unit conversion
-- Context validation and fallback handling
-
-**2. Backend Integration**:
-- TUI backend: Terminal cell measurement via termbox2
-- GUI backend: System DPI and font metric detection via raylib
-- Cross-platform measurement abstraction
-
-**3. Runtime Adaptability**:
-- Context update mechanism for DPI changes
-- Event-driven accessibility setting updates
-- Layout invalidation and recalculation
-
-**4. Performance Optimization**:
-- Context caching to minimize repeated measurements
-- Lazy evaluation of expensive platform queries
-- Minimal conversion overhead for frequent operations
-
-### Advanced Features
-
-#### Multi-Monitor DPI Awareness
 ```fortran
-! Per-monitor DPI handling for multi-display setups
-type :: monitor_context
-  integer :: monitor_id
-  real :: dpi_scale
-  real :: physical_width_mm, physical_height_mm
+type, extends(backend_interface) :: tui_backend_t
+  ! TUI-specific state
+  integer :: cursor_x = 0, cursor_y = 0
+  type(tb_cell), allocatable :: front_buffer(:,:)
+  type(tb_cell), allocatable :: back_buffer(:,:)
+  integer, allocatable :: line_hashes(:)
 end type
 
-subroutine detect_monitor_contexts(contexts)
-  type(monitor_context), allocatable, intent(out) :: contexts(:)
-  ! Platform-specific multi-monitor detection
-end subroutine
+type, extends(backend_interface) :: gui_backend_t
+  ! GUI-specific state
+  integer :: window_handle
+  type(Font) :: default_font
+  real :: dpi_scale = 1.0
+  integer :: frame_count = 0
+end type
 ```
 
-#### Dynamic Context Switching
+### Performance Optimizations
+
+#### TUI Optimizations
+- **Diff-based rendering**: Only update changed cells
+- **Line hashing**: Quick detection of unchanged lines
+- **Batch updates**: Coalesce multiple updates into single write
+
+#### GUI Optimizations
+- **Dirty rectangles**: Track and redraw only changed regions
+- **Texture caching**: Cache rendered text and complex widgets
+- **VSync alignment**: Align updates with display refresh
+
+### Testing Strategy
+
+#### Backend Isolation Testing
 ```fortran
-! Handle window movement between monitors with different DPI
-subroutine update_context_for_monitor(monitor_id)
-  integer, intent(in) :: monitor_id
-  type(ui_context) :: ctx
+module test_backend_isolation
+  use fortui_backend
+  use fortui_test_utils
+  implicit none
   
-  call ui_get_context(ctx)
-  call get_monitor_dpi_scale(monitor_id, ctx%dpi_scale)
-  call ui_update_context(ctx)
-end subroutine
+  ! Mock backend for testing
+  type, extends(backend_interface) :: mock_backend_t
+    integer :: init_calls = 0
+    integer :: render_calls = 0
+  contains
+    procedure :: init => mock_init
+    procedure :: render => mock_render
+    ! ... other procedures
+  end type
+  
+contains
+  
+  subroutine test_backend_registration()
+    type(mock_backend_t), target :: mock
+    class(backend_interface), pointer :: retrieved
+    
+    call register_backend("mock", mock)
+    retrieved => get_backend("mock")
+    
+    call assert_associated(retrieved, "Backend should be registered")
+    call assert_equals(retrieved%name, "mock", "Backend name should match")
+  end subroutine
+  
+end module
 ```
 
-### Testing and Validation Strategy
+### Migration Strategy
 
-#### Unit Testing
-- **Context initialization**: Validate context setup for both backends
-- **Measurement accuracy**: Test platform-specific measurement routines
-- **Abstract type integration**: Verify unit conversion via abstract interface
-- **Error handling**: Test graceful fallback when measurements fail
+#### Phase 1: Backend Abstraction Layer
+1. Create `fortui_backend.f90` with abstract interface
+2. Implement backend registry
+3. Add registration/retrieval functions
+4. Write comprehensive tests
 
-#### Integration Testing
-- **Cross-backend consistency**: Ensure equivalent visual results
-- **Runtime updates**: Test DPI change and accessibility updates
-- **Performance validation**: Verify conversion overhead acceptable
-- **Platform compatibility**: Test on Linux, Windows, macOS
+#### Phase 2: Registration System
+1. Implement self-registration pattern
+2. Add conditional compilation for backends
+3. Update build system to handle registration
+4. Validate with multiple backend configurations
+
+#### Phase 3: Migration and Testing
+1. Migrate TUI backend to new architecture
+2. Migrate GUI backend to new architecture
+3. Update all examples to use new system
+4. Performance validation and optimization
 
 ### Success Criteria
 
-**Core Functionality**:
-- [ ] Context automatically initialized during ui_init() for both backends
-- [ ] Abstract type integration: ui_init accepts `class(unit_type)` parameters
-- [ ] TUI cell measurements produce accurate cell-to-dp conversion ratios
-- [ ] GUI DPI detection works correctly on high-DPI displays
-- [ ] Font metrics measurement produces correct em_dp values
-- [ ] Accessibility text scaling integrated correctly
+**Architecture**:
+- [ ] Clean separation between core and backends
+- [ ] No compile-time dependencies from core to backends
+- [ ] Runtime backend selection working
+- [ ] Easy addition of new backends
 
-**Cross-Platform Support**:
-- [ ] Platform-specific measurement routines implemented (Linux/Windows/macOS)
-- [ ] Fallback defaults work when measurements unavailable
-- [ ] Context validation prevents invalid measurement values
+**Functionality**:
+- [ ] All existing features work with new architecture
+- [ ] Seamless backend switching
+- [ ] Proper cleanup on backend shutdown
+- [ ] Event handling works across backends
 
-**Performance and Reliability**:
-- [ ] Context-aware rendering produces consistent visual results
-- [ ] Context update mechanism functional for runtime changes
-- [ ] Performance acceptable for frequent unit conversions
-- [ ] Memory usage optimized for context storage and caching
-
-**Abstract Type System**:
-- [ ] **NO class(*) usage** - only abstract `unit_type` interface
-- [ ] Abstract interface calls work correctly throughout codebase
-- [ ] Type safety maintained with abstract unit type system
-- [ ] Conversion accuracy validated across all unit types
-
-### Dependencies and Blocking Issues
-
-**Requires**:
-- **Issue #21**: Units system with abstract types (CRITICAL dependency)
-- **Issue #1**: Core types and ui_context definition
-- **Issue #2**: Lifecycle functions (ui_init, ui_get_context, ui_set_context)
-
-**Blocked by**:
-- **Issue #6**: TUI backend for terminal measurement integration
-- **Issue #11**: GUI backend for raylib measurement integration
-
-**Enables**:
-- **Issue #3**: Layout constructors with proper unit conversion
-- **Issues #4-9**: All widgets with context-aware unit handling
-- Future canvas and advanced rendering features
-
-**Priority**: **CRITICAL** - Required for functional abstract unit system and cross-platform consistency.
-
-⸻
-
-## Backend Abstraction Layer (Issue #60)
-
-### Problem Statement
-
-The current architecture has a critical circular dependency:
-- `fortui_core` directly imports `fortui_gui` module for backend functions
-- `fortui_gui` is conditionally compiled with `#ifdef ENABLE_GUI`
-- When GUI is disabled, `fortui_gui` module doesn't exist, causing undefined module errors
-- This violates Dependency Inversion, Single Responsibility, and Open/Closed principles
-
-### Architecture Solution: Backend Registry Pattern
-
-Implement a backend abstraction layer using a registration pattern where backends register themselves with the core, rather than core importing backends directly. This eliminates compile-time dependencies and enables runtime backend selection.
-
-#### Backend Interface Definition
-```fortran
-! src/fortui_backend.f90 - Backend abstraction layer
-module fortui_backend
-  implicit none
-  private
-  
-  ! Public interface for backend operations
-  public :: backend_interface, register_backend, get_backend
-  public :: backend_capability
-  
-  ! Backend capability flags
-  type :: backend_capability
-    logical :: graphics = .false.      ! Can render graphics
-    logical :: colors = .false.        ! Supports colors
-    logical :: mouse = .false.         ! Mouse input support
-    logical :: unicode = .false.       ! Unicode support
-    logical :: async_events = .false.  ! Async event handling
-  end type backend_capability
-  
-  ! Abstract interface that all backends must implement
-  type, abstract :: backend_interface
-    type(backend_capability) :: capabilities
-  contains
-    procedure(init_proc), deferred :: init
-    procedure(shutdown_proc), deferred :: shutdown
-    procedure(begin_frame_proc), deferred :: begin_frame
-    procedure(present_proc), deferred :: present
-    procedure(is_available_proc), deferred :: is_available
-    procedure(check_quit_proc), deferred :: check_quit
-  end type backend_interface
-  
-  ! Interface definitions for backend procedures
-  abstract interface
-    subroutine init_proc(self, width, height, title, target_fps, vsync)
-      import :: backend_interface
-      class(backend_interface), intent(inout) :: self
-      integer, intent(in) :: width, height
-      character(*), intent(in) :: title
-      integer, intent(in) :: target_fps
-      logical, intent(in) :: vsync
-    end subroutine init_proc
-    
-    subroutine shutdown_proc(self)
-      import :: backend_interface
-      class(backend_interface), intent(inout) :: self
-    end subroutine shutdown_proc
-    
-    subroutine begin_frame_proc(self)
-      import :: backend_interface
-      class(backend_interface), intent(inout) :: self
-    end subroutine begin_frame_proc
-    
-    subroutine present_proc(self)
-      import :: backend_interface
-      class(backend_interface), intent(inout) :: self
-    end subroutine present_proc
-    
-    logical function is_available_proc(self)
-      import :: backend_interface
-      class(backend_interface), intent(in) :: self
-    end function is_available_proc
-    
-    logical function check_quit_proc(self)
-      import :: backend_interface
-      class(backend_interface), intent(inout) :: self
-    end function check_quit_proc
-  end interface
-  
-  ! Backend registry (private to module)
-  type :: backend_entry
-    character(len=32) :: name
-    class(backend_interface), allocatable :: backend
-  end type backend_entry
-  
-  type(backend_entry), allocatable :: registered_backends(:)
-  integer :: num_backends = 0
-  
-contains
-  
-  ! Register a backend implementation
-  subroutine register_backend(name, backend)
-    character(*), intent(in) :: name
-    class(backend_interface), intent(in) :: backend
-    
-    type(backend_entry), allocatable :: temp(:)
-    
-    ! Resize array if needed
-    if (.not. allocated(registered_backends)) then
-      allocate(registered_backends(4))
-    else if (num_backends >= size(registered_backends)) then
-      allocate(temp(size(registered_backends) * 2))
-      temp(1:num_backends) = registered_backends(1:num_backends)
-      call move_alloc(temp, registered_backends)
-    end if
-    
-    ! Add new backend
-    num_backends = num_backends + 1
-    registered_backends(num_backends)%name = name
-    allocate(registered_backends(num_backends)%backend, source=backend)
-  end subroutine register_backend
-  
-  ! Get a registered backend by name
-  function get_backend(name) result(backend)
-    character(*), intent(in) :: name
-    class(backend_interface), pointer :: backend
-    
-    integer :: i
-    
-    backend => null()
-    do i = 1, num_backends
-      if (registered_backends(i)%name == name) then
-        backend => registered_backends(i)%backend
-        exit
-      end if
-    end do
-  end function get_backend
-  
-end module fortui_backend
-```
-
-#### TUI Backend Implementation
-```fortran
-! src/fortui_tui.f90 - TUI backend (always compiled)
-module fortui_tui
-  use fortui_backend
-  use iso_c_binding
-  implicit none
-  private
-  
-  public :: tui_backend_t, register_tui_backend
-  
-  ! TUI backend implementation
-  type, extends(backend_interface) :: tui_backend_t
-    logical :: initialized = .false.
-    ! Add termbox2-specific state here
-  contains
-    procedure :: init => tui_init
-    procedure :: shutdown => tui_shutdown
-    procedure :: begin_frame => tui_begin_frame
-    procedure :: present => tui_present
-    procedure :: is_available => tui_is_available
-    procedure :: check_quit => tui_check_quit
-  end type tui_backend_t
-  
-contains
-  
-  subroutine register_tui_backend()
-    type(tui_backend_t) :: tui
-    
-    ! Set TUI capabilities
-    tui%capabilities%colors = .true.
-    tui%capabilities%mouse = .true.
-    tui%capabilities%unicode = .true.
-    tui%capabilities%async_events = .true.
-    
-    call register_backend("tui", tui)
-  end subroutine register_tui_backend
-  
-  ! Implementation procedures...
-  subroutine tui_init(self, width, height, title, target_fps, vsync)
-    class(tui_backend_t), intent(inout) :: self
-    integer, intent(in) :: width, height
-    character(*), intent(in) :: title
-    integer, intent(in) :: target_fps
-    logical, intent(in) :: vsync
-    
-    ! Initialize termbox2
-    self%initialized = .true.
-  end subroutine tui_init
-  
-  ! ... other procedures implemented similarly
-  
-end module fortui_tui
-```
-
-#### GUI Backend Implementation (Conditional)
-```fortran
-! src/fortui_gui.F90 - GUI backend (conditionally compiled)
-#ifdef ENABLE_GUI
-module fortui_gui
-  use fortui_backend
-  use iso_c_binding
-  implicit none
-  private
-  
-  public :: gui_backend_t, register_gui_backend
-  
-  ! GUI backend implementation
-  type, extends(backend_interface) :: gui_backend_t
-    logical :: initialized = .false.
-    logical :: window_created = .false.
-    integer :: window_width = 800
-    integer :: window_height = 600
-    ! Add raylib-specific state here
-  contains
-    procedure :: init => gui_init
-    procedure :: shutdown => gui_shutdown
-    procedure :: begin_frame => gui_begin_frame
-    procedure :: present => gui_present
-    procedure :: is_available => gui_is_available
-    procedure :: check_quit => gui_check_quit
-  end type gui_backend_t
-  
-contains
-  
-  subroutine register_gui_backend()
-    type(gui_backend_t) :: gui
-    
-    ! Set GUI capabilities
-    gui%capabilities%graphics = .true.
-    gui%capabilities%colors = .true.
-    gui%capabilities%mouse = .true.
-    gui%capabilities%unicode = .true.
-    
-    call register_backend("gui", gui)
-  end subroutine register_gui_backend
-  
-  ! Implementation procedures...
-  subroutine gui_init(self, width, height, title, target_fps, vsync)
-    class(gui_backend_t), intent(inout) :: self
-    integer, intent(in) :: width, height
-    character(*), intent(in) :: title
-    integer, intent(in) :: target_fps
-    logical, intent(in) :: vsync
-    
-    ! Initialize raylib/raygui
-    self%window_width = width
-    self%window_height = height
-    self%initialized = .true.
-    self%window_created = .true.
-  end subroutine gui_init
-  
-  logical function gui_is_available(self)
-    class(gui_backend_t), intent(in) :: self
-    
-    ! Check for display availability
-    character(len=256) :: display_var
-    integer :: ios
-    
-    call get_environment_variable("DISPLAY", display_var, status=ios)
-    gui_is_available = (ios == 0 .and. len_trim(display_var) > 0)
-  end function gui_is_available
-  
-  ! ... other procedures implemented similarly
-  
-end module fortui_gui
-#endif
-```
-
-#### Core Module Updates
-```fortran
-! src/fortui_core.f90 - Updated core without direct backend imports
-module fortui_core
-  use fortui_backend  ! Only import the abstraction layer
-  use fortui_units
-  implicit none
-  
-  ! Core state
-  type :: ui_state_t
-    character(len=32) :: active_backend = "tui"
-    class(backend_interface), pointer :: backend => null()
-    ! ... other state
-  end type ui_state_t
-  
-  type(ui_state_t), save :: ui_state
-  
-contains
-  
-  subroutine ui_init(backend_name, width, height, title, target_fps, vsync)
-    character(*), intent(in) :: backend_name
-    class(*), intent(in) :: width, height
-    character(*), intent(in) :: title
-    integer, intent(in), optional :: target_fps
-    logical, intent(in), optional :: vsync
-    
-    integer :: width_px, height_px
-    character(len=32) :: selected_backend
-    
-    ! Convert units to pixels
-    width_px = convert_to_pixels(width)
-    height_px = convert_to_pixels(height)
-    
-    ! Backend selection logic
-    selected_backend = backend_name
-    if (backend_name == "auto") then
-      selected_backend = select_best_backend()
-    end if
-    
-    ! Get the backend from registry
-    ui_state%backend => get_backend(selected_backend)
-    
-    if (.not. associated(ui_state%backend)) then
-      ! Fallback to TUI if requested backend not available
-      ui_state%backend => get_backend("tui")
-      if (.not. associated(ui_state%backend)) then
-        error stop "FATAL: No backends available"
-      end if
-      print *, "Warning: Requested backend '" // trim(selected_backend) // &
-               "' not available, using TUI"
-    end if
-    
-    ! Check if backend is actually available in current environment
-    if (.not. ui_state%backend%is_available()) then
-      ! Try fallback to TUI
-      ui_state%backend => get_backend("tui")
-      if (associated(ui_state%backend)) then
-        if (ui_state%backend%is_available()) then
-          print *, "Warning: Selected backend not available in environment, using TUI"
-        else
-          error stop "FATAL: No backends available in current environment"
-        end if
-      else
-        error stop "FATAL: TUI backend not registered"
-      end if
-    end if
-    
-    ! Initialize the selected backend
-    ui_state%active_backend = selected_backend
-    call ui_state%backend%init(width_px, height_px, title, &
-                                target_fps_val, vsync_val)
-  end subroutine ui_init
-  
-  function select_best_backend() result(backend_name)
-    character(len=32) :: backend_name
-    class(backend_interface), pointer :: backend
-    
-    ! Try GUI first if available
-    backend => get_backend("gui")
-    if (associated(backend)) then
-      if (backend%is_available()) then
-        backend_name = "gui"
-        return
-      end if
-    end if
-    
-    ! Fallback to TUI
-    backend_name = "tui"
-  end function select_best_backend
-  
-  subroutine ui_begin_frame()
-    if (associated(ui_state%backend)) then
-      call ui_state%backend%begin_frame()
-    end if
-  end subroutine ui_begin_frame
-  
-  subroutine ui_present()
-    if (associated(ui_state%backend)) then
-      call ui_state%backend%present()
-    end if
-  end subroutine ui_present
-  
-  subroutine ui_shutdown()
-    if (associated(ui_state%backend)) then
-      call ui_state%backend%shutdown()
-      ui_state%backend => null()
-    end if
-  end subroutine ui_shutdown
-  
-end module fortui_core
-```
-
-#### Backend Registration at Program Start
-```fortran
-! src/fortui.f90 - Main module with backend registration
-module fortui
-  use fortui_core
-  use fortui_widgets
-  use fortui_units
-  use fortui_backend
-  use fortui_tui      ! Always available
-#ifdef ENABLE_GUI
-  use fortui_gui      ! Conditionally available
-#endif
-  implicit none
-  
-  ! Module initialization
-  logical, save :: backends_registered = .false.
-  
-contains
-  
-  ! Called automatically or explicitly before ui_init
-  subroutine register_backends()
-    if (backends_registered) return
-    
-    ! Always register TUI backend
-    call register_tui_backend()
-    
-#ifdef ENABLE_GUI
-    ! Register GUI backend if compiled in
-    call register_gui_backend()
-#endif
-    
-    backends_registered = .true.
-  end subroutine register_backends
-  
-end module fortui
-```
-
-### Implementation Strategy
-
-#### Phase 1: Backend Abstraction Layer
-1. Create `fortui_backend.f90` with abstract interface and registry
-2. Update `fortui_tui.f90` to implement backend interface
-3. Update `fortui_gui.F90` to implement backend interface
-4. Remove direct backend imports from `fortui_core.f90`
-
-#### Phase 2: Registration System
-1. Implement backend registration in main `fortui.f90` module
-2. Add automatic registration on module load
-3. Update `ui_init` to use registered backends
-
-#### Phase 3: Migration and Testing
-1. Update all backend-specific calls to use interface
-2. Test TUI-only builds
-3. Test GUI+TUI builds
-4. Verify runtime backend selection
-
-### Benefits
-
-**Architectural Improvements**:
-- **Dependency Inversion**: Core depends on abstraction, not concrete implementations
-- **Single Responsibility**: Core only manages lifecycle, backends handle rendering
-- **Open/Closed**: New backends can be added without modifying core
-- **Compile-time Safety**: No undefined module references
-
-**Build System Benefits**:
-- Eliminates circular dependency compilation errors
-- Simplifies conditional compilation logic
-- Enables true modular backend system
-- Fixes Issues #52, #53, #58 by proper module isolation
-
-**Runtime Benefits**:
-- Dynamic backend discovery and selection
-- Graceful fallback when backends unavailable
-- Clear capability reporting
-- Extensible for future backends
-
-### Testing Strategy
-
-1. **Unit Tests**: Test backend registration and retrieval
-2. **Integration Tests**: Test backend selection logic
-3. **Build Tests**: Verify TUI-only and GUI+TUI configurations
-4. **Runtime Tests**: Verify environment detection and fallback
-
-### Impact on Other Issues
-
-- **Issue #58**: GUI initialization will work correctly with proper abstraction
-- **Issue #52-53**: Library paths managed per-backend, no cross-contamination
-- **Issue #11**: GUI backend becomes truly optional add-on
-- **Future**: Easy to add new backends (web, curses, etc.)
-
-⸻
-
-## Backend Abstraction Layer (Issue #60)
-
-### Problem Statement
-
-The current architecture has a critical circular dependency:
-- `fortui_core` directly imports `fortui_gui` module for backend functions
-- `fortui_gui` is conditionally compiled with `#ifdef ENABLE_GUI`
-- When GUI is disabled, `fortui_gui` module doesn't exist, causing undefined module errors
-- This violates Dependency Inversion, Single Responsibility, and Open/Closed principles
-
-### Architecture Solution: Backend Registry Pattern
-
-Implement a backend abstraction layer using a registration pattern where backends register themselves with the core, rather than core importing backends directly. This eliminates compile-time dependencies and enables runtime backend selection.
-
-#### Backend Interface Definition
-```fortran
-! src/fortui_backend.f90 - Backend abstraction layer
-module fortui_backend
-  implicit none
-  private
-  
-  ! Public interface for backend operations
-  public :: backend_interface, register_backend, get_backend
-  public :: backend_capability
-  
-  ! Backend capability flags
-  type :: backend_capability
-    logical :: graphics = .false.      ! Can render graphics
-    logical :: colors = .false.        ! Supports colors
-    logical :: mouse = .false.         ! Mouse input support
-    logical :: unicode = .false.       ! Unicode support
-    logical :: async_events = .false.  ! Async event handling
-  end type backend_capability
-  
-  ! Abstract interface that all backends must implement
-  type, abstract :: backend_interface
-    type(backend_capability) :: capabilities
-  contains
-    procedure(init_proc), deferred :: init
-    procedure(shutdown_proc), deferred :: shutdown
-    procedure(begin_frame_proc), deferred :: begin_frame
-    procedure(present_proc), deferred :: present
-    procedure(is_available_proc), deferred :: is_available
-    procedure(check_quit_proc), deferred :: check_quit
-  end type backend_interface
-  
-  ! Interface definitions for backend procedures
-  abstract interface
-    subroutine init_proc(self, width, height, title, target_fps, vsync)
-      import :: backend_interface
-      class(backend_interface), intent(inout) :: self
-      integer, intent(in) :: width, height
-      character(*), intent(in) :: title
-      integer, intent(in) :: target_fps
-      logical, intent(in) :: vsync
-    end subroutine init_proc
-    
-    subroutine shutdown_proc(self)
-      import :: backend_interface
-      class(backend_interface), intent(inout) :: self
-    end subroutine shutdown_proc
-    
-    subroutine begin_frame_proc(self)
-      import :: backend_interface
-      class(backend_interface), intent(inout) :: self
-    end subroutine begin_frame_proc
-    
-    subroutine present_proc(self)
-      import :: backend_interface
-      class(backend_interface), intent(inout) :: self
-    end subroutine present_proc
-    
-    logical function is_available_proc(self)
-      import :: backend_interface
-      class(backend_interface), intent(in) :: self
-    end function is_available_proc
-    
-    logical function check_quit_proc(self)
-      import :: backend_interface
-      class(backend_interface), intent(inout) :: self
-    end function check_quit_proc
-  end interface
-  
-  ! Backend registry (private to module)
-  type :: backend_entry
-    character(len=32) :: name
-    class(backend_interface), allocatable :: backend
-  end type backend_entry
-  
-  type(backend_entry), allocatable :: registered_backends(:)
-  integer :: num_backends = 0
-  
-contains
-  
-  ! Register a backend implementation
-  subroutine register_backend(name, backend)
-    character(*), intent(in) :: name
-    class(backend_interface), intent(in) :: backend
-    
-    type(backend_entry), allocatable :: temp(:)
-    
-    ! Resize array if needed
-    if (.not. allocated(registered_backends)) then
-      allocate(registered_backends(4))
-    else if (num_backends >= size(registered_backends)) then
-      allocate(temp(size(registered_backends) * 2))
-      temp(1:num_backends) = registered_backends(1:num_backends)
-      call move_alloc(temp, registered_backends)
-    end if
-    
-    ! Add new backend
-    num_backends = num_backends + 1
-    registered_backends(num_backends)%name = name
-    allocate(registered_backends(num_backends)%backend, source=backend)
-  end subroutine register_backend
-  
-  ! Get a registered backend by name
-  function get_backend(name) result(backend)
-    character(*), intent(in) :: name
-    class(backend_interface), pointer :: backend
-    
-    integer :: i
-    
-    backend => null()
-    do i = 1, num_backends
-      if (registered_backends(i)%name == name) then
-        backend => registered_backends(i)%backend
-        exit
-      end if
-    end do
-  end function get_backend
-  
-end module fortui_backend
-```
-
-#### TUI Backend Implementation
-```fortran
-! src/fortui_tui.f90 - TUI backend (always compiled)
-module fortui_tui
-  use fortui_backend
-  use iso_c_binding
-  implicit none
-  private
-  
-  public :: tui_backend_t, register_tui_backend
-  
-  ! TUI backend implementation
-  type, extends(backend_interface) :: tui_backend_t
-    logical :: initialized = .false.
-    ! Add termbox2-specific state here
-  contains
-    procedure :: init => tui_init
-    procedure :: shutdown => tui_shutdown
-    procedure :: begin_frame => tui_begin_frame
-    procedure :: present => tui_present
-    procedure :: is_available => tui_is_available
-    procedure :: check_quit => tui_check_quit
-  end type tui_backend_t
-  
-contains
-  
-  subroutine register_tui_backend()
-    type(tui_backend_t) :: tui
-    
-    ! Set TUI capabilities
-    tui%capabilities%colors = .true.
-    tui%capabilities%mouse = .true.
-    tui%capabilities%unicode = .true.
-    tui%capabilities%async_events = .true.
-    
-    call register_backend("tui", tui)
-  end subroutine register_tui_backend
-  
-  ! Implementation procedures...
-  subroutine tui_init(self, width, height, title, target_fps, vsync)
-    class(tui_backend_t), intent(inout) :: self
-    integer, intent(in) :: width, height
-    character(*), intent(in) :: title
-    integer, intent(in) :: target_fps
-    logical, intent(in) :: vsync
-    
-    ! Initialize termbox2
-    self%initialized = .true.
-  end subroutine tui_init
-  
-  ! ... other procedures implemented similarly
-  
-end module fortui_tui
-```
-
-#### GUI Backend Implementation (Conditional)
-```fortran
-! src/fortui_gui.F90 - GUI backend (conditionally compiled)
-#ifdef ENABLE_GUI
-module fortui_gui
-  use fortui_backend
-  use iso_c_binding
-  implicit none
-  private
-  
-  public :: gui_backend_t, register_gui_backend
-  
-  ! GUI backend implementation
-  type, extends(backend_interface) :: gui_backend_t
-    logical :: initialized = .false.
-    logical :: window_created = .false.
-    integer :: window_width = 800
-    integer :: window_height = 600
-    ! Add raylib-specific state here
-  contains
-    procedure :: init => gui_init
-    procedure :: shutdown => gui_shutdown
-    procedure :: begin_frame => gui_begin_frame
-    procedure :: present => gui_present
-    procedure :: is_available => gui_is_available
-    procedure :: check_quit => gui_check_quit
-  end type gui_backend_t
-  
-contains
-  
-  subroutine register_gui_backend()
-    type(gui_backend_t) :: gui
-    
-    ! Set GUI capabilities
-    gui%capabilities%graphics = .true.
-    gui%capabilities%colors = .true.
-    gui%capabilities%mouse = .true.
-    gui%capabilities%unicode = .true.
-    
-    call register_backend("gui", gui)
-  end subroutine register_gui_backend
-  
-  ! Implementation procedures...
-  subroutine gui_init(self, width, height, title, target_fps, vsync)
-    class(gui_backend_t), intent(inout) :: self
-    integer, intent(in) :: width, height
-    character(*), intent(in) :: title
-    integer, intent(in) :: target_fps
-    logical, intent(in) :: vsync
-    
-    ! Initialize raylib/raygui
-    self%window_width = width
-    self%window_height = height
-    self%initialized = .true.
-    self%window_created = .true.
-  end subroutine gui_init
-  
-  logical function gui_is_available(self)
-    class(gui_backend_t), intent(in) :: self
-    
-    ! Check for display availability
-    character(len=256) :: display_var
-    integer :: ios
-    
-    call get_environment_variable("DISPLAY", display_var, status=ios)
-    gui_is_available = (ios == 0 .and. len_trim(display_var) > 0)
-  end function gui_is_available
-  
-  ! ... other procedures implemented similarly
-  
-end module fortui_gui
-#endif
-```
-
-#### Core Module Updates
-```fortran
-! src/fortui_core.f90 - Updated core without direct backend imports
-module fortui_core
-  use fortui_backend  ! Only import the abstraction layer
-  use fortui_units
-  implicit none
-  
-  ! Core state
-  type :: ui_state_t
-    character(len=32) :: active_backend = "tui"
-    class(backend_interface), pointer :: backend => null()
-    ! ... other state
-  end type ui_state_t
-  
-  type(ui_state_t), save :: ui_state
-  
-contains
-  
-  subroutine ui_init(backend_name, width, height, title, target_fps, vsync)
-    character(*), intent(in) :: backend_name
-    class(*), intent(in) :: width, height
-    character(*), intent(in) :: title
-    integer, intent(in), optional :: target_fps
-    logical, intent(in), optional :: vsync
-    
-    integer :: width_px, height_px
-    character(len=32) :: selected_backend
-    
-    ! Convert units to pixels
-    width_px = convert_to_pixels(width)
-    height_px = convert_to_pixels(height)
-    
-    ! Backend selection logic
-    selected_backend = backend_name
-    if (backend_name == "auto") then
-      selected_backend = select_best_backend()
-    end if
-    
-    ! Get the backend from registry
-    ui_state%backend => get_backend(selected_backend)
-    
-    if (.not. associated(ui_state%backend)) then
-      ! Fallback to TUI if requested backend not available
-      ui_state%backend => get_backend("tui")
-      if (.not. associated(ui_state%backend)) then
-        error stop "FATAL: No backends available"
-      end if
-      print *, "Warning: Requested backend '" // trim(selected_backend) // &
-               "' not available, using TUI"
-    end if
-    
-    ! Check if backend is actually available in current environment
-    if (.not. ui_state%backend%is_available()) then
-      ! Try fallback to TUI
-      ui_state%backend => get_backend("tui")
-      if (associated(ui_state%backend)) then
-        if (ui_state%backend%is_available()) then
-          print *, "Warning: Selected backend not available in environment, using TUI"
-        else
-          error stop "FATAL: No backends available in current environment"
-        end if
-      else
-        error stop "FATAL: TUI backend not registered"
-      end if
-    end if
-    
-    ! Initialize the selected backend
-    ui_state%active_backend = selected_backend
-    call ui_state%backend%init(width_px, height_px, title, &
-                                target_fps_val, vsync_val)
-  end subroutine ui_init
-  
-  function select_best_backend() result(backend_name)
-    character(len=32) :: backend_name
-    class(backend_interface), pointer :: backend
-    
-    ! Try GUI first if available
-    backend => get_backend("gui")
-    if (associated(backend)) then
-      if (backend%is_available()) then
-        backend_name = "gui"
-        return
-      end if
-    end if
-    
-    ! Fallback to TUI
-    backend_name = "tui"
-  end function select_best_backend
-  
-  subroutine ui_begin_frame()
-    if (associated(ui_state%backend)) then
-      call ui_state%backend%begin_frame()
-    end if
-  end subroutine ui_begin_frame
-  
-  subroutine ui_present()
-    if (associated(ui_state%backend)) then
-      call ui_state%backend%present()
-    end if
-  end subroutine ui_present
-  
-  subroutine ui_shutdown()
-    if (associated(ui_state%backend)) then
-      call ui_state%backend%shutdown()
-      ui_state%backend => null()
-    end if
-  end subroutine ui_shutdown
-  
-end module fortui_core
-```
-
-#### Backend Registration at Program Start
-```fortran
-! src/fortui.f90 - Main module with backend registration
-module fortui
-  use fortui_core
-  use fortui_widgets
-  use fortui_units
-  use fortui_backend
-  use fortui_tui      ! Always available
-#ifdef ENABLE_GUI
-  use fortui_gui      ! Conditionally available
-#endif
-  implicit none
-  
-  ! Module initialization
-  logical, save :: backends_registered = .false.
-  
-contains
-  
-  ! Called automatically or explicitly before ui_init
-  subroutine register_backends()
-    if (backends_registered) return
-    
-    ! Always register TUI backend
-    call register_tui_backend()
-    
-#ifdef ENABLE_GUI
-    ! Register GUI backend if compiled in
-    call register_gui_backend()
-#endif
-    
-    backends_registered = .true.
-  end subroutine register_backends
-  
-end module fortui
-```
-
-### Implementation Strategy
-
-#### Phase 1: Backend Abstraction Layer
-1. Create `fortui_backend.f90` with abstract interface and registry
-2. Update `fortui_tui.f90` to implement backend interface
-3. Update `fortui_gui.F90` to implement backend interface
-4. Remove direct backend imports from `fortui_core.f90`
-
-#### Phase 2: Registration System
-1. Implement backend registration in main `fortui.f90` module
-2. Add automatic registration on module load
-3. Update `ui_init` to use registered backends
-
-#### Phase 3: Migration and Testing
-1. Update all backend-specific calls to use interface
-2. Test TUI-only builds
-3. Test GUI+TUI builds
-4. Verify runtime backend selection
-
-### Benefits
-
-**Architectural Improvements**:
-- **Dependency Inversion**: Core depends on abstraction, not concrete implementations
-- **Single Responsibility**: Core only manages lifecycle, backends handle rendering
-- **Open/Closed**: New backends can be added without modifying core
-- **Compile-time Safety**: No undefined module references
-
-**Build System Benefits**:
-- Eliminates circular dependency compilation errors
-- Simplifies conditional compilation logic
-- Enables true modular backend system
-- Fixes Issues #52, #53, #58 by proper module isolation
-
-**Runtime Benefits**:
-- Dynamic backend discovery and selection
-- Graceful fallback when backends unavailable
-- Clear capability reporting
-- Extensible for future backends
-
-### Testing Strategy
-
-1. **Unit Tests**: Test backend registration and retrieval
-2. **Integration Tests**: Test backend selection logic
-3. **Build Tests**: Verify TUI-only and GUI+TUI configurations
-4. **Runtime Tests**: Verify environment detection and fallback
-
-### Impact on Other Issues
-
-- **Issue #58**: GUI initialization will work correctly with proper abstraction
-- **Issue #52-53**: Library paths managed per-backend, no cross-contamination
-- **Issue #11**: GUI backend becomes truly optional add-on
-- **Future**: Easy to add new backends (web, curses, etc.)
+**Performance**:
+- [ ] No performance regression
+- [ ] Efficient tree traversal
+- [ ] Optimized rendering paths
+- [ ] Memory usage within bounds
 
 ⸻
 
@@ -1792,211 +913,124 @@ end module fortui
 
 ### Overview
 
-Implement the raygui/raylib-based GUI backend as a conditional enhancement that builds only when system has required libraries. The GUI backend provides pixel-perfect monospace rendering that exactly matches TUI behavior while adding graphical capabilities.
+Implement the GUI backend using raylib/raygui to provide graphical rendering while maintaining exact parity with the TUI backend. The implementation leverages conditional compilation to include GUI support only when raylib is available, falling back to TUI-only operation when needed.
 
 ### Architecture Design
-
 #### Conditional Compilation Structure
 ```fortran
-! src/fortui_gui.F90 - GUI backend module
+! fortui_gui.f90
 module fortui_gui
 #ifdef ENABLE_GUI
-  use iso_c_binding
-  use raygui_bindings  ! From fortran-raygui dependency
-  use fortui_core
-  use fortui_units
+  use fortui_backend
+  use raygui_bindings
+  use raylib_bindings
   implicit none
   private
   
-  ! Public procedures
-  public :: gui_init, gui_shutdown, gui_frame_begin, gui_present
-  public :: gui_should_close, gui_is_available
+  public :: gui_backend_t, register_gui_backend
   
-  ! Backend state
-  type :: gui_state_t
-    logical :: initialized = .false.
-    integer :: window_width = 0
-    integer :: window_height = 0
-    real :: cell_width = 8.0   ! Monospace cell dimensions
-    real :: cell_height = 16.0
-    integer :: target_fps = 60
-    logical :: vsync_enabled = .true.
-  end type
+  type, extends(backend_interface) :: gui_backend_t
+    logical :: window_created = .false.
+    integer :: window_width = 800
+    integer :: window_height = 600
+    real :: dpi_scale = 1.0
+  contains
+    procedure :: init => gui_init
+    procedure :: shutdown => gui_shutdown
+    procedure :: begin_frame => gui_begin_frame
+    procedure :: render => gui_render
+    procedure :: should_quit => gui_should_quit
+    procedure :: is_available => gui_is_available
+    procedure :: get_screen_size => gui_get_screen_size
+  end type gui_backend_t
   
-  type(gui_state_t), save :: gui_state
+  type(gui_backend_t), target :: gui_instance
   
 contains
   
-  subroutine gui_init(width_dp, height_dp, title, target_fps, vsync)
-    real, intent(in) :: width_dp, height_dp
-    character(*), intent(in) :: title
-    integer, intent(in), optional :: target_fps
-    logical, intent(in), optional :: vsync
-    
-    ! Convert dp to pixels for window creation
-    integer :: width_px, height_px
-    width_px = int(width_dp)
-    height_px = int(height_dp)
-    
-    ! Initialize raylib window
-    call InitWindow(width_px, height_px, title // c_null_char)
-    
-    ! Configure rendering settings
-    if (present(target_fps)) then
-      call SetTargetFPS(target_fps)
-      gui_state%target_fps = target_fps
-    else
-      call SetTargetFPS(60)
-    end if
-    
-    if (present(vsync) .and. vsync) then
-      call SetConfigFlags(FLAG_VSYNC_HINT)
-      gui_state%vsync_enabled = .true.
-    end if
-    
-    gui_state%initialized = .true.
-    gui_state%window_width = width_px
-    gui_state%window_height = height_px
+  subroutine register_gui_backend()
+    call register_backend("gui", gui_instance)
   end subroutine
+  
+  subroutine gui_init(self, width, height, title)
+    class(gui_backend_t), intent(inout) :: self
+    integer, intent(in) :: width, height
+    character(*), intent(in) :: title
+    
+    ! Detect DPI for high-resolution displays
+    self%dpi_scale = GetMonitorDPI(GetCurrentMonitor()) / 96.0
+    
+    ! Calculate window size from grid units
+    self%window_width = int(width * 8.0 * self%dpi_scale)
+    self%window_height = int(height * 16.0 * self%dpi_scale)
+    
+    ! Configure window before creation
+    call SetConfigFlags(FLAG_WINDOW_RESIZABLE + FLAG_VSYNC_HINT)
+    
+    ! Create window
+    call InitWindow(self%window_width, self%window_height, title // c_null_char)
+    
+    if (IsWindowReady()) then
+      self%window_created = .true.
+      self%active = .true.
+      
+      ! Set target FPS
+      call SetTargetFPS(60)
+      
+      ! Initialize raygui
+      call GuiSetStyle(DEFAULT, TEXT_SIZE, int(16 * self%dpi_scale))
+    else
+      error stop "Failed to create GUI window"
+    end if
+  end subroutine
+  
+  logical function gui_is_available(self)
+    class(gui_backend_t), intent(in) :: self
+    character(len=256) :: display_var
+    
+    ! Check for display environment
+    call get_environment_variable("DISPLAY", display_var)
+    if (len_trim(display_var) > 0) then
+      gui_is_available = .true.
+      return
+    end if
+    
+    call get_environment_variable("WAYLAND_DISPLAY", display_var)
+    gui_is_available = len_trim(display_var) > 0
+  end function
   
 #else
   ! Stub implementation when GUI not available
   implicit none
   private
-  public :: gui_is_available
+  public :: register_gui_backend
   
 contains
   
-  logical function gui_is_available() result(available)
-    available = .false.
-  end function
+  subroutine register_gui_backend()
+    ! No-op when GUI not compiled
+  end subroutine
   
 #endif
 end module fortui_gui
 ```
 
-#### Runtime Backend Selection
+### Widget Rendering Implementation
+
+#### Unified Rendering Interface
 ```fortran
-! Enhanced fortui_core.f90 backend selection
-subroutine ui_init_backend_select(backend, width, height, title, target_fps, vsync)
-  character(*), intent(in) :: backend
-  class(unit_type), intent(in) :: width, height
-  character(*), intent(in) :: title
-  integer, intent(in), optional :: target_fps
-  logical, intent(in), optional :: vsync
-  
-  real :: width_dp, height_dp
-  logical :: gui_available, headless_env
-  
-  ! Convert dimensions to dp
-  width_dp = width%to_dp(ui_get_context())
-  height_dp = height%to_dp(ui_get_context())
-  
-  ! Check environment and availability
-  gui_available = check_gui_available()
-  headless_env = check_headless_environment()
-  
-  ! Backend selection logic
-  if (backend == "auto") then
-    if (gui_available .and. .not. headless_env) then
-      ui_state%active_backend = "gui"
-    else
-      ui_state%active_backend = "tui"
-    end if
-  else if (backend == "gui") then
-    if (.not. gui_available) then
-      print *, "Warning: GUI backend requested but not available, falling back to TUI"
-      ui_state%active_backend = "tui"
-    else if (headless_env) then
-      print *, "Warning: GUI backend requested in headless environment, falling back to TUI"
-      ui_state%active_backend = "tui"
-    else
-      ui_state%active_backend = "gui"
-    end if
-  else
-    ui_state%active_backend = "tui"
-  end if
-  
-  ! Initialize selected backend
-  select case(ui_state%active_backend)
-    case("gui")
-      call gui_init(width_dp, height_dp, title, target_fps, vsync)
-    case("tui")
-      call tui_init(int(width_dp/8), int(height_dp/16), title)
-  end select
-end subroutine
-```
-
-#### Environment Detection Functions
-```fortran
-logical function check_gui_available() result(available)
-#ifdef ENABLE_GUI
-  ! Check if GUI was compiled in
-  available = .true.
-#else
-  available = .false.
-#endif
-end function
-
-logical function check_headless_environment() result(headless)
-  character(len=256) :: display_var
-  integer :: status
-  
-  ! Check for display environment variables
-  call get_environment_variable("DISPLAY", display_var, status=status)
-  if (status == 0 .and. len_trim(display_var) > 0) then
-    headless = .false.
-    return
-  end if
-  
-  call get_environment_variable("WAYLAND_DISPLAY", display_var, status=status)
-  if (status == 0 .and. len_trim(display_var) > 0) then
-    headless = .false.
-    return
-  end if
-  
-  ! No display found - headless environment
-  headless = .true.
-end function
-```
-
-### Widget Implementation Strategy
-
-#### Monospace Grid Mapping
-```fortran
-! Convert grid units to pixel coordinates for GUI rendering
-subroutine grid_to_pixels(col, row, x_px, y_px)
-  integer, intent(in) :: col, row
-  integer, intent(out) :: x_px, y_px
-  
-  x_px = col * int(gui_state%cell_width)
-  y_px = row * int(gui_state%cell_height)
-end subroutine
-
-! Render text at grid position (monospace alignment)
-subroutine draw_text_grid(text, col, row, color)
-  character(*), intent(in) :: text
-  integer, intent(in) :: col, row
-  integer, intent(in) :: color
-  
-  integer :: x_px, y_px
-  call grid_to_pixels(col, row, x_px, y_px)
-  call DrawText(text // c_null_char, x_px, y_px, &
-                int(gui_state%cell_height * 0.8), color)
-end subroutine
-```
-
-#### Widget Rendering Backends
-```fortran
-! Button widget with backend-specific rendering
-subroutine render_button(id, label, x, y, width, height, pressed)
+! Backend-agnostic widget rendering
+subroutine render_button(backend_type, id, label, x, y, width, height, pressed)
+  character(*), intent(in) :: backend_type
   character(*), intent(in) :: id, label
-  integer, intent(in) :: x, y, width, height
+  real, intent(in) :: x, y, width, height
   logical, intent(out) :: pressed
   
-  select case(ui_state%active_backend)
+  select case(backend_type)
+#ifdef ENABLE_GUI
     case("gui")
       call render_button_gui(id, label, x, y, width, height, pressed)
+#endif
     case("tui")
       call render_button_tui(id, label, x, y, width, height, pressed)
   end select
@@ -2198,450 +1232,549 @@ subroutine process_viewport_size(width_arg, height_arg, ctx, w_dp, h_dp)
   w_dp = convert_to_dp(width_arg, ctx)
   h_dp = convert_to_dp(height_arg, ctx)
   
-  ! Ensure minimum usable size
-  w_dp = max(w_dp, ctx%em_dp * 2.0)  ! Minimum 2em width
-  h_dp = max(h_dp, ctx%em_dp * 1.5)  ! Minimum 1.5em height
+  ! Ensure minimum size
+  w_dp = max(w_dp, MIN_VIEWPORT_WIDTH_DP)
+  h_dp = max(h_dp, MIN_VIEWPORT_HEIGHT_DP)
 end subroutine
 ```
 
-#### Cross-Backend Rendering Strategy
-
-**TUI Implementation (Cell-Based)**:
-- Convert dp dimensions to cells with snapping
-- Render viewport with ASCII borders
-- Handle mouse interaction within cell boundaries
-- Character-based content area
-
-**GUI Implementation (Pixel-Based)**:
-- Convert dp dimensions to pixels with precision
-- Pixel-perfect viewport with hardware clipping
-- Smooth pan and zoom with sub-pixel precision
-- Hardware-accelerated content transformation
-
-### Interaction Processing
-
-#### Pan Calculation
+#### Interaction State Management
 ```fortran
-subroutine update_pan(view, mouse_delta_x, mouse_delta_y, viewport_width, viewport_height)
-  type(view), intent(inout) :: view
-  real, intent(in) :: mouse_delta_x, mouse_delta_y, viewport_width, viewport_height
-  
-  ! Convert pixel delta to view coordinates
-  view%off_x = view%off_x - mouse_delta_x / (viewport_width * view%scale_x)
-  view%off_y = view%off_y - mouse_delta_y / (viewport_height * view%scale_y)
-end subroutine
+type :: viewport_state
+  logical :: dragging = .false.
+  real :: drag_start_x, drag_start_y
+  real :: last_mouse_x, last_mouse_y
+  logical :: hovered = .false.
+  integer :: frame_last_changed = 0
+end type
+
+! State storage by ID
+type(viewport_state), allocatable, save :: viewport_states(:)
+character(len=256), allocatable, save :: viewport_ids(:)
+integer, save :: viewport_count = 0
 ```
 
-#### Zoom Calculation (Around Mouse Position)
+#### Mouse Interaction Handling
 ```fortran
-subroutine update_zoom(view, zoom_factor, mouse_x, mouse_y, viewport_width, viewport_height)
+subroutine handle_viewport_interaction(id, bounds, view, changed)
+  character(*), intent(in) :: id
+  type(rect), intent(in) :: bounds
   type(view), intent(inout) :: view
-  real, intent(in) :: zoom_factor, mouse_x, mouse_y, viewport_width, viewport_height
+  logical, intent(out) :: changed
   
-  real :: old_scale_x, old_scale_y, view_x, view_y
+  type(viewport_state), pointer :: state
+  real :: mouse_x, mouse_y
+  logical :: mouse_down
+  real :: wheel_delta
   
-  old_scale_x = view%scale_x
-  old_scale_y = view%scale_y
+  ! Get or create state
+  state => get_viewport_state(id)
+  changed = .false.
   
-  view%scale_x = view%scale_x * zoom_factor
-  view%scale_y = view%scale_y * zoom_factor
+  ! Get mouse position
+  call get_mouse_position(mouse_x, mouse_y)
+  state%hovered = point_in_rect(mouse_x, mouse_y, bounds)
   
-  ! Adjust offset to zoom around mouse position
-  view_x = mouse_x / viewport_width
-  view_y = mouse_y / viewport_height
+  if (state%hovered) then
+    ! Handle zoom (mouse wheel)
+    wheel_delta = get_mouse_wheel_delta()
+    if (abs(wheel_delta) > 0.001) then
+      ! Zoom centered on mouse position
+      call apply_zoom(view, wheel_delta, mouse_x - bounds%x, mouse_y - bounds%y)
+      changed = .true.
+    end if
+    
+    ! Handle pan (mouse drag)
+    mouse_down = is_mouse_button_down(MOUSE_LEFT)
+    
+    if (mouse_down .and. .not. state%dragging) then
+      ! Start drag
+      state%dragging = .true.
+      state%drag_start_x = mouse_x
+      state%drag_start_y = mouse_y
+    else if (state%dragging .and. mouse_down) then
+      ! Continue drag
+      view%off_x = view%off_x + (mouse_x - state%last_mouse_x) / view%scale_x
+      view%off_y = view%off_y + (mouse_y - state%last_mouse_y) / view%scale_y
+      changed = .true.
+    else if (state%dragging .and. .not. mouse_down) then
+      ! End drag
+      state%dragging = .false.
+    end if
+  end if
   
-  view%off_x = view%off_x + view_x * (1.0/old_scale_x - 1.0/view%scale_x)
-  view%off_y = view%off_y + view_y * (1.0/old_scale_y - 1.0/view%scale_y)
+  state%last_mouse_x = mouse_x
+  state%last_mouse_y = mouse_y
+  
+  if (changed) then
+    state%frame_last_changed = get_frame_count()
+  end if
 end subroutine
 ```
 
-### Content Integration Framework
+### Backend-Specific Rendering
 
-**Rendering Hooks**: Framework for user content drawing within viewport
-**Coordinate Transformation**: Automatic view-to-screen coordinate mapping
-**Content Clipping**: Automatic content bounds management at viewport boundaries
-**Performance Optimization**: Efficient redraw and caching strategies for content
-
-### File Organization
-
+#### TUI Viewport Rendering
+```fortran
+subroutine render_viewport_tui(id, x, y, width, height, view)
+  character(*), intent(in) :: id
+  integer, intent(in) :: x, y, width, height
+  type(view), intent(in) :: view
+  
+  ! Draw border
+  call draw_box_tui(x, y, width, height)
+  
+  ! Draw viewport info in corner
+  character(len=32) :: info
+  write(info, '("Z:", F4.2, " P:", I3, ",", I3)') &
+    view%scale_x, int(view%off_x), int(view%off_y)
+  call draw_text_tui(x + 1, y, info)
+  
+  ! Set clipping region for content
+  call set_clip_region_tui(x + 1, y + 1, width - 2, height - 2)
+  
+  ! Content rendered by caller with transformed coordinates
+end subroutine
 ```
-src/
-├── fortui_widgets.f90       ! Viewport implementation with unified interface
-├── fortui_units.f90         ! class(*) conversion integration
-├── backends/
-│   ├── tui/
-│   │   └── tui_viewport.f90     ! TUI-specific viewport rendering
-│   └── gui/
-│       └── gui_viewport.f90     ! GUI-specific viewport rendering
-└── viewport/
-    ├── viewport_core.f90        ! Core viewport logic and state
-    ├── viewport_interaction.f90 ! Pan/zoom interaction processing
-    └── viewport_transform.f90   ! Coordinate transformation utilities
+
+#### GUI Viewport Rendering
+```fortran
+subroutine render_viewport_gui(id, x, y, width, height, view)
+  character(*), intent(in) :: id
+  real, intent(in) :: x, y, width, height
+  type(view), intent(in) :: view
+  
+  ! Draw viewport background
+  call DrawRectangle(int(x), int(y), int(width), int(height), LIGHTGRAY)
+  
+  ! Draw border
+  call DrawRectangleLines(int(x), int(y), int(width), int(height), DARKGRAY)
+  
+  ! Enable scissor mode for clipping
+  call BeginScissorMode(int(x), int(y), int(width), int(height))
+  
+  ! Apply transformation matrix
+  call rlPushMatrix()
+  call rlTranslatef(x + view%off_x, y + view%off_y, 0.0)
+  call rlScalef(view%scale_x, view%scale_y, 1.0)
+  
+  ! Content rendered by caller
+end subroutine
+
+subroutine end_viewport_gui()
+  call rlPopMatrix()
+  call EndScissorMode()
+end subroutine
 ```
 
-### Implementation Strategy
+### Coordinate Transformation
 
-1. **Core Viewport Logic**: Implement size processing and state management
-2. **TUI Backend Integration**: Cell-based rendering with ASCII borders  
-3. **GUI Backend Integration**: Pixel-based rendering with hardware acceleration
-4. **Interaction Processing**: Mouse and keyboard pan/zoom support
-5. **Content Framework**: Rendering hooks for user content
-6. **Performance Optimization**: Efficient update and redraw strategies
+#### View-to-Screen Transformation
+```fortran
+subroutine view_to_screen(view, bounds, vx, vy, sx, sy)
+  type(view), intent(in) :: view
+  type(rect), intent(in) :: bounds
+  real, intent(in) :: vx, vy  ! view coordinates
+  real, intent(out) :: sx, sy ! screen coordinates
+  
+  sx = bounds%x + (vx + view%off_x) * view%scale_x
+  sy = bounds%y + (vy + view%off_y) * view%scale_y
+end subroutine
+
+subroutine screen_to_view(view, bounds, sx, sy, vx, vy)
+  type(view), intent(in) :: view
+  type(rect), intent(in) :: bounds
+  real, intent(in) :: sx, sy  ! screen coordinates
+  real, intent(out) :: vx, vy ! view coordinates
+  
+  vx = (sx - bounds%x) / view%scale_x - view%off_x
+  vy = (sy - bounds%y) / view%scale_y - view%off_y
+end subroutine
+```
+
+### Integration with Widget System
+
+#### Viewport Node Type
+```fortran
+type, extends(ui_element) :: viewport_node_t
+  character(len=256) :: id
+  real :: width_dp, height_dp
+  type(view) :: view
+  logical :: changed
+  
+  ! Content rendering callback
+  procedure(render_content_interface), pointer :: render_content => null()
+end type
+```
+
+#### Example: Plot with Viewport
+```fortran
+program plot_example
+  use fortui
+  implicit none
+  
+  type(view) :: plot_view
+  real :: data_x(100), data_y(100)
+  integer :: i
+  
+  ! Generate sample data
+  do i = 1, 100
+    data_x(i) = real(i - 1) * 0.1
+    data_y(i) = sin(data_x(i))
+  end do
+  
+  call ui_init("auto", 80.0 .cw., 24.0 .ch., "Plot Viewer")
+  
+  do while (.not. ui_should_close())
+    call ui_frame_begin()
+    
+    ! Viewport for plot
+    if (viewport("plot", 70.0 .cw., 20.0 .ch., plot_view)) then
+      ! View changed, update if needed
+    end if
+    
+    ! Render plot content with transformation
+    call render_plot(plot_view, data_x, data_y)
+    
+    ! Controls
+    if (button("reset", "Reset View")) then
+      plot_view = view()  ! Reset to default
+    end if
+    
+    call ui_present()
+  end do
+  
+  call ui_shutdown()
+  
+contains
+  
+  subroutine render_plot(v, x, y)
+    type(view), intent(in) :: v
+    real, intent(in) :: x(:), y(:)
+    integer :: i
+    real :: sx1, sy1, sx2, sy2
+    
+    do i = 1, size(x) - 1
+      ! Transform data coordinates to screen
+      call view_to_screen(v, viewport_bounds, x(i), y(i), sx1, sy1)
+      call view_to_screen(v, viewport_bounds, x(i+1), y(i+1), sx2, sy2)
+      
+      ! Draw line segment
+      call draw_line(sx1, sy1, sx2, sy2)
+    end do
+  end subroutine
+  
+end program
+```
+
+### Performance Considerations
+
+**Interaction Throttling**: Limit pan/zoom updates to maintain target FPS.
+
+**Dirty Region Tracking**: Only redraw viewport content when view changes.
+
+**Coordinate Caching**: Cache transformed coordinates for static content.
+
+**Level-of-Detail**: Adjust rendering detail based on zoom level.
+
+### Testing Strategy
+
+#### Interaction Testing
+```fortran
+subroutine test_viewport_zoom()
+  type(view) :: test_view
+  logical :: changed
+  
+  ! Initial state
+  test_view = view()
+  
+  ! Simulate wheel zoom
+  call simulate_mouse_wheel(1.0)
+  changed = viewport("test", 100.0, 100.0, test_view)
+  
+  call assert_true(changed, "Zoom should trigger change")
+  call assert_greater(test_view%scale_x, 1.0, "Zoom in should increase scale")
+end subroutine
+
+subroutine test_viewport_pan()
+  type(view) :: test_view
+  logical :: changed
+  
+  test_view = view()
+  
+  ! Simulate drag
+  call simulate_mouse_drag(10.0, 10.0, 20.0, 20.0)
+  changed = viewport("test", 100.0, 100.0, test_view)
+  
+  call assert_true(changed, "Pan should trigger change")
+  call assert_not_equals(test_view%off_x, 0.0, "Pan should change offset")
+end subroutine
+```
 
 ### Success Criteria
 
-- [ ] viewport() function accepts class(*) for width/height parameters correctly
-- [ ] Required dimensions handled properly (no auto-sizing edge cases)
-- [ ] Bare real values treated as dp() correctly in all contexts
-- [ ] Runtime unit conversion maintains viewport proportions across backends
-- [ ] Pan interaction smooth and responsive in both TUI and GUI
-- [ ] Zoom interaction centers correctly around mouse position
-- [ ] Keyboard navigation (arrow keys, +/- zoom) functional
-- [ ] View state updates trigger correct return value (.true. on change)
-- [ ] TUI rendering provides usable content area with clear borders
-- [ ] GUI rendering supports hardware-accelerated content transformation
-- [ ] Coordinate transformation from view to screen coordinates accurate
-- [ ] Content clipping works correctly at viewport boundaries
-- [ ] Error handling clear for unsupported dimension types
-- [ ] Performance acceptable for real-time pan/zoom operations
-- [ ] Visual feedback clear for user interaction and viewport state
-- [ ] Client code significantly cleaner than alternative approaches
-- [ ] API learning curve minimal for new users
+**Core Functionality**:
+- [ ] Pan with mouse drag working
+- [ ] Zoom with mouse wheel working
+- [ ] View state persists between frames
+- [ ] Coordinate transformations accurate
+
+**Cross-Backend**:
+- [ ] TUI viewport with keyboard controls
+- [ ] GUI viewport with smooth interaction
+- [ ] Consistent behavior across backends
+- [ ] Proper clipping in both modes
+
+**Integration**:
+- [ ] Works with all unit types
+- [ ] Integrates with existing widgets
+- [ ] State management by ID
+- [ ] Change detection reliable
+
+**Performance**:
+- [ ] No lag during interaction
+- [ ] Efficient rendering updates
+- [ ] Memory usage reasonable
+- [ ] Scales to multiple viewports
 
 ### Dependencies
 
-**Requires**: #1 (Core types), #2 (Lifecycle functions), #3 (Layout), #21 (Units system with class(*)), #22 (Context integration)
-**Blocked by**: #6 (TUI backend), #11 (GUI backend) for unit-aware rendering and input
-**Enables**: #10 (Demo application with interactive viewports)
-**Priority**: **HIGH** - Essential widget for data visualization
+**Required Components**:
+- Widget state management system
+- Mouse/keyboard input handling  
+- Coordinate transformation utilities
+- Clipping/scissor support in backends
+
+**Priority**: **HIGH** - Essential for data visualization and interactive applications.
 
 ⸻
 
-## 1) units system
-
-### unit types & ergonomic api
-
-**Core principle**: One declarative UI works on GUI, Web, and TUI with consistent behavior.
-
-**API Design Philosophy**: Prioritize client code readability and ease of use over pure type safety.
-
-**Default Unit Behavior**: Bare `real` values automatically treated as `.dp.` (density-independent pixels) for maximum convenience - no need to write `.dp.` for basic usage.
-
+## Context Architecture Design
+### Abstract Type Integration Framework
 ```fortran
-! Ergonomic unit operators returning class(*) for API simplicity
-real :: width, gap, text_size, border, cols, rows
-
-width = 40.0 .dp.      ! density-independent pixels
-gap = 2.5 .em.         ! relative to base font size  
-text_size = 14.0 .sp.  ! scaled pixels (accessibility)
-border = 2.0 .px.      ! physical pixels
-cols = 10.0 .cw.       ! cell widths (TUI-friendly)
-rows = 3.0 .ch.        ! cell heights (TUI-friendly)
-
-! Bare real values automatically default to .dp. for convenience
-width = 40.0           ! equivalent to 40.0 .dp.
-gap = 2.5 .em.         ! explicit unit overrides default
-border = 320.0         ! equivalent to 320.0 .dp.
-
-! Postfix operators return class(*) for maximum API flexibility
-! Runtime type checking handles conversion safety
-```
-
-### context-aware conversion
-
-All units normalize to **dp** (density-independent pixels) internally:
-
-```fortran
+! Core context type with flexible backend integration
 type :: ui_context
-  real :: dpi_scale = 1.0    ! GUI: system DPI scale; TUI: 1.0  
-  real :: em_dp = 16.0       ! base font size in dp
-  real :: text_scale = 1.0   ! accessibility text scaling
-  real :: cell_w_dp = 8.0    ! TUI: cell width in dp
-  real :: cell_h_dp = 16.0   ! TUI: cell height in dp
+  ! Display metrics
+  real :: dpi_scale = 1.0
+  real :: display_width_dp = 800.0
+  real :: display_height_dp = 600.0
+  
+  ! Unit conversion factors
+  real :: cell_w_dp = 8.0   ! Terminal cell width in dp
+  real :: cell_h_dp = 16.0  ! Terminal cell height in dp
+  real :: em_dp = 16.0      ! Em size in dp
+  real :: ex_dp = 8.0       ! Ex height in dp
+  
+  ! Text metrics
+  real :: text_scale = 1.0  ! Global text scaling factor
+  logical :: proportional = .false.  ! Proportional text mode (future)
+  
+  ! Backend-specific data (polymorphic)
+  class(*), allocatable :: backend_data
 end type
 ```
 
-**Conversion via runtime type checking**:
-- `.dp.` values: direct (base unit)
-- `.em.` values: `value * ctx%em_dp` 
-- `.sp.` values: `value * ctx%text_scale`
-- `.px.` values: `value / ctx%dpi_scale`
-- `.cw.` values: `value * ctx%cell_w_dp` (TUI)
-- `.ch.` values: `value * ctx%cell_h_dp` (TUI)
-- Bare real values: treated as value .dp.
-
-**Internal conversion function**:
+### Context-Aware Rendering Integration
+#### TUI Rendering with Context
 ```fortran
-real function convert_to_dp(unit_value, ctx) result(dp_val)
-  class(*), intent(in) :: unit_value
+subroutine render_widget_tui(widget, ctx)
+  class(ui_element), intent(in) :: widget
   type(ui_context), intent(in) :: ctx
-  ! Runtime type checking determines conversion method
-end function
+  
+  ! Convert widget dp coordinates to cells
+  integer :: cell_x, cell_y, cell_w, cell_h
+  
+  cell_x = int(widget%x_dp / ctx%cell_w_dp)
+  cell_y = int(widget%y_dp / ctx%cell_h_dp)
+  cell_w = int(widget%width_dp / ctx%cell_w_dp)
+  cell_h = int(widget%height_dp / ctx%cell_h_dp)
+  
+  ! Render with cell-based positioning
+  call draw_widget_cells(cell_x, cell_y, cell_w, cell_h)
+end subroutine
 ```
 
-### cross-backend placement strategy
-
-**TUI snapping**: Final dp values snap to cell boundaries
+#### GUI Rendering with Context
 ```fortran
-! 42.7 .dp. with cell_w_dp=8.0 → 5.34 cells → snap to 5 cells
-real :: dp_value
-dp_value = convert_to_dp(42.7 .dp., ctx)
-cell_x = nint(dp_value / ctx%cell_w_dp)
+subroutine render_widget_gui(widget, ctx)
+  class(ui_element), intent(in) :: widget
+  type(ui_context), intent(in) :: ctx
+  
+  ! Apply DPI scaling to dp coordinates
+  real :: pixel_x, pixel_y, pixel_w, pixel_h
+  
+  pixel_x = widget%x_dp * ctx%dpi_scale
+  pixel_y = widget%y_dp * ctx%dpi_scale
+  pixel_w = widget%width_dp * ctx%dpi_scale
+  pixel_h = widget%height_dp * ctx%dpi_scale
+  
+  ! Render with pixel-perfect positioning
+  call draw_widget_pixels(pixel_x, pixel_y, pixel_w, pixel_h)
+end subroutine
 ```
 
-**GUI/Web precision**: Subpixel positioning maintained
-```fortran  
-! 42.7 .dp. with dpi_scale=1.5 → 64.05 pixels (exact)
-real :: dp_value
-dp_value = convert_to_dp(42.7 .dp., ctx)
-pixel_x = dp_value * ctx%dpi_scale
-```
-
-### mixed unit arguments
-
-All layout and widget functions accept any unit type via class(*) polymorphism:
-
+### Context Lifecycle Management
+#### Runtime Context Updates
 ```fortran
-ui = column(gap=1.0 .ch., children=[ &
-       row(gap=2.0 .cw., children=[ &
-         button("btn1"), &
-         viewport("plot", 80.0 .cw., 24.0 .ch., view) ]), &
-       text("status", "Mixed units work!") ])
+subroutine update_context_from_environment(ctx)
+  type(ui_context), intent(inout) :: ctx
+  
+  ! Update display metrics
+  call get_display_size(ctx%display_width_dp, ctx%display_height_dp)
+  ctx%dpi_scale = get_system_dpi() / 96.0
+  
+  ! Backend-specific updates
+  select type(backend => ctx%backend_data)
+  type is (tui_context_data)
+    ! Measure actual terminal cell dimensions
+    call measure_terminal_cell_size(ctx%cell_w_dp, ctx%cell_h_dp)
+  type is (gui_context_data)
+    ! Update font metrics for current DPI
+    ctx%em_dp = get_font_size() * ctx%dpi_scale
+  end select
+end subroutine
 ```
 
-**Unit construction syntax**:
-- `40.0 .dp.` - density-independent pixels
-- `2.5 .em.` - relative to base font size  
-- `14.0 .sp.` - scaled pixels (accessibility)
-- `320.0 .px.` - physical pixels
-- `10.0 .cw.` - cell widths (TUI-friendly)
-- `3.0 .ch.` - cell heights (TUI-friendly)
-- `42.0` - bare real values treated as 42.0 .dp.
+#### Context Validation and Error Handling
+```fortran
+subroutine validate_context(ctx, is_valid)
+  type(ui_context), intent(in) :: ctx
+  logical, intent(out) :: is_valid
+  
+  is_valid = .true.
+  
+  ! Check basic constraints
+  if (ctx%dpi_scale <= 0.0 .or. ctx%dpi_scale > 10.0) then
+    is_valid = .false.
+    call log_error("Invalid DPI scale: " // str(ctx%dpi_scale))
+  end if
+  
+  if (ctx%cell_w_dp <= 0.0 .or. ctx%cell_h_dp <= 0.0) then
+    is_valid = .false.
+    call log_error("Invalid cell dimensions")
+  end if
+  
+  ! Validate backend-specific data if present
+  if (allocated(ctx%backend_data)) then
+    ! Backend-specific validation...
+  end if
+end subroutine
+```
 
 ⸻
 
-## 2) public api
+### Architecture Solution: Backend Registry Pattern
+Implement a backend abstraction layer using a registration pattern where backends register themselves with the core, rather than core importing backends directly. This eliminates compile-time dependencies and enables runtime backend selection.
 
-### modules
-
+#### Implementation Structure
 ```fortran
-use fortui_core      ! init/shutdown, frame, present, pacing, ui_element/node/view types
-use fortui_widgets   ! column/row/viewport + button/slider/checkbox/text interfaces
-use fortui_units     ! unit types (dp, em, sp, px, cw, ch) and ui_context
+! fortui_backend.f90 - Abstract interface all backends must implement
+module fortui_backend
+  implicit none
+  private
+  
+  public :: backend_interface, register_backend, get_backend
+  
+  type, abstract :: backend_interface
+  contains
+    procedure(init_proc), deferred :: init
+    procedure(shutdown_proc), deferred :: shutdown
+    procedure(render_proc), deferred :: render_tree
+    procedure(should_quit_proc), deferred :: should_quit
+  end type
+  
+  ! Backend registry
+  type(backend_entry), allocatable :: registry(:)
+  integer :: backend_count = 0
+  
+contains
+  subroutine register_backend(name, backend)
+    ! Backends self-register at startup
+  end subroutine
+end module
+
+! fortui_tui.f90 - TUI backend self-registers
+module fortui_tui
+  use fortui_backend
+  type, extends(backend_interface) :: tui_backend
+    ! Implementation
+  end type
+  
+  ! Self-registration on module load
+  logical :: registered = register_tui()
+  
+contains
+  function register_tui() result(success)
+    type(tui_backend) :: backend
+    call register_backend("tui", backend)
+    success = .true.
+  end function
+end module
 ```
-
-### types
-
-```fortran
-! Abstract UI element hierarchy
-type, abstract :: ui_element
-end type
-
-type, extends(ui_element) :: node
-end type
-
-type :: view                 ! pan/zoom for plot areas
-  real :: scale_x = 1.0, scale_y = 1.0
-  real :: off_x   = 0.0, off_y   = 0.0
-end type
-
-type :: ui_context           ! cross-backend unit conversion
-  real :: dpi_scale = 1.0    ! GUI: system DPI scale; TUI: 1.0
-  real :: em_dp = 16.0       ! base font size in dp
-  real :: text_scale = 1.0   ! accessibility text scaling
-  real :: cell_w_dp = 8.0    ! TUI: cell width in dp
-  real :: cell_h_dp = 16.0   ! TUI: cell height in dp
-end type
-
-! Internal unit type for runtime identification (implementation detail)
-type :: unit_value
-  real :: value
-  character(len=2) :: unit_type  ! "dp", "em", "sp", "px", "cw", "ch"
-end type
-
-! Unit operator interfaces returning class(*) for API simplicity
-interface operator(.dp.); module procedure make_dp; end interface
-interface operator(.em.); module procedure make_em; end interface  
-interface operator(.sp.); module procedure make_sp; end interface
-interface operator(.px.); module procedure make_px; end interface
-interface operator(.cw.); module procedure make_cw; end interface
-interface operator(.ch.); module procedure make_ch; end interface
-```
-
-### lifecycle & pacing
-
-```fortran
-subroutine ui_init(backend, width, height, title, target_fps, vsync)
-  character(*), intent(in) :: backend        ! "tui" | "gui"
-  class(*), intent(in) :: width, height      ! any unit type (dp, em, sp, px, cw, ch) or real
-  character(*), intent(in) :: title
-  integer,      intent(in), optional :: target_fps   ! gui: default 60; tui: ignored
-  logical,      intent(in), optional :: vsync        ! gui: default .true.; tui: ignored
-end
-
-subroutine ui_get_context(ctx)
-  type(ui_context), intent(out) :: ctx
-end
-
-subroutine ui_set_context(ctx)
-  type(ui_context), intent(in) :: ctx
-end
-
-subroutine ui_set_idle_policy(mode, idle_fps)        ! gui only
-  character(*), intent(in) :: mode                   ! "steady" | "adaptive"
-  integer,      intent(in), optional :: idle_fps     ! e.g., 12
-end
-
-subroutine ui_frame_begin(timeout_ms)
-  integer, intent(in) :: timeout_ms                  ! tui uses; gui ignores
-end
-
-subroutine ui_present(tree)
-  class(ui_element), intent(in) :: tree
-end
-
-logical function ui_should_close()
-end
-
-subroutine ui_shutdown()
-end
-```
-
-### layout constructors
-
-```fortran
-! Layout constructors with abstract UI elements and mixed unit support
-function column(gap, children) result(n)
-  class(*), intent(in), optional :: gap               ! any unit type or real
-  class(ui_element), intent(in), optional :: children(:)
-  type(node) :: n
-end
-
-function row(gap, children) result(n)
-  class(*), intent(in), optional :: gap               ! any unit type or real
-  class(ui_element), intent(in), optional :: children(:)
-  type(node) :: n
-end
-```
-
-### widgets (immediate-mode: declaration = draw = state update)
-
-**Unified Interface**: Single widget functions accept class(*) for maximum API simplicity.
-
-```fortran
-! Button widget with unified interface
-logical function button(id, label, width, height)
-  character(*), intent(in) :: id
-  character(*), intent(in), optional :: label     ! default: label=id
-  class(*), intent(in), optional :: width, height ! any unit type or real
-  ! returns .true. when clicked this frame
-end function
-
-! Slider widget with unified interface
-logical function slider(id, min, max, step, value, width, height)
-  character(*), intent(in) :: id
-  real, intent(in) :: min, max, step
-  real, intent(inout) :: value
-  class(*), intent(in), optional :: width, height  ! any unit type or real
-  ! draws slider and updates 'value' if interacted; returns .true. on change
-end function
-
-! Checkbox widget with unified interface
-subroutine checkbox(id, checked, width, height)
-  character(*), intent(in) :: id
-  logical, intent(inout) :: checked
-  class(*), intent(in), optional :: width, height  ! any unit type or real
-  ! toggles 'checked' in place if interacted
-end subroutine
-
-! Text widget with unified interface
-subroutine text(id, value, text_size)
-  character(*), intent(in) :: id, value
-  class(*), intent(in), optional :: text_size  ! any unit type or real
-end subroutine
-
-! Viewport widget with unified interface
-logical function viewport(id, width, height, view)
-  character(*), intent(in) :: id
-  class(*), intent(in) :: width, height            ! any unit type or real
-  type(view), intent(inout) :: view                ! wheel=zoom, drag=pan
-  ! returns .true. if view changed
-end function
-```
-
-**ids** are stable strings per widget (state keyed by id).
-**units**: All units normalize to dp internally via runtime conversion:
-- `40.0 .dp.` - density-independent pixels (base unit)
-- `2.5 .em.` - relative to base font size (em_dp * 2.5)
-- `14.0 .sp.` - scaled pixels (dp * text_scale)
-- `320.0 .px.` - physical pixels (px / dpi_scale)
-- `10.0 .cw.` - cell widths (TUI: cw * cell_w_dp)
-- `3.0 .ch.` - cell heights (TUI: ch * cell_h_dp)
-- `42.0` - bare real values treated as 42.0 .dp. (default)
-
-**Examples of equivalent widget calls**:
-```fortran
-! These are equivalent:
-button("ok", width=120.0)           ! real defaults to dp
-button("ok", width=120.0 .dp.)      ! explicit dp
-
-! Mixed usage:
-button("ok", width=120.0, height=2.5 .em.)  ! width=dp, height=em
-```
-
-**cross-backend placement**:
-- **TUI**: snaps to cell boundaries (integer cells)
-- **GUI/Web**: subpixel precision maintained
 
 ⸻
 
-## 3) example (single-call style)
+## minimal api (v0.4.0)
+
+## 1) types
+
+```fortran
+type :: view
+  real :: scale_x=1, scale_y=1  ! zoom
+  real :: off_x=0, off_y=0      ! pan (view coords)
+end type
+```
+
+⸻
+
+## 2) procedures
+
+**lifecycle**: `ui_init ui_shutdown ui_frame_begin ui_present ui_should_close`  
+**layout**: `row() column()` with `class(*)` width/height  
+**widgets**: `button(id,label?) slider(id,val,lo,hi) checkbox(id,checked) text(id,str)`  
+**viewport**: `viewport(id,w,h,view)` → `.true.` if view changed
+
+⸻
+
+## 3) example
 
 ```fortran
 program demo
-  use fortui_core
-  use fortui_widgets
-  implicit none
-
-  real    :: gain = 1.0
-  logical :: grid = .false.
+  use fortui
   type(view) :: v
-  class(ui_element), allocatable :: ui
-  logical :: running
+  real :: g=0.5
+  logical :: show=.false.
+  character(256) :: s
 
-  call ui_init(backend="tui", width=100.0 .cw., height=35.0 .ch., title="plot demo")
-  ! gui option: call ui_set_idle_policy("adaptive", idle_fps=12)
+  call ui_init  ! auto-selects backend
 
-  running = .true.
-  do while (running)
-    call ui_frame_begin(timeout_ms=200)
+  do while (.not.ui_should_close())
+    call ui_frame_begin
 
-    ui = column(gap=1.0 .ch., children=[ &
-           row(gap=2.0 .cw., children=[ &
-             button("zoom_in"), &
-             button("zoom_out", "-"), &
-             slider("gain", 0.1, 5.0, 0.1, gain), &
-             checkbox("grid", grid) ]), &
-           viewport("plot", 80.0 .cw., 24.0 .ch., v), &
-           text("status", status_line(gain, v, grid)) ])
+    ! ui tree
+    n = column(20.dp(), [                      &
+      slider("gain", g, 0., 1.),               &
+      checkbox("grid", show),                  &
+      row(100.pct(), [                         &
+        button("reset"),                        &
+        button("quit")                          &
+      ]),                                       &
+      viewport("vp", 100.pct(), 15.ch(), v),   &
+      text("info", info_str())                 &
+    ])
 
-    ! react to button returns (others already updated their state)
-    if (button("zoom_in"))       call zoom(v, 1.2)
-    if (button("zoom_out", "-")) call zoom(v, 1.0/1.2)
+    call ui_present(n)
 
-    call ui_present(ui)
-    running = .not. ui_should_close()
+    ! actions
+    if (button("reset")) v=view()
+    if (button("quit")) exit
   end do
 
-  call ui_shutdown()
+  call ui_shutdown
 
 contains
-  subroutine zoom(v,f); type(view),intent(inout)::v; real,intent(in)::f
-    v%scale_x=v%scale_x*f; v%scale_y=v%scale_y*f
-  end
-  function status_line(g, v, show) result(s)
-    real,intent(in)::g; type(view),intent(in)::v; logical,intent(in)::show
-    character(len=:),allocatable::s; character(len=96)::buf
+  function info_str() result(s)
+    character(256) :: s, buf
     write(buf,'("gain=",F4.2,"  scale=(",F4.2,",",F4.2,")  off=(",F5.1,",",F5.1,")  grid=",L1)') &
       g, v%scale_x, v%scale_y, v%off_x, v%off_y, show
     s=trim(buf)
@@ -2692,3 +1825,512 @@ end program
 - **ids** own per-widget retained state.
 - **tui** minimizes writes; **gui** respects target fps.
 - **monospace** baseline; proportional is additive.
+
+⸻
+
+## 7) Global State Refactoring Architecture (Issue #64)
+
+### Problem Analysis
+The current architecture uses extensive global mutable state throughout the codebase:
+- **fortui_core**: `ui_state` (ui_state_t), `tui_state` (tui_state_t) 
+- **fortui_tui**: Backend-specific state embedded in module
+- **fortui_gui**: `gui_state` (gui_backend_t)
+- **fortui_widgets**: Multiple widget states with SAVE attributes
+- **fortui_units**: `global_context` (ui_context)
+- **fortui_platform_measurement**: Context caching with SAVE
+
+This creates critical issues:
+1. **Thread safety**: No synchronization, concurrent access unsafe
+2. **Reentrancy**: Cannot have multiple UI instances
+3. **Testing**: State bleeds between tests, causes flakiness
+4. **Hidden dependencies**: Functions implicitly depend on global state
+5. **Architectural violations**: Breaks SRP, no dependency injection
+
+### Architecture Solution: Context Object Pattern
+
+#### Phase 1: Context Encapsulation Design
+Create a unified context object that encapsulates all mutable state:
+
+```fortran
+! fortui_context.f90 - New module for context management
+module fortui_context
+  use fortui_backend
+  use fortui_units
+  implicit none
+  private
+  
+  ! Public types
+  public :: fortui_context_t, create_context, destroy_context
+  public :: get_default_context, set_default_context
+  
+  ! Master context object containing all state
+  type :: fortui_context_t
+    ! Core state
+    logical :: initialized = .false.
+    character(len=32) :: active_backend = ""
+    class(backend_interface), pointer :: backend => null()
+    
+    ! Window/display state
+    integer :: window_width = 80
+    integer :: window_height = 24
+    character(len=256) :: window_title = "Fortui"
+    integer :: target_fps = 60
+    logical :: vsync_enabled = .true.
+    
+    ! Unit system context
+    type(ui_context) :: units
+    
+    ! Backend-specific state (polymorphic)
+    class(*), allocatable :: backend_state
+    
+    ! Widget state storage (hash table for scalability)
+    type(widget_state_map) :: widget_states
+    
+    ! Frame state
+    logical :: in_frame = .false.
+    integer :: frame_count = 0
+    logical :: should_quit = .false.
+    
+    ! Thread safety
+    integer :: lock_count = 0  ! For recursive locking if needed
+  contains
+    procedure :: init => context_init
+    procedure :: shutdown => context_shutdown
+    procedure :: begin_frame => context_begin_frame
+    procedure :: end_frame => context_end_frame
+    procedure :: is_valid => context_is_valid
+  end type fortui_context_t
+  
+  ! Widget state map for efficient lookup
+  type :: widget_state_map
+    type(widget_state_entry), allocatable :: entries(:)
+    integer :: count = 0
+    integer :: capacity = 0
+  contains
+    procedure :: get => map_get_state
+    procedure :: set => map_set_state
+    procedure :: clear => map_clear
+  end type widget_state_map
+  
+  ! Individual widget state entry
+  type :: widget_state_entry
+    character(len=256) :: id
+    class(*), allocatable :: state
+  end type widget_state_entry
+  
+  ! Thread-local default context (for backward compatibility)
+  type(fortui_context_t), pointer :: default_context => null()
+  !$OMP THREADPRIVATE(default_context)
+  
+contains
+  
+  ! Create a new context instance
+  function create_context() result(ctx)
+    type(fortui_context_t), pointer :: ctx
+    
+    allocate(ctx)
+    ctx%initialized = .false.
+    ctx%widget_states%capacity = 64
+    allocate(ctx%widget_states%entries(ctx%widget_states%capacity))
+  end function
+  
+  ! Destroy a context and free resources
+  subroutine destroy_context(ctx)
+    type(fortui_context_t), pointer :: ctx
+    
+    if (.not. associated(ctx)) return
+    
+    if (ctx%initialized) then
+      call ctx%shutdown()
+    end if
+    
+    call ctx%widget_states%clear()
+    if (allocated(ctx%backend_state)) deallocate(ctx%backend_state)
+    
+    deallocate(ctx)
+    ctx => null()
+  end subroutine
+  
+end module fortui_context
+```
+
+#### Phase 2: API Migration Strategy
+
+##### Option A: Explicit Context Passing (Recommended)
+All functions accept an optional context parameter, using thread-local default if not provided:
+
+```fortran
+! Updated fortui_core API
+module fortui_core
+  use fortui_context
+  implicit none
+  
+  ! Lifecycle with explicit context
+  interface ui_init
+    module procedure ui_init_default
+    module procedure ui_init_with_context
+  end interface
+  
+contains
+  
+  ! Initialize with default context (backward compatible)
+  subroutine ui_init_default(backend, width, height, title)
+    character(*), intent(in) :: backend
+    real, intent(in) :: width, height
+    character(*), intent(in) :: title
+    
+    type(fortui_context_t), pointer :: ctx
+    
+    ! Get or create default context
+    ctx => get_default_context()
+    if (.not. associated(ctx)) then
+      ctx => create_context()
+      call set_default_context(ctx)
+    end if
+    
+    call ui_init_with_context(ctx, backend, width, height, title)
+  end subroutine
+  
+  ! Initialize with explicit context (new API)
+  subroutine ui_init_with_context(ctx, backend, width, height, title)
+    type(fortui_context_t), intent(inout) :: ctx
+    character(*), intent(in) :: backend
+    real, intent(in) :: width, height
+    character(*), intent(in) :: title
+    
+    ! Implementation works on provided context
+    call ctx%init(backend, width, height, title)
+  end subroutine
+  
+end module fortui_core
+
+! Updated widget API
+module fortui_widgets
+  use fortui_context
+  implicit none
+  
+  ! Widgets with optional context
+  interface button
+    module procedure button_default
+    module procedure button_with_context
+  end interface
+  
+contains
+  
+  logical function button_default(id, label) result(clicked)
+    character(*), intent(in) :: id
+    character(*), intent(in), optional :: label
+    
+    type(fortui_context_t), pointer :: ctx
+    ctx => get_default_context()
+    
+    if (associated(ctx)) then
+      clicked = button_with_context(ctx, id, label)
+    else
+      clicked = .false.
+    end if
+  end function
+  
+  logical function button_with_context(ctx, id, label) result(clicked)
+    type(fortui_context_t), intent(inout) :: ctx
+    character(*), intent(in) :: id
+    character(*), intent(in), optional :: label
+    
+    type(button_state), pointer :: state
+    
+    ! Get or create widget state from context
+    state => ctx%widget_states%get(id, "button")
+    if (.not. associated(state)) then
+      allocate(state)
+      state%pressed = .false.
+      state%hover = .false.
+      call ctx%widget_states%set(id, "button", state)
+    end if
+    
+    ! Widget implementation using context state
+    ! ...
+  end function
+  
+end module fortui_widgets
+```
+
+##### Option B: Handle-Based Context Management
+Use opaque handles for contexts, maintaining full encapsulation:
+
+```fortran
+module fortui_context_manager
+  use iso_c_binding
+  implicit none
+  
+  ! Opaque handle type
+  type :: fortui_handle
+    private
+    integer :: id = -1
+  end type fortui_handle
+  
+  ! Invalid handle constant
+  type(fortui_handle), parameter :: FORTUI_INVALID_HANDLE = fortui_handle(-1)
+  
+  interface
+    ! Context management
+    function fortui_create_context() result(handle)
+      type(fortui_handle) :: handle
+    end function
+    
+    subroutine fortui_destroy_context(handle)
+      type(fortui_handle), intent(in) :: handle
+    end subroutine
+    
+    ! Operations on contexts
+    subroutine fortui_init(handle, backend, width, height, title)
+      type(fortui_handle), intent(in) :: handle
+      character(*), intent(in) :: backend
+      real, intent(in) :: width, height
+      character(*), intent(in) :: title
+    end subroutine
+  end interface
+  
+end module fortui_context_manager
+```
+
+#### Phase 3: Backend State Encapsulation
+
+Each backend maintains its state within the context:
+
+```fortran
+! Updated TUI backend
+module fortui_tui
+  use fortui_backend
+  use fortui_context
+  implicit none
+  
+  type, extends(backend_interface) :: tui_backend_t
+    ! No module-level state!
+  contains
+    procedure :: init => tui_init
+    procedure :: shutdown => tui_shutdown
+    procedure :: begin_frame => tui_begin_frame
+    procedure :: render => tui_render
+  end type tui_backend_t
+  
+  ! TUI-specific state stored in context
+  type :: tui_backend_state_t
+    logical :: initialized = .false.
+    integer :: terminal_width = 0
+    integer :: terminal_height = 0
+    logical :: mouse_enabled = .false.
+    logical :: bracketed_paste = .false.
+    logical :: using_real_termbox = .false.
+    ! Cell buffers, etc.
+  end type tui_backend_state_t
+  
+contains
+  
+  subroutine tui_init(self, ctx, width, height, title)
+    class(tui_backend_t), intent(inout) :: self
+    type(fortui_context_t), intent(inout) :: ctx
+    integer, intent(in) :: width, height
+    character(*), intent(in) :: title
+    
+    type(tui_backend_state_t), pointer :: state
+    
+    ! Allocate backend-specific state in context
+    if (.not. allocated(ctx%backend_state)) then
+      allocate(tui_backend_state_t :: ctx%backend_state)
+    end if
+    
+    ! Get typed reference to state
+    select type(s => ctx%backend_state)
+    type is (tui_backend_state_t)
+      state => s
+    end select
+    
+    ! Initialize using context-stored state
+    state%initialized = .true.
+    state%terminal_width = width
+    state%terminal_height = height
+    ! ... rest of initialization
+  end subroutine
+  
+end module fortui_tui
+```
+
+#### Phase 4: Implementation Plan
+
+##### Step 1: Create Context Module (Non-Breaking)
+1. Implement `fortui_context.f90` with full context management
+2. Add thread-local default context support
+3. Create context lifecycle functions
+4. Add widget state map implementation
+
+##### Step 2: Update Core Module (Backward Compatible)
+1. Add context-aware versions of all functions
+2. Keep existing functions as wrappers using default context
+3. Migrate internal state to context object
+4. Update backend interface to accept context
+
+##### Step 3: Migrate Backends (Incremental)
+1. Update TUI backend to use context state
+2. Update GUI backend to use context state
+3. Remove all module-level SAVE variables
+4. Test each backend independently
+
+##### Step 4: Update Widgets (Gradual)
+1. Add context-aware widget functions
+2. Migrate widget state to context storage
+3. Keep backward compatibility layer
+4. Update examples to show both APIs
+
+##### Step 5: Testing and Validation
+1. Create multi-context test suite
+2. Test thread safety with OpenMP
+3. Verify no state leakage between contexts
+4. Performance benchmarking
+
+#### Phase 5: Migration Examples
+
+##### Single Context (Backward Compatible)
+```fortran
+program single_ui
+  use fortui
+  implicit none
+  
+  ! Works exactly as before - uses default context
+  call ui_init("tui", 80.0, 24.0, "My App")
+  
+  do while (.not. ui_should_close())
+    call ui_frame_begin()
+    
+    if (button("quit", "Exit")) exit
+    
+    call ui_present()
+  end do
+  
+  call ui_shutdown()
+end program
+```
+
+##### Multiple Contexts (New Capability)
+```fortran
+program multi_window
+  use fortui
+  use fortui_context
+  implicit none
+  
+  type(fortui_context_t), pointer :: ctx1, ctx2
+  
+  ! Create two independent UI contexts
+  ctx1 => create_context()
+  ctx2 => create_context()
+  
+  ! Initialize different backends/windows
+  call ui_init_with_context(ctx1, "tui", 80.0, 24.0, "Terminal UI")
+  call ui_init_with_context(ctx2, "gui", 640.0, 480.0, "Graphical UI")
+  
+  ! Run both UIs (would need threading in practice)
+  do while (.not. ctx1%should_quit .and. .not. ctx2%should_quit)
+    ! Update first context
+    call ctx1%begin_frame()
+    if (button_with_context(ctx1, "quit1", "Exit TUI")) ctx1%should_quit = .true.
+    call ctx1%end_frame()
+    
+    ! Update second context
+    call ctx2%begin_frame()
+    if (button_with_context(ctx2, "quit2", "Exit GUI")) ctx2%should_quit = .true.
+    call ctx2%end_frame()
+  end do
+  
+  ! Clean up
+  call destroy_context(ctx1)
+  call destroy_context(ctx2)
+end program
+```
+
+##### Thread-Safe Parallel UI
+```fortran
+program parallel_ui
+  use fortui
+  use fortui_context
+  use omp_lib
+  implicit none
+  
+  integer :: thread_id
+  type(fortui_context_t), pointer :: contexts(4)
+  
+  ! Create contexts for each thread
+  do thread_id = 1, 4
+    contexts(thread_id) => create_context()
+  end do
+  
+  !$OMP PARALLEL PRIVATE(thread_id)
+  thread_id = omp_get_thread_num() + 1
+  
+  ! Each thread has its own UI context
+  call ui_init_with_context(contexts(thread_id), "tui", &
+                            80.0, 24.0, "Thread " // char(thread_id + 48))
+  
+  do while (.not. contexts(thread_id)%should_quit)
+    call contexts(thread_id)%begin_frame()
+    
+    ! Thread-safe widget calls
+    if (button_with_context(contexts(thread_id), "quit", "Exit")) then
+      contexts(thread_id)%should_quit = .true.
+    end if
+    
+    call contexts(thread_id)%end_frame()
+  end do
+  
+  call contexts(thread_id)%shutdown()
+  !$OMP END PARALLEL
+  
+  ! Clean up
+  do thread_id = 1, 4
+    call destroy_context(contexts(thread_id))
+  end do
+end program
+```
+
+### Success Criteria
+
+**Architecture Goals**:
+- [ ] All global state encapsulated in context objects
+- [ ] No module-level SAVE variables remain
+- [ ] Thread-safe operation with multiple contexts
+- [ ] Full backward compatibility maintained
+- [ ] Zero performance regression
+
+**Testing Requirements**:
+- [ ] Multi-context test suite passes
+- [ ] Thread safety verified with OpenMP tests
+- [ ] No state leakage between contexts
+- [ ] Memory leak detection clean
+- [ ] Performance within 5% of original
+
+**Implementation Milestones**:
+1. [ ] Context module implemented and tested
+2. [ ] Core module migrated with compatibility layer
+3. [ ] TUI backend uses context state
+4. [ ] GUI backend uses context state
+5. [ ] All widgets migrated to context storage
+6. [ ] Examples updated to demonstrate new capabilities
+7. [ ] Documentation updated with context patterns
+
+### Risk Mitigation
+
+**Backward Compatibility**:
+- Maintain default context with thread-local storage
+- All existing APIs continue to work unchanged
+- Gradual opt-in to explicit context passing
+- Deprecation warnings for future removal
+
+**Performance Concerns**:
+- Widget state lookup optimized with hash table
+- Context pointer passing has minimal overhead
+- Lazy allocation of backend-specific state
+- Profile-guided optimization after implementation
+
+**Testing Strategy**:
+- Parallel test execution to catch race conditions
+- Valgrind/AddressSanitizer for memory safety
+- Automated regression testing for all examples
+- Stress testing with many contexts/widgets
