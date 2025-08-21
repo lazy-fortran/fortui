@@ -809,6 +809,8 @@ get_dependency_flags() {
     if [[ -d "${cache_dir}/termbox2" ]]; then
         flags+=" -I${cache_dir}/termbox2"
         flags+=" -L${cache_dir}/termbox2 -ltermbox2"
+        # Add RPATH so executables can find the library at runtime
+        flags+=" -Wl,-rpath,${cache_dir}/termbox2"
     fi
     
     # raylib/fortran-raylib flags (only if GUI enabled)
@@ -832,6 +834,9 @@ get_dependency_flags() {
             fi
         fi
     fi
+    
+    # Add OpenMP support for thread safety tests
+    flags+=" -fopenmp"
     
     echo "${flags}"
 }
