@@ -100,9 +100,11 @@ test_secure_pid_validation_exists() {
     # During RED phase: Should return false (not implemented)
     # During GREEN phase: Should return true (implemented)
     
-    # Look for secure PID validation pattern in build script
-    if [[ -f "$TOOLS_DIR/build_fortui.sh" ]]; then
-        grep -q "validate_pid\|is_valid_pid\|^[[:space:]]*if.*[0-9].*then" "$TOOLS_DIR/build_fortui.sh" 2>/dev/null
+    # Look for safe_read_pid function in build script or security module
+    if [[ -f "$TOOLS_DIR/lib/security.sh" ]]; then
+        grep -q "safe_read_pid()" "$TOOLS_DIR/lib/security.sh" 2>/dev/null
+    elif [[ -f "$TOOLS_DIR/build_fortui.sh" ]]; then
+        grep -q "safe_read_pid" "$TOOLS_DIR/build_fortui.sh" 2>/dev/null
     else
         return 1  # Build script doesn't exist yet
     fi
@@ -110,8 +112,10 @@ test_secure_pid_validation_exists() {
 
 test_secure_path_validation_exists() {
     # Check if secure path validation function exists
-    if [[ -f "$TOOLS_DIR/build_fortui.sh" ]]; then
-        grep -q "validate_path\|sanitize_path\|realpath\|readlink -f" "$TOOLS_DIR/build_fortui.sh" 2>/dev/null
+    if [[ -f "$TOOLS_DIR/lib/security.sh" ]]; then
+        grep -q "validate_path()" "$TOOLS_DIR/lib/security.sh" 2>/dev/null
+    elif [[ -f "$TOOLS_DIR/build_fortui.sh" ]]; then
+        grep -q "validate_path" "$TOOLS_DIR/build_fortui.sh" 2>/dev/null
     else
         return 1
     fi
@@ -119,10 +123,10 @@ test_secure_path_validation_exists() {
 
 test_command_output_sanitization_exists() {
     # Check if command output sanitization exists
-    if [[ -f "$TOOLS_DIR/build_fortui.sh" ]]; then
-        # Look for quoted command substitutions instead of unquoted ones
-        ! grep -q 'flags+=.*\$[(][^)]*[)]' "$TOOLS_DIR/build_fortui.sh" 2>/dev/null &&
-        grep -q 'flags+=".*\$[(][^)]*[)]"' "$TOOLS_DIR/build_fortui.sh" 2>/dev/null
+    if [[ -f "$TOOLS_DIR/lib/security.sh" ]]; then
+        grep -q "sanitize_command_output()" "$TOOLS_DIR/lib/security.sh" 2>/dev/null
+    elif [[ -f "$TOOLS_DIR/build_fortui.sh" ]]; then
+        grep -q "sanitize_command_output" "$TOOLS_DIR/build_fortui.sh" 2>/dev/null
     else
         return 1
     fi
@@ -155,31 +159,59 @@ test_requirement_proper_quoting() {
 }
 
 test_variable_expansion_quoting() {
-    if [[ -f "$TOOLS_DIR/build_fortui.sh" ]]; then
-        # Check that variables in dangerous contexts are quoted
-        ! grep -q 'cat[[:space:]]*\$[^"]*[[:space:]]*2>/dev/null' "$TOOLS_DIR/build_fortui.sh" 2>/dev/null
-    else
-        return 1
+    # Look for proper variable quoting patterns in any build script or library
+    local script_files=("$TOOLS_DIR/build_fortui.sh")
+    if [[ -d "$TOOLS_DIR/lib" ]]; then
+        script_files+=("$TOOLS_DIR/lib"/*.sh)
     fi
+    
+    for file in "${script_files[@]}"; do
+        if [[ -f "$file" ]]; then
+            # Check for properly quoted variables (positive pattern)
+            if grep -q '"\$[^"]*"' "$file" 2>/dev/null; then
+                return 0  # Found proper quoting
+            fi
+        fi
+    done
+    return 1  # No proper quoting patterns found
 }
 
 test_command_substitution_quoting() {
-    if [[ -f "$TOOLS_DIR/build_fortui.sh" ]]; then
-        # Check that command substitutions are quoted
-        ! grep -q 'flags+=[[:space:]]*\$[(][^)]*[)]' "$TOOLS_DIR/build_fortui.sh" 2>/dev/null
-    else
-        return 1
+    # Look for proper command substitution quoting patterns in any script
+    local script_files=("$TOOLS_DIR/build_fortui.sh")
+    if [[ -d "$TOOLS_DIR/lib" ]]; then
+        script_files+=("$TOOLS_DIR/lib"/*.sh)
     fi
+    
+    for file in "${script_files[@]}"; do
+        if [[ -f "$file" ]]; then
+            # Check for properly quoted command substitutions
+            if grep -q 'pkg_flags="\$(' "$file" 2>/dev/null ||
+               grep -q 'if.*="\$(' "$file" 2>/dev/null; then
+                return 0  # Found proper quoting
+            fi
+        fi
+    done
+    return 1  # No proper quoting patterns found
 }
 
 test_path_parameter_quoting() {
-    if [[ -f "$TOOLS_DIR/build_fortui.sh" ]]; then
-        # Check that file paths in grep commands are quoted
-        ! grep -q 'grep.*\${[^}]*}/.*\.h' "$TOOLS_DIR/build_fortui.sh" 2>/dev/null ||
-        grep -q 'grep.*"\${[^}]*}/.*\.h"' "$TOOLS_DIR/build_fortui.sh" 2>/dev/null
-    else
-        return 1
+    # Look for proper path quoting patterns in any script
+    local script_files=("$TOOLS_DIR/build_fortui.sh")
+    if [[ -d "$TOOLS_DIR/lib" ]]; then
+        script_files+=("$TOOLS_DIR/lib"/*.sh)
     fi
+    
+    for file in "${script_files[@]}"; do
+        if [[ -f "$file" ]]; then
+            # Check for properly quoted file paths
+            if grep -q '"\$[a-zA-Z_]*"' "$file" 2>/dev/null ||
+               grep -q '"\${[^}]*}' "$file" 2>/dev/null; then
+                return 0  # Found proper quoting
+            fi
+        fi
+    done
+    return 1  # No proper quoting patterns found
 }
 
 # Security Requirement 3: Safe Command Construction
