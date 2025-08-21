@@ -26,22 +26,14 @@ contains
 subroutine ensure_backends_registered_with_context(ctx)
     type(fortui_context_t), intent(inout) :: ctx
     
-    integer :: state_index
-    type(backend_registration_state) :: new_state
-    
-    ! Get or create backend registration state
-    state_index = ctx%widget_states%get("_backend_registration", "internal")
-    if (state_index == 0) then
-        ! Create new registration state
-        new_state = backend_registration_state()
-        call ctx%widget_states%set("_backend_registration", "internal", new_state)
-        state_index = ctx%widget_states%get("_backend_registration", "internal")
+    ! Use proper backend_state field instead of widget_states
+    if (.not. allocated(ctx%backend_state)) then
+        ! Initialize backend registration state in proper location
+        allocate(ctx%backend_state, source=backend_registration_state())
     end if
     
-    if (state_index == 0) return
-    
     ! Check if already registered
-    select type(state_obj => ctx%widget_states%entries(state_index)%state)
+    select type(state_obj => ctx%backend_state)
     type is (backend_registration_state)
         if (state_obj%backends_registered) return
         
