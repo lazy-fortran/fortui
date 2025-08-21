@@ -481,9 +481,49 @@ layout = column(gap=16.0)       ! bare real (treated as dp)
 
 ## Widget System
 
-### Button Widget
+fortui implements a **Widget-Renderer Collaboration Pattern** that provides clean separation between widget behavior and rendering implementation. This architecture resolves Issue #61 by eliminating tight coupling between widgets and backends.
 
-Interactive button with click detection and auto-sizing:
+### Widget-Renderer Architecture
+
+The new architecture features:
+- **Abstract Widget Interface**: Widgets implement `renderable_widget_t` with encapsulated behavior
+- **Renderer Abstraction**: Backend-agnostic `widget_renderer_t` provides drawing primitives
+- **Double Dispatch Pattern**: Widgets collaborate with renderers through visitor-style rendering
+- **Perfect Encapsulation**: Backends never access widget internals directly
+
+```fortran
+use fortui_widget_renderer
+use fortui_renderable
+use fortui_button_widget
+
+! Widget-Renderer Collaboration Example
+type(button_widget_t) :: my_button
+type(tui_renderer_t), target :: tui_renderer
+type(button_state_t) :: button_state
+type(render_context_t) :: context
+
+! Setup widget with position and appearance
+my_button%x = 50.0
+my_button%y = 100.0
+my_button%width = 120.0
+my_button%height = 35.0
+my_button%label = "Click Me"
+
+! Widget renders itself using renderer's drawing primitives
+call my_button%render(tui_renderer, context, button_state)
+
+! Widget handles its own interaction logic
+call my_button%update_state(mouse_x, mouse_y, mouse_pressed, button_state)
+
+! Widget provides its own hit testing
+if (my_button%hit_test(cursor_x, cursor_y)) then
+    print *, "Mouse over button!"
+end if
+```
+
+### Legacy Widget API (Maintained for Compatibility)
+
+The immediate-mode widget API continues to work unchanged:
 
 ```fortran
 use fortui_widgets
@@ -509,11 +549,33 @@ if (big_clicked) then
 end if
 ```
 
+### Button Widget
+
 ### Text Widget
 
 Display text content with auto-sizing and multiline support:
 
 ```fortran
+! New Widget-Renderer Architecture
+type(text_widget_t) :: text_display
+type(text_state_t) :: text_state
+type(gui_renderer_t) :: gui_renderer
+type(render_context_t) :: context
+
+! Setup text widget with new architecture
+text_display%x = 10.0
+text_display%y = 50.0
+text_display%width = 200.0
+text_display%height = 30.0
+
+text_state%id = "status_text"
+text_state%content = "Widget-Renderer Collaboration Active"
+text_state%visual_state = WIDGET_NORMAL
+
+! Widget renders itself through collaboration
+call text_display%render(gui_renderer, context, text_state)
+
+! Legacy Immediate-Mode API (still supported)
 type(text_node_t) :: label_widget, info_widget, terminal_widget
 
 ! Basic text display
@@ -531,6 +593,30 @@ terminal_widget = text("terminal", "Terminal Text", width=200.0)
 Interactive numeric input with range control and step quantization:
 
 ```fortran
+! New Widget-Renderer Architecture
+type(slider_widget_t) :: volume_slider
+type(slider_state_t) :: slider_state
+type(tui_renderer_t) :: tui_renderer
+type(render_context_t) :: context
+
+! Setup slider widget with encapsulated behavior
+volume_slider%x = 20.0
+volume_slider%y = 200.0
+volume_slider%width = 150.0
+volume_slider%height = 25.0
+volume_slider%min_value = 0.0
+volume_slider%max_value = 100.0
+
+slider_state%id = "volume_control"
+slider_state%current_value = 50.0
+slider_state%visual_state = WIDGET_HOVER
+slider_state%dragging = .false.
+
+! Widget manages its own rendering and interaction
+call volume_slider%render(tui_renderer, context, slider_state)
+call volume_slider%update_state(mouse_x, mouse_y, mouse_pressed, slider_state)
+
+! Legacy Immediate-Mode API
 real :: volume = 50.0, temperature = 20.0
 logical :: volume_changed, temp_changed
 
@@ -552,6 +638,29 @@ end if
 Boolean input with toggle functionality:
 
 ```fortran
+! New Widget-Renderer Architecture
+type(checkbox_widget_t) :: sound_checkbox
+type(checkbox_state_t) :: checkbox_state
+type(gui_renderer_t) :: gui_renderer
+type(render_context_t) :: context
+
+! Setup checkbox with widget-renderer collaboration
+sound_checkbox%x = 30.0
+sound_checkbox%y = 150.0
+sound_checkbox%width = 180.0
+sound_checkbox%height = 25.0
+sound_checkbox%label = "Enable Sound Effects"
+
+checkbox_state%id = "sound_toggle"
+checkbox_state%checked = .true.
+checkbox_state%visual_state = WIDGET_NORMAL
+checkbox_state%hover = .false.
+
+! Widget encapsulates rendering and behavior
+call sound_checkbox%render(gui_renderer, context, checkbox_state)
+call sound_checkbox%update_state(mouse_x, mouse_y, mouse_clicked, checkbox_state)
+
+! Legacy Immediate-Mode API
 logical :: sound_enabled = .true., enabled = .false.
 logical :: sound_toggled, notif_toggled
 
@@ -568,15 +677,41 @@ if (notif_toggled) then
 end if
 ```
 
+### Architectural Benefits
+
+The Widget-Renderer Collaboration Pattern provides:
+
+**Clean Separation of Concerns:**
+- Widgets focus on behavior, interaction, and state management
+- Renderers focus on drawing primitives and backend-specific optimizations
+- No tight coupling between widget logic and rendering implementation
+
+**Backend Flexibility:**
+- Same widget works with TUI and GUI renderers without modification
+- Easy to add new rendering backends (e.g., web, print, SVG export)
+- Backend-specific optimizations don't affect widget implementations
+
+**Encapsulation and Maintainability:**
+- Widget internals are completely hidden from backends
+- Consistent widget behavior across all rendering contexts
+- Changes to rendering don't break existing widget logic
+
+**Tell, Don't Ask Principle:**
+- Widgets tell renderers what to draw using abstract primitives
+- No backend queries about widget internal state required
+- Double dispatch ensures correct method selection
+
 **Parameter Types:**
-- **Widget functions**: Accept plain `real` values for width/height (e.g., `width=80.0`)
-- **Layout functions**: Accept unit types via `class(*)` (e.g., `gap=dp(12.0)`, `gap=cw(2.0)`)
+- **New Widget Architecture**: Widgets are objects with encapsulated state and behavior
+- **Legacy Widget Functions**: Accept plain `real` values for width/height (e.g., `width=80.0`)
+- **Layout Functions**: Accept unit types via `class(*)` (e.g., `gap=dp(12.0)`, `gap=cw(2.0)`)
 
 **Complete Documentation:** 
-- [Button Widget API](docs/BUTTON_WIDGET.md)
-- [Text Widget API](docs/TEXT_WIDGET.md)
-- [Slider Widget API](docs/SLIDER_WIDGET.md)
-- [Checkbox Widget API](docs/CHECKBOX_WIDGET.md)
+- [Widget-Renderer Architecture](docs/WIDGET_RENDERER_ARCHITECTURE.md) - New collaboration pattern details
+- [Button Widget API](docs/BUTTON_WIDGET.md) - Both legacy and new architecture
+- [Text Widget API](docs/TEXT_WIDGET.md) - Widget encapsulation examples  
+- [Slider Widget API](docs/SLIDER_WIDGET.md) - State management and rendering
+- [Checkbox Widget API](docs/CHECKBOX_WIDGET.md) - Interaction handling patterns
 
 ### Units System
 
@@ -679,32 +814,128 @@ plot_view%off_x = 100.0    ! Pan right by 100 units
 # Build fortui first
 ./tools/build_fortui.sh build
 
-# Compile with proper flags for abstract units
+# Compile with proper flags for widget-renderer architecture
 export FPM_FFLAGS="-cpp $(./tools/build_fortui.sh flags)"
 export FPM_LDFLAGS="$(./tools/build_fortui.sh ldflags)"
-fpm build complete_demo.f90
+fpm build widget_demo.f90
 
 # Or use the simplified environment setup
 source fpm_env.sh
-fpm build complete_demo.f90
+fpm build widget_demo.f90
 ```
 
+### Widget-Renderer Collaboration Demo
+
 ```fortran
-program core_types_demo  
+program widget_collaboration_demo
   use fortui_core
+  use fortui_widget_renderer
+  use fortui_renderable
+  use fortui_button_widget
+  use fortui_tui_renderer
+  implicit none
+
+  ! Widget-Renderer Collaboration Architecture Demo
+  type(button_widget_t) :: save_button, cancel_button
+  type(button_state_t) :: save_state, cancel_state  
+  type(tui_renderer_t), target :: renderer
+  type(render_context_t) :: context
+  logical :: running
+  integer :: frame_count = 0
+
+  print *, "fortui - Widget-Renderer Collaboration Demo"
+  print *, "Demonstrating new widget abstraction architecture"
+
+  ! Initialize TUI backend
+  call ui_init("tui", 100, 30, "Widget Collaboration Demo")
+  
+  ! Initialize renderer
+  call renderer%initialize(100, 30)
+  
+  ! Setup render context
+  context%viewport_w = 800.0
+  context%viewport_h = 480.0
+  context%scale_x = 1.0
+  context%scale_y = 1.0
+
+  ! Configure Save button with widget-renderer architecture
+  save_button%x = 20.0
+  save_button%y = 100.0 
+  save_button%width = 120.0
+  save_button%height = 35.0
+  save_button%label = "Save File"
+  
+  save_state%id = "save_button"
+  save_state%label = "Save File"
+  save_state%visual_state = WIDGET_NORMAL
+
+  ! Configure Cancel button
+  cancel_button%x = 160.0
+  cancel_button%y = 100.0
+  cancel_button%width = 120.0
+  cancel_button%height = 35.0
+  cancel_button%label = "Cancel"
+  
+  cancel_state%id = "cancel_button"
+  cancel_state%label = "Cancel"
+  cancel_state%visual_state = WIDGET_NORMAL
+
+  running = .true.
+  do while (running)
+    call ui_frame_begin(timeout_ms=200)
+    frame_count = frame_count + 1
+
+    ! Widget-Renderer Collaboration Pattern in action
+    
+    ! Each widget renders itself through collaboration with renderer
+    call save_button%render(renderer, context, save_state)
+    call cancel_button%render(renderer, context, cancel_state)
+    
+    ! Each widget handles its own state updates and interactions  
+    call save_button%update_state(50.0, 117.0, .false., save_state)
+    call cancel_button%update_state(220.0, 117.0, .false., cancel_state)
+    
+    ! Check for button clicks
+    if (save_state%clicked_this_frame) then
+      print *, "Frame ", frame_count, ": Save button clicked!"
+      print *, "  Widget encapsulation: Save logic handled internally"
+    end if
+    
+    if (cancel_state%clicked_this_frame) then
+      print *, "Frame ", frame_count, ": Cancel button clicked!"
+      print *, "  Clean separation: Widget-renderer collaboration maintained"
+    end if
+
+    call ui_present(node())  ! Placeholder for layout integration
+    running = .not. ui_should_close()
+    
+    if (frame_count > 200) running = .false.
+  end do
+
+  call ui_shutdown()
+
+  print *, "✓ Widget-Renderer Collaboration Pattern implemented"
+  print *, "✓ Perfect encapsulation: Widgets manage their own behavior"
+  print *, "✓ Clean separation: Renderers only handle drawing primitives"
+  print *, "✓ Backend flexibility: Same widgets work with TUI/GUI renderers"
+end program
+```
+
+### Legacy API Demo (Still Supported)
+
+```fortran
+program legacy_api_demo
+  use fortui_core
+  use fortui_widgets
   use fortui_unit_types
   implicit none
 
   type(view) :: plot_view
-  type(node) :: ui_root
   logical :: running
   integer :: frame_count = 0
 
   ! Automatic backend selection with mixed abstract units
-  call ui_init("auto", cw_unit(80.0), ch_unit(25.0), "Core Types Demo")
-  
-  ! Optional: Configure power-saving for GUI mode (ignored in TUI)
-  call ui_set_idle_policy("adaptive", idle_fps=12)
+  call ui_init("auto", cw_unit(80.0), ch_unit(25.0), "Legacy API Demo")
 
   running = .true.
   do while (running)
@@ -716,21 +947,25 @@ program core_types_demo
     plot_view%scale_y = plot_view%scale_x
     plot_view%off_x = cos(real(frame_count) * 0.03) * 20.0
 
-    ! Build UI with text widgets
-    ! ui_root = column(children=[ &
-    !   text("title", "fortui Demo - Frame " // int_to_str(frame_count)), &
-    !   text("view_info", "Scale: " // real_to_str(plot_view%scale_x) // &
-    !                     " Offset: " // real_to_str(plot_view%off_x)), &
-    !   viewport("plot", 60, 15, plot_view) ])
+    ! Legacy immediate-mode widget API still works
+    if (button("zoom_in", "Zoom In")) then
+      plot_view%scale_x = plot_view%scale_x * 1.2
+      plot_view%scale_y = plot_view%scale_y * 1.2
+    end if
+    
+    if (viewport("plot", 60.0, 15.0, plot_view)) then
+      print *, "View updated: scale=", plot_view%scale_x
+    end if
 
-    call ui_present(ui_root)
+    call ui_present(node())  ! Placeholder for layout integration
     running = .not. ui_should_close()
+    
+    if (frame_count > 200) running = .false.
   end do
 
   call ui_shutdown()
   
-  print *, "Demo completed after", frame_count, "frames"
-  print *, "Final view state: scale=", plot_view%scale_x, "offset=", plot_view%off_x
+  print *, "✓ Legacy API demo completed - backward compatibility maintained"
 end program
 ```
 
@@ -788,6 +1023,7 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Power-saving mode
 
 ✅ **Context Object Pattern**: Thread-safe architecture with multiple UI instance support and complete global state elimination  
 ✅ **Backend Registry Pattern**: Complete circular dependency resolution with runtime backend selection  
+✅ **Widget-Renderer Collaboration Pattern**: Issue #61 resolved - Complete widget abstraction with proper encapsulation
 ✅ **fortui_core module**: Complete with `node` and `view` types, lifecycle management, layout constructors  
 ✅ **fortui_context module**: Context objects with widget state encapsulation and thread-local default contexts
 ✅ **fortui_backend**: Abstract interface with dynamic registry and capability system
@@ -795,6 +1031,8 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Power-saving mode
 ✅ **fortui_units module**: Complete with comprehensive cross-backend units system
 ✅ **Layout system**: `column()` and `row()` functions with gap parameters and children arrays - **PRODUCTION READY**
 ✅ **fortui_widgets module**: Button, text, slider, and checkbox widgets with context-aware and legacy APIs
+✅ **fortui_widget_renderer module**: Abstract renderer interface with drawing primitives and composite operations
+✅ **fortui_renderable module**: Widget behavior contract with render/update/bounds/hit-test interfaces
 ✅ **Build system**: Automatic dependency detection and configuration
 
 **Backend Architecture Status:**
