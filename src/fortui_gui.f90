@@ -3,6 +3,7 @@ module fortui_gui
 ! GUI backend implementation for raylib/raygui integration
 ! Handles GUI initialization, rendering, and resource management
 use fortui_backend
+use fortui_error, only: report_info
 use iso_c_binding
 implicit none
 private
@@ -301,20 +302,18 @@ subroutine init_gui_backend_impl(width, height, title, target_fps, vsync)
     ! For testing, we simulate the behavior
     if (is_gui_available_impl()) then
         ! Initialize GUI backend with raylib
-        print *, "init_gui_backend_impl: GUI initialized successfully"
-        print *, "  Window size:", max(100, width * 8), "x", max(100, height * 16)
-        print *, "  Target FPS:", max(1, target_fps)
-        print *, "  VSync:", vsync
+        ! Debug output disabled for production
     else
         ! GUI not available in this environment
-        print *, "init_gui_backend_impl: GUI not available in current environment"
+        call report_info("fortui_gui", "init_gui_backend_impl", &
+            "GUI not available in current environment")
     end if
 end subroutine init_gui_backend_impl
 
 ! Shutdown GUI backend
 subroutine shutdown_gui_backend_impl()
     ! GUI backend shutdown - state managed by context objects
-    print *, "shutdown_gui_backend_impl: GUI backend shutdown complete"
+    ! Debug output disabled for production
 end subroutine shutdown_gui_backend_impl
 
 ! Begin GUI frame

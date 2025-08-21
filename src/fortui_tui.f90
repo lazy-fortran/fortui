@@ -3,6 +3,7 @@ module fortui_tui
 ! Always compiled, provides terminal user interface capabilities
 use fortui_backend
 use fortui_hash, only: line_hash_t, calculate_line_hash, hash_equal, tb_cell
+use fortui_error, only: report_error
 use iso_c_binding
 use iso_fortran_env, only: int64
 implicit none
@@ -158,7 +159,8 @@ subroutine tui_init(self, width, height, title, target_fps, vsync)
     ! Initialize termbox2
     ret = tb_init()
     if (ret /= 0) then
-        print *, "Error: Failed to initialize termbox2"
+        call report_error("fortui_tui", "init_tui_backend_impl", &
+            "Failed to initialize termbox2")
         return
     end if
     

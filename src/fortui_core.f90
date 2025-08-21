@@ -452,13 +452,13 @@ subroutine ui_set_idle_policy(mode, idle_fps)        ! gui only
     ! Apply policy for GUI backend only
 #ifdef ENABLE_GUI
     if (trim(ctx%active_backend) == "gui") then
-        print *, "ui_set_idle_policy: mode=", trim(ctx%idle_mode)
-        if (present(idle_fps)) print *, "  idle_fps=", ctx%idle_fps
+        ! Debug output disabled for production
     end if
 #else
     ! GUI backend disabled at compile time
     if (trim(ctx%active_backend) == "gui") then
-        print *, "ui_set_idle_policy: Error - GUI backend not available (disabled at compile time)"
+        call report_error("fortui_core", "ui_set_idle_policy", &
+            "GUI backend not available (disabled at compile time)")
     end if
 #endif
 end subroutine ui_set_idle_policy

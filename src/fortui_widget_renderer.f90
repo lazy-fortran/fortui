@@ -2,7 +2,7 @@ module fortui_widget_renderer
 ! Widget rendering abstraction for Widget-Renderer Collaboration Pattern
 ! Provides abstract interface for backend-specific rendering operations
 ! Issue #61: Eliminates tight coupling between widgets and backends
-use iso_fortran_env, only: error_unit
+use fortui_error, only: report_error
 implicit none
 private
 

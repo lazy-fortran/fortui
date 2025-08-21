@@ -3,7 +3,7 @@ module fortui_gui_renderer
 ! Backend-specific renderer for graphics-based drawing operations
 ! Issue #61: Implements primitive drawing operations for GUI backend
 use fortui_widget_renderer
-use iso_fortran_env, only: error_unit
+use fortui_error, only: report_warning
 use iso_c_binding, only: c_null_char
 implicit none
 private
