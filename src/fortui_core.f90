@@ -3,6 +3,7 @@ module fortui_core
 ! Provides backend-agnostic node and view types for UI tree construction
 use fortui_backend
 use fortui_context, only: fortui_context_t, get_default_context, create_context, set_default_context
+use fortui_error
 use iso_c_binding
 use iso_fortran_env, only: error_unit
 implicit none
@@ -18,7 +19,7 @@ public :: ui_element, node, view, widget_wrapper
 ! Public procedures - with context-aware overloads
 public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
 public :: ui_set_idle_policy, ui_get_context
-public :: is_gui_available, is_headless_environment, resolve_backend
+public :: is_gui_available, is_tui_available, is_headless_environment, resolve_backend
 public :: set_environment_variable_simulation, clear_environment_variable_simulation
 ! Context-aware function variants (new API)
 public :: ui_init_with_context, ui_shutdown_with_context
@@ -237,6 +238,13 @@ subroutine ui_init_with_context(ctx, backend, width, height, title, target_fps, 
     
     ! Resolve backend
     resolved_backend = resolve_backend(backend)
+    
+    ! Check if we have any available backend
+    if (len_trim(resolved_backend) == 0) then
+        call report_error("fortui_core", "ui_init_with_context", &
+            "No backend available for initialization (headless environment)")
+        return
+    end if
     
     ! Initialize context
     call ctx%init(resolved_backend, width, height, title, t_fps, v_sync)
@@ -642,8 +650,16 @@ function resolve_backend(requested) result(backend)
     
     ! Validate that selected backend is actually available
     if (trim(backend) == "gui" .and. .not. is_gui_available()) then
-        print *, "resolve_backend: GUI backend not available, falling back to TUI"
+        call report_warning("fortui_core", "resolve_backend", &
+            "GUI backend not available, falling back to TUI")
         backend = "tui"
+    end if
+    
+    ! Also validate TUI availability (headless environments)
+    if (trim(backend) == "tui" .and. .not. is_tui_available()) then
+        call report_error("fortui_core", "resolve_backend", &
+            "TUI backend not available (headless environment)")
+        backend = ""  ! No backend available
     end if
 end function resolve_backend
 
@@ -658,6 +674,18 @@ logical function is_gui_available()
         is_gui_available = .false.
     end if
 end function is_gui_available
+
+logical function is_tui_available()
+    ! Check if TUI backend can be initialized
+    class(backend_interface), pointer :: tui_backend
+    
+    tui_backend => get_backend("tui")
+    if (associated(tui_backend)) then
+        is_tui_available = tui_backend%is_available()
+    else
+        is_tui_available = .false.
+    end if
+end function is_tui_available
 
 logical function is_headless_environment()
     ! Detect headless environment (no display available)

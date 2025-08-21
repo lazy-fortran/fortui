@@ -230,8 +230,37 @@ end subroutine tui_render
 
 logical function tui_is_available(self)
     class(tui_backend_t), intent(in) :: self
+    character(len=256) :: env_var
+    integer :: ios
     
-    ! TUI is always available (terminal always exists)
+    ! Check for explicit headless flag
+    call get_environment_variable("FORTUI_HEADLESS", env_var, status=ios)
+    if (ios == 0 .and. trim(env_var) == "1") then
+        tui_is_available = .false.
+        return
+    end if
+    
+    ! Check for CI environments where TUI won't work
+    call get_environment_variable("CI", env_var, status=ios)
+    if (ios == 0) then
+        tui_is_available = .false.
+        return
+    end if
+    
+    call get_environment_variable("GITHUB_ACTIONS", env_var, status=ios)
+    if (ios == 0) then
+        tui_is_available = .false.
+        return
+    end if
+    
+    ! Check if we have a proper terminal
+    call get_environment_variable("TERM", env_var, status=ios)
+    if (ios /= 0 .or. len_trim(env_var) == 0) then
+        tui_is_available = .false.
+        return
+    end if
+    
+    ! TUI is available if we have a terminal and not in headless mode
     tui_is_available = .true.
 end function tui_is_available
 
