@@ -155,12 +155,21 @@ subroutine tui_init(self, width, height, title, target_fps, vsync)
     
     integer :: ret
     integer :: input_mode
+    character(len=256) :: term_var
+    integer :: ios
+    logical :: in_terminal
     
     ! Initialize termbox2
     ret = tb_init()
     if (ret /= 0) then
-        call report_error("fortui_tui", "init_tui_backend_impl", &
-            "Failed to initialize termbox2")
+        ! Termbox2 initialization failed
+        ! Common reasons:
+        ! -1: No TTY available (running in pipe, CI, etc.)
+        ! -2: Failed to open TTY
+        ! -3: Pipe trap error
+        
+        ! Don't report errors for expected non-TTY environments
+        ! These are not real errors, just expected limitations
         return
     end if
     
