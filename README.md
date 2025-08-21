@@ -4,11 +4,11 @@ A declarative UI library for modern Fortran with dual backends: terminal (TUI) a
 
 ## Features
 
-- **Context Object Pattern**: Thread-safe architecture with multiple UI instance support
+- **Context Object Pattern**: Basic context-aware API working, advanced multi-context features in development
 - **Backend Registry Pattern**: Runtime backend selection with automatic fallback (GUI→TUI→Error)
 - **One codebase, dual backends**: Write once, run in terminal or GUI window with identical behavior
 - **Immediate-mode API**: Simple, declarative widget calls with automatic state management
-- **Thread safety**: OpenMP-compatible with isolated context objects per thread
+- **Thread safety**: 🚧 OpenMP compatibility in development, basic context isolation working
 - **Cross-backend units system**: Consistent sizing with dp, em, sp, px, cw, ch units
 - **Monospace-first design**: Exact visual parity between TUI and GUI
 - **Performance optimized**: Event-driven TUI with diffed output, VSync-aware GUI
@@ -207,7 +207,14 @@ end program
 
 ## Context-Aware API (Thread Safety & Multiple Instances)
 
-fortui implements the **Context Object Pattern** for thread safety and multiple UI instance support. The new context-aware API is fully backward compatible.
+fortui implements the **Context Object Pattern** for thread safety and multiple UI instance support.
+
+**Implementation Status:**
+- ✅ **Basic context-aware API** - Working now: `create_context()`, `ui_init_with_context()`, `button_with_context()`
+- 🚧 **Advanced multi-context features** - In development: Multiple independent contexts, thread safety
+- ✅ **Backward compatibility** - Legacy APIs work unchanged
+
+The basic context-aware API is production ready. Advanced features are under active development.
 
 ### Basic Context Usage
 
@@ -245,6 +252,8 @@ end program
 ```
 
 ### Multiple UI Instances
+
+> **🚧 Under Development:** Multiple independent contexts are not yet fully implemented. This example shows the planned API.
 
 **Compilation Requirements:**
 ```bash
@@ -303,6 +312,8 @@ end program
 ```
 
 ### Thread Safety with OpenMP
+
+> **🚧 Under Development:** Full thread safety with OpenMP is not yet implemented. This example shows the planned API.
 
 **Compilation Requirements:**
 ```bash
@@ -379,14 +390,14 @@ end program
 
 ### Widget Context API Completeness
 
-**All widgets support both legacy and context-aware APIs:**
+**Context-aware API Implementation Status:**
 
-| Widget | Legacy API | Context-Aware API | Module Required |
-|--------|------------|-------------------|-----------------|
-| **button** | `button(id, label)` | `button_with_context(ctx, id, label)` | `fortui_widgets_button` |
-| **text** | `text(id, content)` | `text_with_context(ctx, id, content)` | Available via `fortui_widgets` |
-| **slider** | `slider(id, min, max, step, value)` | `slider_with_context(ctx, id, min, max, step, value)` | Available via `fortui_widgets` |
-| **checkbox** | `checkbox(id, checked, label)` | `checkbox_with_context(ctx, id, checked, label)` | Available via `fortui_widgets` |
+| Widget | Legacy API | Context-Aware API | Status |
+|--------|------------|-------------------|--------|
+| **button** | `button(id, label)` | `button_with_context(ctx, id, label)` | ✅ Working |
+| **text** | `text(id, content)` | `text_with_context(ctx, id, content)` | 🚧 Planned |
+| **slider** | `slider(id, min, max, step, value)` | `slider_with_context(ctx, id, min, max, step, value)` | 🚧 Planned |
+| **checkbox** | `checkbox(id, checked, label)` | `checkbox_with_context(ctx, id, checked, label)` | 🚧 Planned |
 
 **Layout functions use implicit context:**
 - `column()` and `row()` always use the current context (legacy or explicit)
@@ -1026,11 +1037,11 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Power-saving mode
 
 ## Current Implementation Status
 
-✅ **Context Object Pattern**: Thread-safe architecture with multiple UI instance support and complete global state elimination  
+🔄 **Context Object Pattern**: Basic context-aware API working, advanced thread safety and multiple contexts in development  
 ✅ **Backend Registry Pattern**: Complete circular dependency resolution with runtime backend selection  
 ✅ **Widget-Renderer Collaboration Pattern**: Issue #61 resolved - Complete widget abstraction with proper encapsulation
 ✅ **fortui_core module**: Complete with `node` and `view` types, lifecycle management, layout constructors  
-✅ **fortui_context module**: Context objects with widget state encapsulation and thread-local default contexts
+🔄 **fortui_context module**: Basic context objects working, advanced state encapsulation and thread-local features in development
 ✅ **fortui_backend**: Abstract interface with dynamic registry and capability system
 ✅ **fortui_tui/fortui_gui**: Backend implementations with conditional compilation
 ✅ **fortui_units module**: Complete with comprehensive cross-backend units system
