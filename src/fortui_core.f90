@@ -438,7 +438,7 @@ subroutine ui_set_idle_policy(mode, idle_fps)        ! gui only
     ! Get default context
     ctx => get_default_context()
     if (.not. associated(ctx)) then
-        print *, "ui_set_idle_policy: Error - No default context available"
+        call report_error("fortui_core", "ui_set_idle_policy", "No default context available")
         return
     end if
     
@@ -447,8 +447,8 @@ subroutine ui_set_idle_policy(mode, idle_fps)        ! gui only
     case ("steady", "adaptive")
         ctx%idle_mode = trim(mode)
     case default
-        print *, "ui_set_idle_policy: Warning - Invalid mode '", trim(mode), &
-             "', using 'adaptive'"
+        call report_warning("fortui_core", "ui_set_idle_policy", &
+             "Invalid mode '" // trim(mode) // "', using 'adaptive'")
         ctx%idle_mode = "adaptive"
     end select
     
@@ -643,8 +643,8 @@ function resolve_backend(requested) result(backend)
         end if
     case default
         ! Invalid backend - fall back to TUI
-        print *, "resolve_backend: Warning - Unknown backend '", trim(requested), &
-             "', using TUI"
+        call report_warning("fortui_core", "resolve_backend", &
+             "Unknown backend '" // trim(requested) // "', using TUI")
         backend = "tui"
     end select
     
@@ -743,13 +743,15 @@ end function is_headless_environment
 subroutine set_environment_variable_simulation(name, value)
     character(*), intent(in) :: name, value
     ! This is a stub for testing - real implementation would set env vars
-    print *, "  [SIMULATION] Setting ", trim(name), "=", trim(value)
+    call report_info("fortui_core", "set_environment_variable_simulation", &
+         "Setting " // trim(name) // "=" // trim(value))
 end subroutine set_environment_variable_simulation
 
 subroutine clear_environment_variable_simulation(name)
     character(*), intent(in) :: name
     ! This is a stub for testing - real implementation would clear env vars
-    print *, "  [SIMULATION] Clearing ", trim(name)
+    call report_info("fortui_core", "clear_environment_variable_simulation", &
+         "Clearing " // trim(name))
 end subroutine clear_environment_variable_simulation
 
 ! TUI backend initialization is now handled through the backend interface
