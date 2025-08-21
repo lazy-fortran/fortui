@@ -101,8 +101,8 @@ DISABLE_GUI=1 make
 # Build dependencies first
 ./tools/build_fortui.sh build
 
-# Then use FPM with manual flags
-export FPM_FFLAGS="-cpp -DTUI_ONLY"  # or -DENABLE_GUI for GUI support
+# Then use FPM with automatic flags
+export FPM_FFLAGS="$(./tools/build_fortui.sh fpmflags)"
 export FPM_LDFLAGS="$(./tools/build_fortui.sh ldflags)"
 fpm build
 ```
