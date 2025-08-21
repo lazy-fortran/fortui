@@ -25,16 +25,20 @@ git clone https://github.com/krystophny/fortui.git
 cd fortui
 
 # Automatic GUI/TUI build (detects raylib)
-source fpm_env.sh         # Builds dependencies, configures FPM
-fpm build                 # GUI+TUI if raylib found, TUI-only otherwise
+./fpm_build.sh build      # Builds dependencies and project with proper flags
 ```
 
 **2. Test Installation:**
 ```bash
-fpm test                  # Run test suite
-fpm run --example gui_demo    # GUI example (if raylib available)
-fpm run --example tui_demo    # TUI example (always works)
+./fpm_build.sh test                           # Run test suite
+FORTUI_BACKEND=gui ./fpm_build.sh run --example simple_test  # GUI example (if raylib available)
+./fpm_build.sh run --example simple_test     # TUI example (always works)
 ```
+
+**IMPORTANT:** Always use `./fpm_build.sh` instead of `fpm` directly. This ensures:
+- Proper `ENABLE_GUI` compilation flags are set
+- Dependencies (raylib, termbox2) are linked correctly
+- Runtime library paths (`LD_LIBRARY_PATH`) are configured
 
 **3. Context-Aware Applications:**
 ```bash
