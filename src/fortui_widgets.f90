@@ -111,11 +111,17 @@ logical function viewport(id, width, height, view_state) result(view_changed)
         real :: prev_off_y = 0.0
     end type
     
-    type(viewport_state_t), save :: states(10)
-    integer, save :: state_count = 0
+    type(viewport_state_t), allocatable :: states(:)
+    integer :: state_count
     integer :: state_idx
     
     view_changed = .false.
+    
+    ! Initialize state storage if needed
+    if (.not. allocated(states)) then
+        allocate(states(10))
+        state_count = 0
+    end if
     
     ! Get UI context for conversions
     call ui_get_context(ctx)

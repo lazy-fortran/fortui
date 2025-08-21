@@ -28,7 +28,7 @@ type :: measurement_cache_t
     real :: cached_text_scale = 1.0
 end type measurement_cache_t
 
-type(measurement_cache_t), save :: cache
+! Cache now managed through context parameters - no global state
 
 contains
 
@@ -40,13 +40,6 @@ subroutine measure_terminal_cells(cell_w_dp, cell_h_dp)
     
     character(len=256) :: term_var
     integer :: ios
-    
-    ! Check cache first
-    if (cache%terminal_measured) then
-        cell_w_dp = cache%cached_cell_w_dp
-        cell_h_dp = cache%cached_cell_h_dp
-        return
-    end if
     
     ! Try platform-specific terminal measurement
     call get_environment_variable("TERM", term_var, status=ios)
@@ -63,11 +56,6 @@ subroutine measure_terminal_cells(cell_w_dp, cell_h_dp)
     ! Validate measurements
     if (cell_w_dp <= 0.0 .or. cell_w_dp > 50.0) cell_w_dp = 8.0
     if (cell_h_dp <= 0.0 .or. cell_h_dp > 100.0) cell_h_dp = 16.0
-    
-    ! Cache results
-    cache%terminal_measured = .true.
-    cache%cached_cell_w_dp = cell_w_dp
-    cache%cached_cell_h_dp = cell_h_dp
 end subroutine measure_terminal_cells
 
 subroutine measure_terminal_via_terminfo(cell_w_dp, cell_h_dp)
@@ -96,12 +84,6 @@ subroutine detect_system_dpi(dpi_scale)
     
     character(len=256) :: platform
     
-    ! Check cache first
-    if (cache%dpi_measured) then
-        dpi_scale = cache%cached_dpi_scale
-        return
-    end if
-    
     ! Detect platform and use appropriate measurement method
     call detect_platform(platform)
     
@@ -118,10 +100,6 @@ subroutine detect_system_dpi(dpi_scale)
     
     ! Validate DPI scale
     if (dpi_scale <= 0.1 .or. dpi_scale > 10.0) dpi_scale = 1.0
-    
-    ! Cache results
-    cache%dpi_measured = .true.
-    cache%cached_dpi_scale = dpi_scale
 end subroutine detect_system_dpi
 
 subroutine detect_linux_dpi(dpi_scale)
@@ -222,12 +200,6 @@ subroutine measure_font_metrics(em_dp)
     
     character(len=256) :: platform
     
-    ! Check cache first
-    if (cache%font_measured) then
-        em_dp = cache%cached_em_dp
-        return
-    end if
-    
     ! Try platform-specific font measurement
     call detect_platform(platform)
     
@@ -244,10 +216,6 @@ subroutine measure_font_metrics(em_dp)
     
     ! Validate font metrics
     if (em_dp <= 4.0 .or. em_dp > 200.0) em_dp = 16.0
-    
-    ! Cache results
-    cache%font_measured = .true.
-    cache%cached_em_dp = em_dp
 end subroutine measure_font_metrics
 
 subroutine measure_linux_fonts(em_dp)
@@ -306,12 +274,6 @@ subroutine detect_text_scaling(text_scale)
     
     character(len=256) :: platform
     
-    ! Check cache first
-    if (cache%text_scale_measured) then
-        text_scale = cache%cached_text_scale
-        return
-    end if
-    
     ! Try platform-specific accessibility detection
     call detect_platform(platform)
     
@@ -328,10 +290,6 @@ subroutine detect_text_scaling(text_scale)
     
     ! Validate text scaling
     if (text_scale <= 0.1 .or. text_scale > 10.0) text_scale = 1.0
-    
-    ! Cache results
-    cache%text_scale_measured = .true.
-    cache%cached_text_scale = text_scale
 end subroutine detect_text_scaling
 
 subroutine detect_linux_text_scaling(text_scale)
@@ -449,10 +407,8 @@ end subroutine invalidate_layout
 
 subroutine invalidate_measurement_cache()
     ! Invalidate measurement cache to force remeasurement
-    cache%terminal_measured = .false.
-    cache%dpi_measured = .false.
-    cache%font_measured = .false.
-    cache%text_scale_measured = .false.
+    ! Note: With context-based approach, no global cache to invalidate
+    ! Measurements are computed fresh each time or cached in context
 end subroutine invalidate_measurement_cache
 
 ! Context-aware rendering functions
