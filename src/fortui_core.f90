@@ -2,33 +2,29 @@ module fortui_core
 ! Core types and lifecycle management for fortui
 ! Provides backend-agnostic node and view types for UI tree construction
 use fortui_backend
+use fortui_backend_detection
+use fortui_layout_constructors
 use fortui_context, only: fortui_context_t, get_default_context, create_context, set_default_context
 use fortui_error
-use iso_c_binding
 use iso_fortran_env, only: error_unit
 implicit none
 private
 
-! Layout dimension constants
-real, parameter :: DEFAULT_ROW_HEIGHT_DP = 32.0  ! Basic row height for vertical layout
-real, parameter :: DEFAULT_COLUMN_WIDTH_DP = 64.0  ! Basic column width
-
-! Public types  
+! Public types (re-exported from layout constructors)
 public :: ui_element, node, view, widget_wrapper
 
 ! Public procedures - with context-aware overloads
 public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
 public :: ui_set_idle_policy, ui_get_context
-public :: is_gui_available, is_tui_available, is_headless_environment, resolve_backend
 public :: ui_is_initialized, ui_get_backend, ui_get_fortui_context
-public :: set_environment_variable_simulation, clear_environment_variable_simulation
 ! Context-aware function variants (new API)
 public :: ui_init_with_context, ui_shutdown_with_context
 public :: ui_frame_begin_with_context, ui_present_with_context, ui_should_close_with_context
-! Layout constructors
-public :: column, row
-! Widget wrapper for layout integration
-public :: widget
+! Layout constructors (re-exported from layout constructors)
+public :: column, row, widget
+! Backend detection (re-exported from backend detection)
+public :: is_gui_available, is_tui_available, is_headless_environment, resolve_backend
+public :: set_environment_variable_simulation, clear_environment_variable_simulation
 ! Context management (for new API)
 public :: fortui_context_t, create_context
 
@@ -76,29 +72,7 @@ interface ui_should_close
     module procedure ui_should_close_with_context
 end interface
 
-! Abstract UI element hierarchy for tree construction
-type, abstract :: ui_element
-    ! Abstract base for all UI elements (nodes, widgets, layouts)
-end type ui_element
-
-! Concrete polymorphic wrapper for mixed widget arrays
-type, extends(ui_element) :: widget_wrapper
-    class(ui_element), allocatable :: wrapped_element
-end type widget_wrapper
-
-! Core UI tree building block - extensible for widgets
-type, extends(ui_element) :: node
-    ! Layout metadata
-    character(len=32) :: layout_type = "none"    ! "column", "row", "none"
-    real :: gap_dp = 0.0                         ! Converted gap in dp units
-    ! Children array for tree composition
-    class(ui_element), allocatable :: children(:)
-    ! Backend-agnostic design (identical behavior regardless of compilation flags)
-contains
-    ! Assignment operator overload for proper memory management
-    procedure :: assign_node
-    generic :: assignment(=) => assign_node
-end type node
+! Core types are now imported from fortui_layout_constructors
 
 ! Pan/zoom state for plot areas with default values from DESIGN.md
 type :: view
@@ -108,107 +82,7 @@ type :: view
     real :: off_y = 0.0    ! Pan offset Y-axis
 end type view
 
-! Termbox2 C library interface types and constants
-! Event structure for C interoperability
-type, bind(C) :: tb_event
-    integer(c_int) :: type
-    integer(c_int) :: mod
-    integer(c_int) :: key
-    integer(c_int32_t) :: ch
-    integer(c_int) :: w, h
-    integer(c_int) :: x, y
-end type tb_event
-
-! Cell structure for terminal rendering
-type, bind(C) :: tb_cell
-    integer(c_int32_t) :: ch
-    integer(c_int) :: fg
-    integer(c_int) :: bg
-end type tb_cell
-
-! Termbox2 constants
-integer, parameter :: TB_KEY_ESC = 27
-integer, parameter :: TB_KEY_CTRL_C = 3
-integer, parameter :: TB_KEY_CTRL_D = 4
-integer, parameter :: TB_KEY_CTRL_Z = 26
-integer, parameter :: TB_KEY_ARROW_UP = 65517
-integer, parameter :: TB_KEY_ARROW_DOWN = 65518
-integer, parameter :: TB_KEY_ARROW_LEFT = 65515
-integer, parameter :: TB_KEY_ARROW_RIGHT = 65516
-integer, parameter :: TB_KEY_ENTER = 13
-integer, parameter :: TB_KEY_TAB = 9
-integer, parameter :: TB_KEY_SPACE = 32
-integer, parameter :: TB_KEY_BACKSPACE = 8
-integer, parameter :: TB_KEY_DELETE = 127
-integer, parameter :: TB_EVENT_KEY = 1
-integer, parameter :: TB_EVENT_RESIZE = 2
-integer, parameter :: TB_EVENT_MOUSE = 3
-! Mouse event types
-integer, parameter :: TB_KEY_MOUSE_LEFT = 65508
-integer, parameter :: TB_KEY_MOUSE_MIDDLE = 65509
-integer, parameter :: TB_KEY_MOUSE_RIGHT = 65510
-integer, parameter :: TB_KEY_MOUSE_WHEEL_UP = 65511
-integer, parameter :: TB_KEY_MOUSE_WHEEL_DOWN = 65512
-! Color constants
-integer, parameter :: TB_COLOR_BLACK = 0
-integer, parameter :: TB_COLOR_RED = 1
-integer, parameter :: TB_COLOR_GREEN = 2
-integer, parameter :: TB_COLOR_YELLOW = 3
-integer, parameter :: TB_COLOR_BLUE = 4
-integer, parameter :: TB_COLOR_MAGENTA = 5
-integer, parameter :: TB_COLOR_CYAN = 6
-integer, parameter :: TB_COLOR_WHITE = 7
-integer, parameter :: TB_COLOR_DEFAULT = 0
-
-! Terminal state types removed - now managed by TUI backend implementation
-
-
-! Real termbox2 C library interface
-interface
-    ! Core termbox2 functions
-    integer(c_int) function tb_init() bind(C, name="tb_init")
-        import :: c_int
-    end function tb_init
-    
-    subroutine tb_shutdown() bind(C, name="tb_shutdown")
-    end subroutine tb_shutdown
-    
-    integer(c_int) function tb_width() bind(C, name="tb_width")
-        import :: c_int
-    end function tb_width
-    
-    integer(c_int) function tb_height() bind(C, name="tb_height")
-        import :: c_int
-    end function tb_height
-    
-    integer(c_int) function tb_peek_event(event, timeout_ms) &
-        bind(C, name="tb_peek_event")
-        import :: c_int, tb_event
-        type(tb_event), intent(out) :: event
-        integer(c_int), intent(in), value :: timeout_ms
-    end function tb_peek_event
-    
-    subroutine tb_set_cell(x, y, ch, fg, bg) bind(C, name="tb_set_cell")
-        import :: c_int, c_int32_t
-        integer(c_int), intent(in), value :: x, y
-        integer(c_int32_t), intent(in), value :: ch
-        integer(c_int), intent(in), value :: fg, bg
-    end subroutine tb_set_cell
-    
-    subroutine tb_clear() bind(C, name="tb_clear")
-    end subroutine tb_clear
-    
-    subroutine tb_present() bind(C, name="tb_present")
-    end subroutine tb_present
-    
-    subroutine tb_set_cursor(x, y) bind(C, name="tb_set_cursor")
-        import :: c_int
-        integer(c_int), intent(in), value :: x, y
-    end subroutine tb_set_cursor
-    
-    subroutine tb_hide_cursor() bind(C, name="tb_hide_cursor")
-    end subroutine tb_hide_cursor
-end interface
+! Termbox2 C interface is now provided by fortui_termbox2_interface module
 
 contains
 
@@ -622,145 +496,7 @@ subroutine ui_shutdown_default()
     ! Context-aware shutdown complete - no legacy state to clean up
 end subroutine ui_shutdown_default
 
-! Internal backend resolution and management functions
-
-function resolve_backend(requested) result(backend)
-    character(*), intent(in) :: requested
-    character(len=32) :: backend
-    character(len=256) :: env_var
-    integer :: ios
-    
-    ! Check for environment variable override
-    call get_environment_variable("FORTUI_BACKEND", env_var, status=ios)
-    if (ios == 0 .and. len_trim(env_var) > 0) then
-        backend = trim(env_var)
-        return
-    end if
-    
-    ! Handle case sensitivity
-    select case (trim(adjustl(requested)))
-    case ("TUI", "tui", "terminal", "console")
-        backend = "tui"
-    case ("GUI", "gui", "window", "graphics")
-        backend = "gui"
-    case ("auto", "AUTO", "")
-        ! Auto-detect best available backend
-        backend = select_best_backend()
-        if (len_trim(backend) == 0) then
-            backend = "tui"  ! Fallback if no backend available
-        end if
-    case default
-        ! Invalid backend - fall back to TUI
-        call report_warning("fortui_core", "resolve_backend", &
-             "Unknown backend '" // trim(requested) // "', using TUI")
-        backend = "tui"
-    end select
-    
-    ! Validate that selected backend is actually available
-    if (trim(backend) == "gui" .and. .not. is_gui_available()) then
-        call report_warning("fortui_core", "resolve_backend", &
-            "GUI backend not available, falling back to TUI")
-        backend = "tui"
-    end if
-    
-    ! Also validate TUI availability (headless environments)
-    if (trim(backend) == "tui" .and. .not. is_tui_available()) then
-        call report_error("fortui_core", "resolve_backend", &
-            "TUI backend not available (headless environment)")
-        backend = ""  ! No backend available
-    end if
-end function resolve_backend
-
-logical function is_gui_available()
-    ! Check if GUI backend can be initialized
-    class(backend_interface), pointer :: gui_backend
-    
-    gui_backend => get_backend("gui")
-    if (associated(gui_backend)) then
-        is_gui_available = gui_backend%is_available()
-    else
-        is_gui_available = .false.
-    end if
-end function is_gui_available
-
-logical function is_tui_available()
-    ! Check if TUI backend can be initialized
-    class(backend_interface), pointer :: tui_backend
-    
-    tui_backend => get_backend("tui")
-    if (associated(tui_backend)) then
-        is_tui_available = tui_backend%is_available()
-    else
-        is_tui_available = .false.
-    end if
-end function is_tui_available
-
-logical function is_headless_environment()
-    ! Detect headless environment (no display available)
-    character(len=256) :: env_var
-    integer :: ios
-    
-    ! Check for explicit headless flag
-    call get_environment_variable("FORTUI_HEADLESS", env_var, status=ios)
-    if (ios == 0 .and. trim(env_var) == "1") then
-        is_headless_environment = .true.
-        return
-    end if
-    
-    ! Check for CI environment
-    call get_environment_variable("CI", env_var, status=ios)
-    if (ios == 0) then
-        is_headless_environment = .true.
-        return
-    end if
-    
-    call get_environment_variable("GITHUB_ACTIONS", env_var, status=ios)
-    if (ios == 0) then
-        is_headless_environment = .true.
-        return
-    end if
-    
-    ! Check for SSH session
-    call get_environment_variable("SSH_CLIENT", env_var, status=ios)
-    if (ios == 0 .and. len_trim(env_var) > 0) then
-        is_headless_environment = .true.
-        return
-    end if
-    
-    call get_environment_variable("SSH_TTY", env_var, status=ios)
-    if (ios == 0 .and. len_trim(env_var) > 0) then
-        is_headless_environment = .true.
-        return
-    end if
-    
-    ! Check for display availability
-    call get_environment_variable("DISPLAY", env_var, status=ios)
-    if (ios /= 0 .or. len_trim(env_var) == 0) then
-        ! No X11 DISPLAY, check for Wayland
-        call get_environment_variable("WAYLAND_DISPLAY", env_var, status=ios)
-        if (ios /= 0 .or. len_trim(env_var) == 0) then
-            is_headless_environment = .true.
-            return
-        end if
-    end if
-    
-    is_headless_environment = .false.
-end function is_headless_environment
-
-
-subroutine set_environment_variable_simulation(name, value)
-    character(*), intent(in) :: name, value
-    ! This is a stub for testing - real implementation would set env vars
-    call report_info("fortui_core", "set_environment_variable_simulation", &
-         "Setting " // trim(name) // "=" // trim(value))
-end subroutine set_environment_variable_simulation
-
-subroutine clear_environment_variable_simulation(name)
-    character(*), intent(in) :: name
-    ! This is a stub for testing - real implementation would clear env vars
-    call report_info("fortui_core", "clear_environment_variable_simulation", &
-         "Clearing " // trim(name))
-end subroutine clear_environment_variable_simulation
+! Backend resolution and detection functions now provided by fortui_backend_detection module
 
 ! TUI backend initialization is now handled through the backend interface
 
@@ -785,80 +521,7 @@ end subroutine clear_environment_variable_simulation
 
 ! GUI shutdown is now handled through backend interface
 
-! Layout constructor implementations
-function column(gap, children) result(n)
-    use fortui_units, only: convert_to_dp, ui_get_context, ui_context
-    class(*), intent(in), optional :: gap
-    class(ui_element), intent(in), optional :: children(:)
-    type(node) :: n
-    
-    type(ui_context) :: ctx
-    real :: gap_dp_value
-    
-    ! Initialize column layout node
-    n = node()
-    n%layout_type = "column"
-    
-    ! Process gap parameter with convert_to_dp()
-    if (present(gap)) then
-        call ui_get_context(ctx)
-        gap_dp_value = convert_to_dp(gap, ctx)
-        n%gap_dp = gap_dp_value
-    else
-        n%gap_dp = 0.0  ! Default gap per test specifications
-    end if
-    
-    ! Handle children array
-    if (present(children)) then
-        allocate(n%children(size(children)), source=children)
-    ! else - children remains unallocated for empty arrays
-    end if
-end function column
-
-function row(gap, children) result(n)
-    use fortui_units, only: convert_to_dp, ui_get_context, ui_context
-    class(*), intent(in), optional :: gap
-    class(ui_element), intent(in), optional :: children(:)
-    type(node) :: n
-    
-    type(ui_context) :: ctx
-    real :: gap_dp_value
-    
-    ! Initialize row layout node
-    n = node()
-    n%layout_type = "row"
-    
-    ! Process gap parameter with convert_to_dp()
-    if (present(gap)) then
-        call ui_get_context(ctx)
-        gap_dp_value = convert_to_dp(gap, ctx)
-        n%gap_dp = gap_dp_value
-    else
-        n%gap_dp = 0.0  ! Default gap per test specifications
-    end if
-    
-    ! Handle children array
-    if (present(children)) then
-        allocate(n%children(size(children)), source=children)
-    ! else - children remains unallocated for empty arrays
-    end if
-end function row
-
-! Assignment operator implementation for proper memory management
-recursive subroutine assign_node(lhs, rhs)
-    class(node), intent(out) :: lhs
-    class(node), intent(in) :: rhs
-    
-    ! Copy basic properties
-    lhs%layout_type = rhs%layout_type
-    lhs%gap_dp = rhs%gap_dp
-    
-    ! Deep copy polymorphic children array
-    if (allocated(rhs%children)) then
-        allocate(lhs%children(size(rhs%children)), source=rhs%children)
-    ! else - no children to copy, lhs%children automatically unallocated for intent(out)
-    end if
-end subroutine assign_node
+! Layout constructor implementations now provided by fortui_layout_constructors module
 
 ! Mock termbox2 implementations removed - now handled by TUI backend
 
@@ -866,13 +529,7 @@ end subroutine assign_node
 
 ! Terminal control procedures removed - now handled by TUI backend
 
-! Widget wrapper function for layout integration
-function widget(element) result(wrapper)
-    class(ui_element), intent(in) :: element
-    type(widget_wrapper) :: wrapper
-    
-    allocate(wrapper%wrapped_element, source=element)
-end function widget
+! Widget wrapper function now provided by fortui_layout_constructors module
 
 ! Helper function to check if UI is initialized
 function ui_is_initialized() result(initialized)
