@@ -53,9 +53,12 @@ jobs:
         ${{ matrix.fortran-compiler }} --version
 
     - name: Install FPM
-      uses: fortran-lang/setup-fpm@v5
-      with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Install FPM from binary release
+        curl -L https://github.com/fortran-lang/fpm/releases/download/v0.10.0/fpm-0.10.0-linux-x86_64 -o fpm
+        chmod +x fpm
+        sudo mv fpm /usr/local/bin/
+        fpm --version
 
     - name: Configure backend
       run: |
@@ -135,9 +138,12 @@ jobs:
         sudo apt-get install -y gfortran lcov pkg-config libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl1-mesa-dev
 
     - name: Install FPM
-      uses: fortran-lang/setup-fpm@v5
-      with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Install FPM from binary release
+        curl -L https://github.com/fortran-lang/fpm/releases/download/v0.10.0/fpm-0.10.0-linux-x86_64 -o fpm
+        chmod +x fpm
+        sudo mv fpm /usr/local/bin/
+        fpm --version
 
     - name: Build with coverage flags
       run: |
@@ -278,9 +284,12 @@ jobs:
         sudo apt-get install -y gfortran pkg-config
 
     - name: Install FPM
-      uses: fortran-lang/setup-fpm@v5
-      with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Install FPM from binary release
+        curl -L https://github.com/fortran-lang/fpm/releases/download/v0.10.0/fpm-0.10.0-linux-x86_64 -o fpm
+        chmod +x fpm
+        sudo mv fpm /usr/local/bin/
+        fpm --version
 
     - name: Run integration tests
       run: |
