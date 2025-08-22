@@ -1,21 +1,27 @@
 module fortui_widgets
 ! Context-aware widgets module implementing Context Object Pattern
-use fortui_widgets_button, only: button_node_t, button
+use iso_c_binding
 use fortui_context, only: fortui_context_t, get_default_context
+use fortui_core, only: view, ui_element
 use fortui_core, only: view
 use fortui_units, only: ui_context, ui_get_context, convert_to_dp
 implicit none
 private
 
-! Re-export button widget
-public :: button_node_t, button
-
-! Widget types for other widgets
-public :: text_node_t, slider_node_t, checkbox_node_t, viewport_node_t
-public :: text, slider, checkbox, viewport
+! Widget types
+public :: button_node_t, text_node_t, slider_node_t, checkbox_node_t, viewport_node_t
+public :: button, text, slider, checkbox, viewport
 
 ! Widget state types for context storage
-public :: text_state, slider_state, checkbox_state, viewport_state
+public :: button_state, text_state, slider_state, checkbox_state, viewport_state
+
+! Button widget state for context storage
+type :: button_state
+    logical :: pressed = .false.
+    logical :: hover = .false.
+    logical :: clicked_this_frame = .false.
+    integer :: last_frame_clicked = -1
+end type button_state
 
 ! Widget state types for context storage
 type :: text_state
@@ -50,6 +56,14 @@ type :: viewport_state
 end type viewport_state
 
 ! Widget node types
+type, extends(ui_element) :: button_node_t
+    character(len=256) :: id = ""
+    character(len=256) :: label = ""
+    real :: width_dp = 0.0
+    real :: height_dp = 0.0
+    logical :: clicked = .false.
+end type button_node_t
+
 type :: text_node_t
     character(len=256) :: id = ""
     character(len=1024) :: value = ""
@@ -84,7 +98,101 @@ type :: viewport_node_t
     real :: current_off_y = 0.0
 end type viewport_node_t
 
+! Interface for button overloading
+interface button
+    module procedure button_default
+    module procedure button_with_context
+end interface
+
 contains
+
+! Context-aware button implementation (new API)
+logical function button_with_context(ctx, id, label, width, height) result(clicked)
+    type(fortui_context_t), intent(inout) :: ctx
+    character(*), intent(in) :: id
+    character(*), intent(in), optional :: label
+    real, intent(in), optional :: width, height
+    
+    real :: button_width_dp, button_height_dp
+    character(len=256) :: display_label
+    integer :: state_index
+    type(button_state) :: new_state
+    
+    ! Validate context
+    if (.not. ctx%is_valid()) then
+        clicked = .false.
+        return
+    end if
+    
+    ! Get or create button state
+    state_index = ctx%widget_states%get(id, "button")
+    if (state_index == 0) then
+        ! Create new button state
+        new_state = button_state()  ! Initialize with defaults
+        call ctx%widget_states%set(id, "button", new_state)
+        state_index = ctx%widget_states%get(id, "button")
+    end if
+    
+    if (state_index == 0) then
+        clicked = .false.
+        return
+    end if
+    
+    ! Process label
+    if (present(label)) then
+        display_label = label
+    else
+        display_label = id
+    end if
+    
+    ! Calculate dimensions
+    if (present(width)) then
+        button_width_dp = max(width, 20.0)
+    else
+        button_width_dp = max(real(len_trim(display_label)) * 8.0 + 16.0, 40.0)
+    end if
+    
+    if (present(height)) then
+        button_height_dp = max(height, 16.0)
+    else
+        button_height_dp = max(ctx%units%em_dp * 1.8, 20.0)
+    end if
+    
+    ! Update state for this frame
+    ! Access state through the entries array
+    select type(state_obj => ctx%widget_states%entries(state_index)%state)
+    type is (button_state)
+        if (state_obj%last_frame_clicked == ctx%frame_count) then
+            clicked = state_obj%clicked_this_frame
+        else
+            ! Simulate button interaction for demonstration
+            ! In real implementation, would check mouse/keyboard input
+            clicked = .false.
+            state_obj%clicked_this_frame = clicked
+            state_obj%last_frame_clicked = ctx%frame_count
+        end if
+    class default
+        ! Invalid state type
+        clicked = .false.
+    end select
+end function button_with_context
+
+logical function button_default(id, label, width, height) result(clicked)
+    character(*), intent(in) :: id
+    character(*), intent(in), optional :: label
+    real, intent(in), optional :: width, height
+    
+    type(fortui_context_t), pointer :: ctx
+    
+    ! Get default context
+    ctx => get_default_context()
+    if (associated(ctx)) then
+        clicked = button_with_context(ctx, id, label, width, height)
+    else
+        ! No context available - fall back to simple implementation
+        clicked = .false.
+    end if
+end function button_default
 
 ! Context-aware text widget implementation
 function text(id, value, text_size, width, height) result(widget_node)

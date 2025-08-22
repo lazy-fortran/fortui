@@ -225,8 +225,7 @@ The basic context-aware API is production ready. Advanced features are under act
 program context_demo
   use fortui_core
   use fortui_context
-  use fortui_widgets
-  use fortui_widgets_button, only: button_with_context
+  use fortui_widgets, only: button_with_context
   implicit none
 
   type(fortui_context_t), pointer :: ctx
