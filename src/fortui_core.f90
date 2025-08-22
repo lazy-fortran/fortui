@@ -20,6 +20,7 @@ public :: ui_element, node, view, widget_wrapper
 public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
 public :: ui_set_idle_policy, ui_get_context
 public :: is_gui_available, is_tui_available, is_headless_environment, resolve_backend
+public :: ui_is_initialized, ui_get_backend, ui_get_fortui_context
 public :: set_environment_variable_simulation, clear_environment_variable_simulation
 ! Context-aware function variants (new API)
 public :: ui_init_with_context, ui_shutdown_with_context
@@ -872,5 +873,37 @@ function widget(element) result(wrapper)
     
     allocate(wrapper%wrapped_element, source=element)
 end function widget
+
+! Helper function to check if UI is initialized
+function ui_is_initialized() result(initialized)
+    logical :: initialized
+    type(fortui_context_t), pointer :: ctx
+    
+    ctx => get_default_context()
+    if (associated(ctx)) then
+        initialized = ctx%initialized
+    else
+        initialized = .false.
+    end if
+end function ui_is_initialized
+
+! Helper function to get current backend name
+function ui_get_backend() result(backend_name)
+    character(len=32) :: backend_name
+    type(fortui_context_t), pointer :: ctx
+    
+    ctx => get_default_context()
+    if (associated(ctx)) then
+        backend_name = ctx%active_backend
+    else
+        backend_name = ""
+    end if
+end function ui_get_backend
+
+! Helper function to get current fortui context for testing
+function ui_get_fortui_context() result(ctx)
+    type(fortui_context_t), pointer :: ctx
+    ctx => get_default_context()
+end function ui_get_fortui_context
 
 end module fortui_core
