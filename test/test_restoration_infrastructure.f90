@@ -12,18 +12,18 @@ public :: run_restoration_tests
 
 ! Disabled test files requiring restoration
 character(len=*), parameter :: DISABLED_TESTS(5) = [ &
-    'test_widgets.f90.disabled                 ', &
-    'test_demo_integration.f90.disabled        ', &
-    'test_demo_application.f90.disabled        ', &
-    'test_gui_backend.f90.disabled             ', &
+    'test_widgets.f90.disabled                    ', &
+    'test_demo_integration.f90.disabled           ', &
+    'test_demo_application.f90.disabled           ', &
+    'test_gui_backend.f90.disabled                ', &
     'simple_widget_collaboration_test.f90.disabled' ]
 
 ! Expected test categories for coverage validation
 character(len=*), parameter :: TEST_CATEGORIES(5) = [ &
-    'widgets    ', &
-    'integration', &
-    'application', &
-    'gui_backend', &
+    'widgets      ', &
+    'integration  ', &
+    'application  ', &
+    'gui_backend  ', &
     'collaboration' ]
 
 contains
@@ -94,8 +94,8 @@ subroutine test_build_system_dependencies()
     inquire(file=build_script_path, exist=build_script_exists)
     
     ! Check FPM configuration
-    fmp_config_path = 'fpm.toml'
-    inquire(file=fmp_config_path, exist=fpm_config_valid)
+    fpm_config_path = 'fpm.toml'
+    inquire(file=fpm_config_path, exist=fpm_config_valid)
     
     ! Test termbox2 dependency availability
     ! This will FAIL until build system properly provides termbox2
@@ -107,7 +107,7 @@ subroutine test_build_system_dependencies()
     end if
     
     if (.not. fpm_config_valid) then
-        write(error_unit, '(A)') "FAIL: FPM config missing: " // trim(fmp_config_path)
+        write(error_unit, '(A)') "FAIL: FPM config missing: " // trim(fpm_config_path)
         error stop "FPM configuration validation failed"
     end if
     
@@ -271,6 +271,7 @@ subroutine identify_coverage_gaps(gaps, gap_count)
     ! THEN: Should map to specific coverage gaps
     character(len=50), intent(out) :: gaps(10)
     integer, intent(out) :: gap_count
+    integer :: i
     
     ! Map disabled tests to coverage gaps
     gap_count = 5
@@ -281,7 +282,7 @@ subroutine identify_coverage_gaps(gaps, gap_count)
     gaps(5) = 'Widget collaboration patterns'
     
     write(*, '(A)') "  Coverage gaps identified:"
-    do integer :: i = 1, gap_count
+    do i = 1, gap_count
         write(*, '(A,A)') "    - ", trim(gaps(i))
     end do
 end subroutine identify_coverage_gaps
