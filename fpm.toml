@@ -39,7 +39,6 @@ module-naming = false
 
 [install]
 library = false
-test = false
 
 [fortran]
 implicit-typing = false
