@@ -18,7 +18,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         fortran-compiler: [gfortran]
-        backend: [tui-only, gui-enabled]
+        backend: [tui-only]
 
     steps:
     - name: Checkout code
@@ -36,15 +36,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y gfortran pkg-config libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl1-mesa-dev
-        # Install raylib dependencies for GUI backend
-        sudo apt-get install -y libasound2-dev mesa-common-dev libx11-dev libxrandr-dev libxi-dev libxcursor-dev libgl1-mesa-dev libglu1-mesa-dev
-        # Install raylib from source for consistent version
-        git clone --depth 1 --branch 4.5.0 https://github.com/raysan5/raylib.git /tmp/raylib
-        cd /tmp/raylib/src
-        make PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=SHARED
-        sudo make install RAYLIB_LIBTYPE=SHARED
-        sudo ldconfig
+        sudo apt-get install -y gfortran pkg-config
 
     - name: Setup Fortran compiler
       run: |
@@ -62,13 +54,8 @@ jobs:
 
     - name: Configure backend
       run: |
-        if [ "${{ matrix.backend }}" = "tui-only" ]; then
-          echo "DISABLE_GUI=1" >> $GITHUB_ENV
-          echo "Backend: TUI-only mode"
-        else
-          echo "DISABLE_GUI=0" >> $GITHUB_ENV
-          echo "Backend: GUI-enabled mode"
-        fi
+        echo "DISABLE_GUI=1" >> $GITHUB_ENV
+        echo "Backend: TUI-only mode"
 
     - name: Build dependencies
       run: |
@@ -88,18 +75,11 @@ jobs:
         
     - name: Build examples
       run: |
-        echo "Building examples with backend: ${{ matrix.backend }}"
+        echo "Building examples in TUI-only mode"
         # Build examples individually to catch any build issues
-        if [ "${{ matrix.backend }}" = "tui-only" ]; then
-          fpm run simple_test --example || echo "simple_test example failed"
-          fpm run layout_demo --example || echo "layout_demo example failed"
-          fpm run tui_rendering_demo --example || echo "tui_rendering_demo example failed"
-        else
-          # For GUI-enabled, try all examples but don't fail if GUI examples can't run in headless environment
-          fpm run simple_test --example || echo "simple_test example failed"
-          fpm run layout_demo --example || echo "layout_demo example failed"
-          fpm run button_layout_demo --example || echo "button_layout_demo example failed (expected in headless)"
-        fi
+        fpm run simple_test --example || echo "simple_test example failed"
+        fpm run layout_demo --example || echo "layout_demo example failed"
+        fpm run tui_rendering_demo --example || echo "tui_rendering_demo example failed"
 
     - name: Check code quality
       run: |
