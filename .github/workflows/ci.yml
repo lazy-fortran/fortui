@@ -19,20 +19,6 @@ jobs:
         os: [ubuntu-latest]
         fortran-compiler: [gfortran]
         backend: [tui-only, gui-enabled]
-        include:
-          - os: ubuntu-latest
-            fortran-compiler: gfortran
-            install-deps: |
-              sudo apt-get update
-              sudo apt-get install -y gfortran pkg-config libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl1-mesa-dev
-              # Install raylib dependencies for GUI backend
-              sudo apt-get install -y libasound2-dev mesa-common-dev libx11-dev libxrandr-dev libxi-dev libxcursor-dev libgl1-mesa-dev libglu1-mesa-dev
-              # Install raylib from source for consistent version
-              git clone --depth 1 --branch 4.5.0 https://github.com/raysan5/raylib.git /tmp/raylib
-              cd /tmp/raylib/src
-              make PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=SHARED
-              sudo make install RAYLIB_LIBTYPE=SHARED
-              sudo ldconfig
 
     steps:
     - name: Checkout code
@@ -48,7 +34,17 @@ jobs:
           ${{ runner.os }}-fortui-deps-
 
     - name: Install system dependencies
-      run: ${{ matrix.install-deps }}
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gfortran pkg-config libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl1-mesa-dev
+        # Install raylib dependencies for GUI backend
+        sudo apt-get install -y libasound2-dev mesa-common-dev libx11-dev libxrandr-dev libxi-dev libxcursor-dev libgl1-mesa-dev libglu1-mesa-dev
+        # Install raylib from source for consistent version
+        git clone --depth 1 --branch 4.5.0 https://github.com/raysan5/raylib.git /tmp/raylib
+        cd /tmp/raylib/src
+        make PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=SHARED
+        sudo make install RAYLIB_LIBTYPE=SHARED
+        sudo ldconfig
 
     - name: Setup Fortran compiler
       run: |
