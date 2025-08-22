@@ -2,8 +2,10 @@ module test_widgets
 ! Comprehensive tests for fortui widget system with immediate-mode button implementation
 ! Tests unified class(*) interface, click detection, state management, auto-sizing, and cross-backend compatibility
 use fortui_core
-use fortui_units, only: unit_value, ui_context, dp, em, sp, px, cw, ch, convert_to_dp, ui_get_context_from_units => ui_get_context, ui_set_context
+use fortui_units
 use fortui_widgets
+use fortui_test_utils
+use fortui_context, only: fortui_context_t, get_default_context
 implicit none
 
 ! Internal state tracking for button testing
@@ -634,10 +636,10 @@ subroutine test_height_auto_sizing()
     
     logical :: clicked
     real :: height_normal, height_large_font
-    type(ui_context) :: ctx, large_ctx
+    type(fortui_context_t), pointer :: ctx, large_ctx
     
     ! Get current context
-    call ui_get_context_from_units(ctx)
+    ctx => get_default_context()
     
     ! Test auto-sizing with normal font
     height_normal = mock_get_button_height("normal_btn", "Button")
@@ -702,10 +704,10 @@ subroutine test_context_aware_sizing()
     
     logical :: clicked
     real :: width_tui, width_gui
-    type(ui_context) :: tui_ctx, gui_ctx
+    type(fortui_context_t), pointer :: tui_ctx, gui_ctx
     
     ! Set up TUI context (cell-based)
-    call ui_get_context_from_units(tui_ctx)
+    tui_ctx => get_default_context()
     tui_ctx%dpi_scale = 1.0
     tui_ctx%cell_w_dp = 8.0
     tui_ctx%cell_h_dp = 16.0
@@ -781,7 +783,7 @@ subroutine test_unit_conversion_accuracy()
     type(ui_context) :: ctx
     character(len=32) :: test_id = "conversion_btn"
     
-    call ui_get_context_from_units(ctx)
+    ctx => get_default_context()
     
     ! Test em to dp conversion accuracy
     width_dp = mock_get_converted_width(test_id, em(5.0))
@@ -1171,36 +1173,16 @@ logical function mock_button_with_dimensions(id, width, height) result(clicked)
     character(*), intent(in) :: id
     class(*), intent(in) :: width, height
     
-    type(ui_context) :: ctx
-    real :: width_dp, height_dp
-    
-    ! Get context for unit conversion
-    call ui_get_context_from_units(ctx)
-    
-    ! Convert units to dp
-    width_dp = convert_to_dp(width, ctx)
-    height_dp = convert_to_dp(height, ctx)
-    
     ! Use the real button implementation with dimensions
-    clicked = button(id, width=width_dp, height=height_dp)
+    clicked = button(id, width=width, height=height)
 end function mock_button_with_dimensions
 
 logical function mock_button_full(id, label, width, height) result(clicked)
     character(*), intent(in) :: id, label
     class(*), intent(in) :: width, height
     
-    type(ui_context) :: ctx
-    real :: width_dp, height_dp
-    
-    ! Get context for unit conversion
-    call ui_get_context_from_units(ctx)
-    
-    ! Convert units to dp
-    width_dp = convert_to_dp(width, ctx)
-    height_dp = convert_to_dp(height, ctx)
-    
     ! Use the real button implementation with all parameters
-    clicked = button(id, label, width_dp, height_dp)
+    clicked = button(id, label, width, height)
 end function mock_button_full
 
 integer function find_or_create_button_state(id) result(index)
@@ -1230,7 +1212,7 @@ subroutine mock_simulate_click(id)
     character(*), intent(in) :: id
     
     ! Use widget module's testing functions
-    ! call simulate_button_click(id)  ! Undefined procedure - disabled for compilation
+    call simulate_button_click(id)
 end subroutine mock_simulate_click
 
 subroutine mock_simulate_mouse_click(id, x, y)
@@ -1238,21 +1220,21 @@ subroutine mock_simulate_mouse_click(id, x, y)
     real, intent(in) :: x, y
     
     ! Simulate mouse click at coordinates
-    ! call simulate_button_click(id, x, y)  ! Undefined procedure - disabled for compilation
+    call simulate_button_click(id, x, y)
 end subroutine mock_simulate_mouse_click
 
 subroutine mock_simulate_key_press(key)
     character(*), intent(in) :: key
     
     ! Use widget module's key simulation
-    ! call simulate_key_press(key)  ! Undefined procedure - disabled for compilation
+    call simulate_key_press(key)
 end subroutine mock_simulate_key_press
 
 subroutine mock_set_focus(id)
     character(*), intent(in) :: id
     
     ! Use widget module's focus setting
-    ! call set_button_focus(id)  ! Undefined procedure - disabled for compilation
+    call set_button_focus(id)
 end subroutine mock_set_focus
 
 real function mock_get_button_width(id, label) result(width)
@@ -1261,7 +1243,7 @@ real function mock_get_button_width(id, label) result(width)
     ! First call the button to ensure it's created, then get debug info
     logical :: dummy
     dummy = button(id, label)
-    ! call get_button_debug_info(id, width_dp=width)  ! Undefined procedure - disabled for compilation
+    call get_button_debug_info(id, width_dp=width)
     
     ! If debug info doesn't provide width, calculate auto-sizing
     if (width <= 0.0) then
@@ -1276,11 +1258,11 @@ real function mock_get_button_height(id, label) result(height)
     
     ! First call the button to ensure it's created, then get debug info
     dummy = button(id, label)
-    ! call get_button_debug_info(id, height_dp=height)  ! Undefined procedure - disabled for compilation
+    call get_button_debug_info(id, height_dp=height)
     
     ! If debug info doesn't provide height, calculate auto-sizing
     if (height <= 0.0) then
-        call ui_get_context_from_units(ctx)
+        ctx => get_default_context()
         height = max(ctx%em_dp * 1.8, 20.0)  ! Standard button height with minimum
     end if
 end function mock_get_button_height
@@ -1290,7 +1272,7 @@ real function mock_get_converted_width(id, width_arg) result(width_dp)
     class(*), intent(in) :: width_arg
     type(ui_context) :: ctx
     
-    call ui_get_context_from_units(ctx)
+    ctx => get_default_context()
     width_dp = convert_to_dp(width_arg, ctx)
 end function mock_get_converted_width
 
@@ -1299,7 +1281,7 @@ real function mock_get_converted_height(id, height_arg) result(height_dp)
     class(*), intent(in) :: height_arg
     type(ui_context) :: ctx
     
-    call ui_get_context_from_units(ctx)
+    ctx => get_default_context()
     height_dp = convert_to_dp(height_arg, ctx)
 end function mock_get_converted_height
 
@@ -1808,7 +1790,7 @@ subroutine test_text_unit_conversion_accuracy()
     real :: text_size_dp, width_dp
     type(ui_context) :: ctx
     
-    call ui_get_context_from_units(ctx)
+    ctx => get_default_context()
     
     ! Test sp to dp conversion accuracy (text-specific)
     text_size_dp = mock_get_converted_text_size(test_id, sp(16.0))
@@ -1895,7 +1877,7 @@ subroutine test_text_sp_unit_handling()
     real :: size_sp_small, size_sp_large
     type(ui_context) :: ctx, scaled_ctx
     
-    call ui_get_context_from_units(ctx)
+    ctx => get_default_context()
     
     ! Test sp with normal scale
     size_sp_small = mock_get_converted_text_size(test_id, sp(16.0))
@@ -2115,7 +2097,7 @@ subroutine test_text_size_context_interaction()
     real :: size_normal, size_scaled
     type(ui_context) :: ctx, scaled_ctx
     
-    call ui_get_context_from_units(ctx)
+    ctx => get_default_context()
     
     ! Test with normal context
     call mock_text_with_text_size(test_id, test_text, sp(16.0))
@@ -2441,19 +2423,10 @@ subroutine mock_text_with_text_size(id, value, text_size_arg)
     character(*), intent(in) :: id, value
     class(*), intent(in) :: text_size_arg
     
-    type(ui_context) :: ctx
-    real :: text_size_dp
-    
-    ! Get context for unit conversion
-    call ui_get_context_from_units(ctx)
-    
-    ! Convert units to dp
-    text_size_dp = convert_to_dp(text_size_arg, ctx)
-    
     ! Use the real text implementation with text_size
     block
         type(text_node_t) :: temp_text
-        temp_text = text(id, value, text_size=text_size_dp)
+        temp_text = text(id, value, text_size=text_size_arg)
     end block
 end subroutine mock_text_with_text_size
 
@@ -2461,20 +2434,10 @@ subroutine mock_text_with_dimensions(id, value, width, height)
     character(*), intent(in) :: id, value
     class(*), intent(in) :: width, height
     
-    type(ui_context) :: ctx
-    real :: width_dp, height_dp
-    
-    ! Get context for unit conversion
-    call ui_get_context_from_units(ctx)
-    
-    ! Convert units to dp
-    width_dp = convert_to_dp(width, ctx)
-    height_dp = convert_to_dp(height, ctx)
-    
     ! Use the real text implementation with dimensions
     block
         type(text_node_t) :: temp_text
-        temp_text = text(id, value, width=width_dp, height=height_dp)
+        temp_text = text(id, value, width=width, height=height)
     end block
 end subroutine mock_text_with_dimensions
 
@@ -2482,21 +2445,10 @@ subroutine mock_text_full(id, value, text_size_arg, width, height)
     character(*), intent(in) :: id, value
     class(*), intent(in) :: text_size_arg, width, height
     
-    type(ui_context) :: ctx
-    real :: text_size_dp, width_dp, height_dp
-    
-    ! Get context for unit conversion
-    call ui_get_context_from_units(ctx)
-    
-    ! Convert units to dp
-    text_size_dp = convert_to_dp(text_size_arg, ctx)
-    width_dp = convert_to_dp(width, ctx)
-    height_dp = convert_to_dp(height, ctx)
-    
     ! Use the real text implementation with all parameters
     block
         type(text_node_t) :: temp_text
-        temp_text = text(id, value, text_size=text_size_dp, width=width_dp, height=height_dp)
+        temp_text = text(id, value, text_size=text_size_arg, width=width, height=height)
     end block
 end subroutine mock_text_full
 
@@ -2568,7 +2520,7 @@ real function mock_get_text_width(id, content) result(width)
     
     ! First call the text widget to ensure it exists, then get debug info
     call mock_text(id, content)
-    ! call get_text_debug_info(id, width_dp=width)  ! Undefined procedure - disabled for compilation
+    call get_text_debug_info(id, width_dp=width)
     
     ! If debug info doesn't provide width, calculate auto-sizing estimate
     if (width <= 0.0) then
@@ -2583,11 +2535,11 @@ real function mock_get_text_height(id, content) result(height)
     
     ! First call the text widget to ensure it exists, then get debug info
     call mock_text(id, content)
-    ! call get_text_debug_info(id, height_dp=height)  ! Undefined procedure - disabled for compilation
+    call get_text_debug_info(id, height_dp=height)
     
     ! If debug info doesn't provide height, calculate auto-sizing estimate
     if (height <= 0.0) then
-        call ui_get_context_from_units(ctx)
+        ctx => get_default_context()
         
         ! Count newlines to estimate line count
         line_count = count_newlines(content) + 1
@@ -2612,7 +2564,7 @@ real function mock_get_converted_text_size(id, text_size_arg) result(size_dp)
     class(*), intent(in) :: text_size_arg
     type(ui_context) :: ctx
     
-    call ui_get_context_from_units(ctx)
+    ctx => get_default_context()
     size_dp = convert_to_dp(text_size_arg, ctx)
 end function mock_get_converted_text_size
 
@@ -2621,7 +2573,7 @@ real function mock_get_converted_text_width(id, width_arg) result(width_dp)
     class(*), intent(in) :: width_arg
     type(ui_context) :: ctx
     
-    call ui_get_context_from_units(ctx)
+    ctx => get_default_context()
     width_dp = convert_to_dp(width_arg, ctx)
 end function mock_get_converted_text_width
 
@@ -2652,7 +2604,7 @@ subroutine test_text_high_dpi_scaling(id, content)
     type(ui_context) :: ctx, high_dpi_ctx
     real :: size_normal, size_high_dpi
     
-    call ui_get_context_from_units(ctx)
+    ctx => get_default_context()
     
     ! Test normal DPI
     call mock_text(id, content)
@@ -2805,7 +2757,7 @@ subroutine test_slider_return_values()
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     
     ! Simulate value change through interaction
-    ! call simulate_slider_interaction(test_id, 45.0)
+    call simulate_slider_interaction(test_id, 45.0)
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     
     ! Validate value was updated
@@ -2867,7 +2819,7 @@ subroutine test_slider_value_parameter_handling()
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     
     ! Simulate interaction that changes value
-    ! call simulate_slider_interaction(test_id, 73.5)
+    call simulate_slider_interaction(test_id, 73.5)
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     
     ! Validate value was modified
@@ -2906,7 +2858,7 @@ subroutine test_slider_range_clamping()
     
     ! Test clamping to minimum
     test_value = -50.0  ! Below minimum
-    ! call simulate_slider_interaction(test_id, test_value)
+    call simulate_slider_interaction(test_id, test_value)
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     
     if (test_value < 0.0 - 0.001) then
@@ -2916,7 +2868,7 @@ subroutine test_slider_range_clamping()
     
     ! Test clamping to maximum
     test_value = 150.0  ! Above maximum
-    ! call simulate_slider_interaction(test_id, test_value)
+    call simulate_slider_interaction(test_id, test_value)
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     
     if (test_value > 100.0 + 0.001) then
@@ -2926,7 +2878,7 @@ subroutine test_slider_range_clamping()
     
     ! Test valid range value
     test_value = 45.0
-    ! call simulate_slider_interaction(test_id, test_value)
+    call simulate_slider_interaction(test_id, test_value)
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     
     if (abs(test_value - 45.0) > 0.001) then
@@ -2948,7 +2900,7 @@ subroutine test_slider_step_quantization()
     
     ! Test step quantization with step = 5.0
     test_value = 23.7  ! Should quantize to 25.0
-    ! call simulate_slider_interaction(test_id, test_value)
+    call simulate_slider_interaction(test_id, test_value)
     value_changed = mock_slider(test_id, 0.0, 100.0, 5.0, test_value)
     
     ! Check if quantized correctly (allow small tolerance)
@@ -2958,12 +2910,12 @@ subroutine test_slider_step_quantization()
     
     ! Test step quantization with decimal step
     test_value = 3.147  ! Should quantize with step = 0.1
-    ! call simulate_slider_interaction(test_id, test_value)
+    call simulate_slider_interaction(test_id, test_value)
     value_changed = mock_slider(test_id, 0.0, 10.0, 0.1, test_value)
     
     ! Test step = 0 (continuous values)
     test_value = 33.333
-    ! call simulate_slider_interaction(test_id, test_value)
+    call simulate_slider_interaction(test_id, test_value)
     value_changed = mock_slider(test_id, 0.0, 100.0, 0.0, test_value)
     
     print *, "  ✓ Step quantization: values properly quantized to step boundaries"
@@ -2990,7 +2942,7 @@ subroutine test_slider_change_detection()
     end if
     
     ! Simulate actual value change
-    ! call simulate_slider_interaction(test_id, 55.0)
+    call simulate_slider_interaction(test_id, 55.0)
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     if (.not. value_changed) then
         print *, "  ⚠ WARNING: Change detection may not detect actual changes"
@@ -3016,7 +2968,7 @@ subroutine test_slider_boundary_values()
     
     ! Test exact minimum value
     test_value = 0.0
-    ! call simulate_slider_interaction(test_id, test_value)
+    call simulate_slider_interaction(test_id, test_value)
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     
     if (abs(test_value - 0.0) > 0.001) then
@@ -3026,7 +2978,7 @@ subroutine test_slider_boundary_values()
     
     ! Test exact maximum value
     test_value = 100.0
-    ! call simulate_slider_interaction(test_id, test_value)
+    call simulate_slider_interaction(test_id, test_value)
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     
     if (abs(test_value - 100.0) > 0.001) then
@@ -3048,12 +3000,12 @@ subroutine test_slider_precision_handling()
     
     ! Test high precision decimal values
     test_value = 0.123456789
-    ! call simulate_slider_interaction(test_id, test_value)
+    call simulate_slider_interaction(test_id, test_value)
     value_changed = mock_slider(test_id, 0.0, 1.0, 0.0, test_value)
     
     ! Test very small step values
     test_value = 0.001
-    ! call simulate_slider_interaction(test_id, test_value)
+    call simulate_slider_interaction(test_id, test_value)
     value_changed = mock_slider(test_id, 0.0, 1.0, 0.001, test_value)
     
     print *, "  ✓ Precision handling: floating-point values managed correctly"
@@ -3195,7 +3147,7 @@ subroutine test_slider_real_time_updates()
     
     ! Simulate rapid updates (like during drag)
     do i = 1, 10
-        ! call simulate_slider_interaction(test_id, real(i * 10))
+        call simulate_slider_interaction(test_id, real(i * 10))
         value_changed = mock_slider(test_id, 0.0, 100.0, 0.1, test_value)
     end do
     
@@ -3279,7 +3231,7 @@ subroutine test_slider_context_responsive_sizing()
     test_value = 30.0
     
     ! Get current context
-    call ui_get_context_from_units(ctx)
+    ctx => get_default_context()
     
     ! Test with normal DPI
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
@@ -3460,7 +3412,7 @@ subroutine test_slider_unit_conversion_accuracy()
     type(ui_context) :: ctx
     
     test_value = 50.0
-    call ui_get_context_from_units(ctx)
+    ctx => get_default_context()
     
     ! Test equivalent measurements in different units
     ! These should produce similar visual results
@@ -3810,7 +3762,7 @@ subroutine test_slider_interaction_performance()
     
     ! Simulate rapid interaction updates (like during drag)
     do i = 1, 50
-        ! call simulate_slider_interaction(test_id, real(i * 2))
+        call simulate_slider_interaction(test_id, real(i * 2))
         value_changed = mock_slider(test_id, 0.0, 100.0, 0.1, test_value)
     end do
     
@@ -3858,18 +3810,8 @@ logical function mock_slider_with_dimensions(id, min_val, max_val, step_val, val
     real, intent(inout) :: value
     class(*), intent(in) :: width, height
     
-    type(ui_context) :: ctx
-    real :: width_dp, height_dp
-    
-    ! Get context for unit conversion
-    call ui_get_context_from_units(ctx)
-    
-    ! Convert units to dp
-    width_dp = convert_to_dp(width, ctx)
-    height_dp = convert_to_dp(height, ctx)
-    
     ! Use the real slider implementation with dimensions
-    value_changed = slider(id, min_val, max_val, step_val, value, width_dp, height_dp)
+    value_changed = slider(id, min_val, max_val, step_val, value, width, height)
 end function mock_slider_with_dimensions
 
 logical function mock_slider_full(id, min_val, max_val, step_val, value, width, height) result(value_changed)
@@ -3878,18 +3820,8 @@ logical function mock_slider_full(id, min_val, max_val, step_val, value, width, 
     real, intent(inout) :: value
     class(*), intent(in) :: width, height
     
-    type(ui_context) :: ctx
-    real :: width_dp, height_dp
-    
-    ! Get context for unit conversion
-    call ui_get_context_from_units(ctx)
-    
-    ! Convert units to dp
-    width_dp = convert_to_dp(width, ctx)
-    height_dp = convert_to_dp(height, ctx)
-    
     ! Use the real slider implementation with all parameters
-    value_changed = slider(id, min_val, max_val, step_val, value, width_dp, height_dp)
+    value_changed = slider(id, min_val, max_val, step_val, value, width, height)
 end function mock_slider_full
 
 logical function mock_slider_behavior(id, min_val, max_val, step_val, value) result(value_changed)
@@ -4032,7 +3964,7 @@ subroutine simulate_slider_click_position(id, target_value)
     character(*), intent(in) :: id
     real, intent(in) :: target_value
     
-    ! call simulate_slider_interaction(id, target_value)
+    call simulate_slider_interaction(id, target_value)
 end subroutine simulate_slider_click_position
 
 subroutine simulate_slider_hover(id, is_hovered)
@@ -4215,11 +4147,11 @@ subroutine test_checkbox_return_behavior()
     call mock_checkbox(test_id, test_checked)
     
     ! Test state toggle
-    ! call simulate_checkbox_toggle(test_id)
+    call simulate_checkbox_toggle(test_id)
     call mock_checkbox(test_id, test_checked)
     
     ! Test multiple toggles
-    ! call simulate_checkbox_toggle(test_id)
+    call simulate_checkbox_toggle(test_id)
     call mock_checkbox(test_id, test_checked)
     
     print *, "  ✓ checkbox state modification: boolean parameter updates validated"
@@ -4303,7 +4235,7 @@ subroutine test_checkbox_keyboard_space_toggle()
     
     ! Set focus and simulate space press
     call set_checkbox_focus(test_id)
-    ! call simulate_key_press("space")
+    call simulate_key_press(32)
     call mock_checkbox(test_id, test_checked)
     
     print *, "  ✓ keyboard space toggle: state change validated"
@@ -4322,7 +4254,7 @@ subroutine test_checkbox_keyboard_enter_toggle()
     
     ! Set focus and simulate enter press
     call set_checkbox_focus(test_id)
-    ! call simulate_key_press("enter")
+    call simulate_key_press(13)
     call mock_checkbox(test_id, test_checked)
     
     print *, "  ✓ keyboard enter toggle: state change validated"
@@ -4341,7 +4273,7 @@ subroutine test_checkbox_toggle_state_persistence()
     call mock_checkbox(test_id, test_checked)
     
     ! Toggle state
-    ! call simulate_checkbox_toggle(test_id)
+    call simulate_checkbox_toggle(test_id)
     
     ! Verify persistence across multiple calls
     call mock_checkbox(test_id, test_checked)
@@ -4365,7 +4297,7 @@ subroutine test_checkbox_rapid_toggle_handling()
     
     ! Simulate rapid toggles
     do i = 1, 10
-        ! call simulate_checkbox_toggle(test_id)
+        call simulate_checkbox_toggle(test_id)
         call mock_checkbox(test_id, test_checked)
     end do
     
@@ -4408,7 +4340,7 @@ subroutine test_checkbox_multiple_state_isolation()
     call mock_checkbox(id_3, checked_3)
     
     ! Toggle only middle checkbox
-    ! call simulate_checkbox_toggle(id_2)
+    call simulate_checkbox_toggle(id_2)
     
     ! Verify independent state maintenance
     call mock_checkbox(id_1, checked_1)
@@ -4471,7 +4403,7 @@ subroutine test_checkbox_state_cleanup()
     call mock_checkbox(test_id, test_checked)
     
     ! Reset system
-    ! call reset_checkbox_system()  ! Undefined procedure - disabled for compilation
+    call reset_checkbox_system()
     
     ! Verify cleanup
     test_checked = .false.
@@ -4533,7 +4465,7 @@ subroutine test_checkbox_focus_management()
     call set_checkbox_focus(test_id)
     
     ! Test focused state interaction
-    ! call simulate_key_press("space")
+    call simulate_key_press(32)
     call mock_checkbox(test_id, test_checked)
     
     print *, "  ✓ focus management: keyboard focus handling validated"
@@ -4556,8 +4488,8 @@ subroutine test_checkbox_keyboard_navigation()
     
     ! Test tab navigation
     call set_checkbox_focus(id_1)
-    ! call simulate_key_press("tab")
-    ! call simulate_key_press("space")
+    call simulate_key_press(9)
+    call simulate_key_press(32)
     
     call mock_checkbox(id_2, checked_2)
     
@@ -5138,7 +5070,7 @@ subroutine test_checkbox_interaction_performance()
     
     ! Performance test - rapid interactions
     do i = 1, 500
-        ! call simulate_checkbox_toggle(test_id)
+        call simulate_checkbox_toggle(test_id)
         call mock_checkbox(test_id, test_checked)
     end do
     
@@ -5163,7 +5095,7 @@ subroutine test_checkbox_memory_efficiency()
     end do
     
     ! Reset to free memory
-    ! call reset_checkbox_system()  ! Undefined procedure - disabled for compilation
+    call reset_checkbox_system()
     
     print *, "  ✓ memory efficiency: reasonable memory footprint maintained"
 end subroutine test_checkbox_memory_efficiency
@@ -5205,8 +5137,8 @@ subroutine mock_checkbox(id, checked)
     
     ! Call the actual checkbox widget implementation
     block
-        logical :: toggled
-        toggled = checkbox(id, checked)
+        logical :: temp_checkbox
+        temp_checkbox = checkbox(id, checked)
     end block
 end subroutine mock_checkbox
 
@@ -5217,8 +5149,8 @@ subroutine mock_checkbox_with_label(id, checked, label)
     
     ! Call the actual checkbox widget with label
     block
-        logical :: toggled
-        toggled = checkbox(id, checked, label=label)
+        logical :: temp_checkbox
+        temp_checkbox = checkbox(id, checked, label=label)
     end block
 end subroutine mock_checkbox_with_label
 
@@ -5228,20 +5160,16 @@ subroutine mock_checkbox_with_dimensions(id, checked, width, height)
     logical, intent(inout) :: checked
     class(*), intent(in) :: width, height
     
-    type(ui_context) :: ctx
-    real :: width_dp, height_dp
-    
-    ! Get context for unit conversion
-    call ui_get_context_from_units(ctx)
-    
-    ! Convert units to dp
-    width_dp = convert_to_dp(width, ctx)
-    height_dp = convert_to_dp(height, ctx)
-    
     ! Call the actual checkbox widget with dimensions
     block
-        logical :: toggled
-        toggled = checkbox(id, checked, width=width_dp, height=height_dp)
+        logical :: temp_checkbox
+        select type(w => width)
+        type is (real)
+            select type(h => height)
+            type is (real)
+                temp_checkbox = checkbox(id, checked, width=w, height=h)
+            end select
+        end select
     end block
 end subroutine mock_checkbox_with_dimensions
 
@@ -5251,60 +5179,22 @@ subroutine mock_checkbox_full(id, checked, label, width, height)
     logical, intent(inout) :: checked
     class(*), intent(in) :: width, height
     
-    type(ui_context) :: ctx
-    real :: width_dp, height_dp
-    
-    ! Get context for unit conversion
-    call ui_get_context_from_units(ctx)
-    
-    ! Convert units to dp
-    width_dp = convert_to_dp(width, ctx)
-    height_dp = convert_to_dp(height, ctx)
-    
     ! Call the actual checkbox widget with all parameters
     block
-        logical :: toggled
-        toggled = checkbox(id, checked, label=label, width=width_dp, height=height_dp)
+        logical :: temp_checkbox
+        select type(w => width)
+        type is (real)
+            select type(h => height)
+            type is (real)
+                temp_checkbox = checkbox(id, checked, label=label, width=w, height=h)
+            end select
+        end select
     end block
 end subroutine mock_checkbox_full
 
-! Testing utility functions for checkbox interaction simulation
-! Note: simulate_checkbox_toggle() is provided by fortui_widgets module
+! Testing utility functions now provided by fortui_test_utils module
 
-subroutine simulate_checkbox_click(id, x, y)
-    character(*), intent(in) :: id
-    real, intent(in) :: x, y
-    ! Mock click simulation - delegates to simulate_checkbox_toggle for compatibility
-    ! call simulate_checkbox_toggle(id)
-end subroutine simulate_checkbox_click
-
-subroutine simulate_checkbox_hover(id)
-    character(*), intent(in) :: id
-    ! Mock hover simulation
-end subroutine simulate_checkbox_hover
-
-subroutine simulate_checkbox_press(id)
-    character(*), intent(in) :: id
-    ! Mock press simulation
-end subroutine simulate_checkbox_press
-
-subroutine simulate_checkbox_release(id)
-    character(*), intent(in) :: id
-    ! Mock release simulation
-end subroutine simulate_checkbox_release
-
-subroutine set_checkbox_focus(id)
-    character(*), intent(in) :: id
-    ! Mock focus setting
-end subroutine set_checkbox_focus
-
-subroutine advance_checkbox_frame()
-    ! Mock frame advancement
-end subroutine advance_checkbox_frame
-
-! Note: reset_checkbox_system() is provided by fortui_widgets module
-
-! Validation utility functions for testing
+! Internal validation functions for checkbox testing
 logical function validate_checkbox_has_reasonable_size(id) result(is_reasonable)
     character(*), intent(in) :: id
     is_reasonable = .true.  ! Mock implementation
@@ -5326,3 +5216,12 @@ logical function validate_checkbox_square_aspect_ratio(id) result(is_square)
 end function validate_checkbox_square_aspect_ratio
 
 end module test_widgets
+
+! Main test program
+program test_widgets_program
+use test_widgets
+implicit none
+
+    call test_all_widgets()
+    
+end program test_widgets_program

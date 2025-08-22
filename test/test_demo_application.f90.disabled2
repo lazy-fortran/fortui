@@ -628,4 +628,11 @@ end subroutine run_demo_application_tests
 
 end module test_demo_application
 
+! Main test program
+program test_demo_application_program
+use test_demo_application
+implicit none
 
+    call run_demo_application_tests()
+    
+end program test_demo_application_program

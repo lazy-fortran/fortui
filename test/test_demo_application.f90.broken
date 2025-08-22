@@ -1,4 +1,4 @@
-module test_demo_application
+program test_demo_application
 ! Demo application comprehensive test suite for Issue #10
 ! Tests complete widget foundation integration matching DESIGN.md specification
 ! Given: Complete widget foundation (button, text, slider, checkbox, layout)
@@ -9,6 +9,11 @@ use fortui_core
 use fortui_units, only: dp
 use fortui_widgets
 implicit none
+
+! Main program entry point
+call run_demo_application_tests()
+
+contains
 
 ! Demo application state for testing
 type :: demo_app_state_t
@@ -626,6 +631,6 @@ subroutine run_demo_application_tests()
     print *, "✅ Performance targets met"
 end subroutine run_demo_application_tests
 
-end module test_demo_application
+end program test_demo_application
 
 
