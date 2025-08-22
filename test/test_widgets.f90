@@ -647,14 +647,14 @@ subroutine test_height_auto_sizing()
     
     ! Test auto-sizing with larger font context
     large_ctx = ctx
-    large_ctx%em_dp = ctx%em_dp * 2.0  ! Double font size
-    call ui_set_context(large_ctx)
+    large_ctx%units%em_dp = ctx%units%em_dp * 2.0  ! Double font size
+    call ui_set_context(large_ctx%units)
     
     height_large_font = mock_get_button_height("large_btn", "Button")
     clicked = mock_button_with_label("large_btn", "Button")
     
     ! Restore original context
-    call ui_set_context(ctx)
+    call ui_set_context(ctx%units)
     
     ! Validate that larger font produces taller button
     if (height_large_font <= height_normal) then
@@ -709,9 +709,9 @@ subroutine test_context_aware_sizing()
     ! Set up TUI context (cell-based)
     tui_ctx => get_default_context()
     tui_ctx%dpi_scale = 1.0
-    tui_ctx%cell_w_dp = 8.0
-    tui_ctx%cell_h_dp = 16.0
-    call ui_set_context(tui_ctx)
+    tui_ctx%units%cell_w_dp = 8.0
+    tui_ctx%units%cell_h_dp = 16.0
+    call ui_set_context(tui_ctx%units)
     
     width_tui = mock_get_button_width("tui_btn", "Button")
     clicked = mock_button_with_label("tui_btn", "Button")
@@ -719,14 +719,14 @@ subroutine test_context_aware_sizing()
     ! Set up GUI context (high DPI)
     gui_ctx = tui_ctx
     gui_ctx%dpi_scale = 2.0  ! High DPI display
-    gui_ctx%em_dp = 18.0     ! Larger base font
-    call ui_set_context(gui_ctx)
+    gui_ctx%units%em_dp = 18.0     ! Larger base font
+    call ui_set_context(gui_ctx%units)
     
     width_gui = mock_get_button_width("gui_btn", "Button")
     clicked = mock_button_with_label("gui_btn", "Button")
     
     ! Restore original context
-    call ui_set_context(tui_ctx)
+    call ui_set_context(tui_ctx%units)
     
     ! Validate context adaptation (GUI should be different from TUI)
     if (abs(width_gui - width_tui) < 1.0) then
@@ -780,7 +780,7 @@ subroutine test_unit_conversion_accuracy()
     
     logical :: clicked
     real :: width_dp, height_dp
-    type(ui_context) :: ctx
+    type(fortui_context_t), pointer :: ctx
     character(len=32) :: test_id = "conversion_btn"
     
     ctx => get_default_context()
@@ -790,17 +790,17 @@ subroutine test_unit_conversion_accuracy()
     height_dp = mock_get_converted_height(test_id, em(2.0))
     
     ! Validate conversion matches expected calculation
-    if (abs(width_dp - (5.0 * ctx%em_dp)) > 0.1) then
+    if (abs(width_dp - (5.0 * ctx%units%em_dp)) > 0.1) then
         print *, "  ✗ FAILED: em to dp conversion inaccurate"
-        print *, "    Expected:", 5.0 * ctx%em_dp, "Got:", width_dp
+        print *, "    Expected:", 5.0 * ctx%units%em_dp, "Got:", width_dp
         return
     end if
     
     ! Test cw to dp conversion accuracy  
     width_dp = mock_get_converted_width(test_id, cw(10.0))
-    if (abs(width_dp - (10.0 * ctx%cell_w_dp)) > 0.1) then
+    if (abs(width_dp - (10.0 * ctx%units%cell_w_dp)) > 0.1) then
         print *, "  ✗ FAILED: cw to dp conversion inaccurate"
-        print *, "    Expected:", 10.0 * ctx%cell_w_dp, "Got:", width_dp
+        print *, "    Expected:", 10.0 * ctx%units%cell_w_dp, "Got:", width_dp
         return
     end if
     
@@ -1172,17 +1172,35 @@ end function mock_button_with_label
 logical function mock_button_with_dimensions(id, width, height) result(clicked)
     character(*), intent(in) :: id
     class(*), intent(in) :: width, height
+    type(fortui_context_t), pointer :: fortui_ctx
+    type(ui_context) :: ctx
+    real :: width_dp, height_dp
+    
+    ! Convert units to real dp values
+    fortui_ctx => get_default_context()
+    ctx = fortui_ctx%units
+    width_dp = convert_to_dp(width, ctx)
+    height_dp = convert_to_dp(height, ctx)
     
     ! Use the real button implementation with dimensions
-    clicked = button(id, width=width, height=height)
+    clicked = button(id, width=width_dp, height=height_dp)
 end function mock_button_with_dimensions
 
 logical function mock_button_full(id, label, width, height) result(clicked)
     character(*), intent(in) :: id, label
     class(*), intent(in) :: width, height
+    type(fortui_context_t), pointer :: fortui_ctx
+    type(ui_context) :: ctx
+    real :: width_dp, height_dp
+    
+    ! Convert units to real dp values
+    fortui_ctx => get_default_context()
+    ctx = fortui_ctx%units
+    width_dp = convert_to_dp(width, ctx)
+    height_dp = convert_to_dp(height, ctx)
     
     ! Use the real button implementation with all parameters
-    clicked = button(id, label, width, height)
+    clicked = button(id, label, width_dp, height_dp)
 end function mock_button_full
 
 integer function find_or_create_button_state(id) result(index)
@@ -1220,14 +1238,25 @@ subroutine mock_simulate_mouse_click(id, x, y)
     real, intent(in) :: x, y
     
     ! Simulate mouse click at coordinates
-    call simulate_button_click(id, x, y)
+    call simulate_button_press(id, x, y)
 end subroutine mock_simulate_mouse_click
 
 subroutine mock_simulate_key_press(key)
     character(*), intent(in) :: key
+    integer :: key_code
+    
+    ! Convert key character to key code (simplified)
+    select case(key)
+    case('a', 'A')
+        key_code = 65
+    case('z', 'Z')
+        key_code = 90
+    case default
+        key_code = ichar(key(1:1))
+    end select
     
     ! Use widget module's key simulation
-    call simulate_key_press(key)
+    call simulate_key_press(key_code)
 end subroutine mock_simulate_key_press
 
 subroutine mock_set_focus(id)
@@ -1240,48 +1269,48 @@ end subroutine mock_set_focus
 real function mock_get_button_width(id, label) result(width)
     character(*), intent(in) :: id, label
     
-    ! First call the button to ensure it's created, then get debug info
+    ! First call the button to ensure it's created
     logical :: dummy
     dummy = button(id, label)
-    call get_button_debug_info(id, width_dp=width)
+    ! Note: get_button_debug_info returns a string, not width/height
     
-    ! If debug info doesn't provide width, calculate auto-sizing
-    if (width <= 0.0) then
-        width = max(real(len_trim(label)) * 8.0 + 16.0, 40.0)  ! Basic character width + padding
-    end if
+    ! Calculate auto-sizing
+    width = max(real(len_trim(label)) * 8.0 + 16.0, 40.0)  ! Basic character width + padding
 end function mock_get_button_width
 
 real function mock_get_button_height(id, label) result(height)
     character(*), intent(in) :: id, label
     logical :: dummy
-    type(ui_context) :: ctx
+    type(fortui_context_t), pointer :: ctx
     
-    ! First call the button to ensure it's created, then get debug info
+    ! First call the button to ensure it's created
     dummy = button(id, label)
-    call get_button_debug_info(id, height_dp=height)
+    ! Note: get_button_debug_info returns a string, not width/height
     
-    ! If debug info doesn't provide height, calculate auto-sizing
-    if (height <= 0.0) then
-        ctx => get_default_context()
-        height = max(ctx%em_dp * 1.8, 20.0)  ! Standard button height with minimum
-    end if
+    ! Calculate auto-sizing
+    ctx => get_default_context()
+    height = max(ctx%units%em_dp * 1.8, 20.0)  ! Standard button height with minimum
 end function mock_get_button_height
 
 real function mock_get_converted_width(id, width_arg) result(width_dp)
     character(*), intent(in) :: id
     class(*), intent(in) :: width_arg
+    type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     
-    ctx => get_default_context()
+    fortui_ctx => get_default_context()
+    ctx = fortui_ctx%units
     width_dp = convert_to_dp(width_arg, ctx)
 end function mock_get_converted_width
 
 real function mock_get_converted_height(id, height_arg) result(height_dp)
     character(*), intent(in) :: id
     class(*), intent(in) :: height_arg
+    type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     
-    ctx => get_default_context()
+    fortui_ctx => get_default_context()
+    ctx = fortui_ctx%units
     height_dp = convert_to_dp(height_arg, ctx)
 end function mock_get_converted_height
 
@@ -1788,7 +1817,7 @@ subroutine test_text_unit_conversion_accuracy()
     character(len=32) :: test_id = "conversion_text"
     character(len=15) :: test_text = "Conversion"
     real :: text_size_dp, width_dp
-    type(ui_context) :: ctx
+    type(fortui_context_t), pointer :: ctx
     
     ctx => get_default_context()
     
@@ -1804,9 +1833,9 @@ subroutine test_text_unit_conversion_accuracy()
     
     ! Test em to dp conversion for dimensions
     width_dp = mock_get_converted_text_width(test_id, em(10.0))
-    if (abs(width_dp - (10.0 * ctx%em_dp)) > 0.1) then
+    if (abs(width_dp - (10.0 * ctx%units%em_dp)) > 0.1) then
         print *, "  ✗ FAILED: em to dp conversion inaccurate"
-        print *, "    Expected:", 10.0 * ctx%em_dp, "Got:", width_dp
+        print *, "    Expected:", 10.0 * ctx%units%em_dp, "Got:", width_dp
         return
     end if
     
@@ -1875,7 +1904,7 @@ subroutine test_text_sp_unit_handling()
     character(len=32) :: test_id = "sp_unit_text"
     character(len=10) :: test_text = "SP Test"
     real :: size_sp_small, size_sp_large
-    type(ui_context) :: ctx, scaled_ctx
+    type(fortui_context_t), pointer :: ctx, scaled_ctx
     
     ctx => get_default_context()
     
@@ -1884,15 +1913,16 @@ subroutine test_text_sp_unit_handling()
     call mock_text_with_text_size(test_id, test_text, sp(16.0))
     
     ! Test sp with scaled context (simulate user text scaling preference)
+    allocate(scaled_ctx)
     scaled_ctx = ctx
     scaled_ctx%dpi_scale = 1.5  ! 150% text scaling simulation
-    call ui_set_context(scaled_ctx)
+    call ui_set_context(scaled_ctx%units)
     
     size_sp_large = mock_get_converted_text_size(test_id, sp(16.0))
     call mock_text_with_text_size(test_id, test_text, sp(16.0))
     
     ! Restore context
-    call ui_set_context(ctx)
+    call ui_set_context(ctx%units)
     
     ! Validate sp scaling behavior
     if (size_sp_large <= size_sp_small) then
@@ -2095,7 +2125,7 @@ subroutine test_text_size_context_interaction()
     character(len=32) :: test_id = "context_text"
     character(len=10) :: test_text = "Context"
     real :: size_normal, size_scaled
-    type(ui_context) :: ctx, scaled_ctx
+    type(fortui_context_t), pointer :: ctx, scaled_ctx
     
     ctx => get_default_context()
     
@@ -2104,15 +2134,16 @@ subroutine test_text_size_context_interaction()
     size_normal = mock_get_converted_text_size(test_id, sp(16.0))
     
     ! Test with high DPI context
+    allocate(scaled_ctx)
     scaled_ctx = ctx
     scaled_ctx%dpi_scale = 2.0  ! 2x DPI scaling
-    call ui_set_context(scaled_ctx)
+    call ui_set_context(scaled_ctx%units)
     
     call mock_text_with_text_size(test_id, test_text, sp(16.0))
     size_scaled = mock_get_converted_text_size(test_id, sp(16.0))
     
     ! Restore context
-    call ui_set_context(ctx)
+    call ui_set_context(ctx%units)
     
     ! Validate context scaling response
     if (size_scaled <= size_normal * 1.8) then  ! Should be nearly 2x
@@ -2422,33 +2453,60 @@ end subroutine mock_text
 subroutine mock_text_with_text_size(id, value, text_size_arg)
     character(*), intent(in) :: id, value
     class(*), intent(in) :: text_size_arg
+    type(fortui_context_t), pointer :: fortui_ctx
+    type(ui_context) :: ctx
+    real :: text_size_dp
+    
+    ! Convert units to real dp values
+    fortui_ctx => get_default_context()
+    ctx = fortui_ctx%units
+    text_size_dp = convert_to_dp(text_size_arg, ctx)
     
     ! Use the real text implementation with text_size
     block
         type(text_node_t) :: temp_text
-        temp_text = text(id, value, text_size=text_size_arg)
+        temp_text = text(id, value, text_size=text_size_dp)
     end block
 end subroutine mock_text_with_text_size
 
 subroutine mock_text_with_dimensions(id, value, width, height)
     character(*), intent(in) :: id, value
     class(*), intent(in) :: width, height
+    type(fortui_context_t), pointer :: fortui_ctx
+    type(ui_context) :: ctx
+    real :: width_dp, height_dp
+    
+    ! Convert units to real dp values
+    fortui_ctx => get_default_context()
+    ctx = fortui_ctx%units
+    width_dp = convert_to_dp(width, ctx)
+    height_dp = convert_to_dp(height, ctx)
     
     ! Use the real text implementation with dimensions
     block
         type(text_node_t) :: temp_text
-        temp_text = text(id, value, width=width, height=height)
+        temp_text = text(id, value, width=width_dp, height=height_dp)
     end block
 end subroutine mock_text_with_dimensions
 
 subroutine mock_text_full(id, value, text_size_arg, width, height)
     character(*), intent(in) :: id, value
     class(*), intent(in) :: text_size_arg, width, height
+    type(fortui_context_t), pointer :: fortui_ctx
+    type(ui_context) :: ctx
+    real :: text_size_dp, width_dp, height_dp
+    
+    ! Convert units to real dp values
+    fortui_ctx => get_default_context()
+    ctx = fortui_ctx%units
+    text_size_dp = convert_to_dp(text_size_arg, ctx)
+    width_dp = convert_to_dp(width, ctx)
+    height_dp = convert_to_dp(height, ctx)
     
     ! Use the real text implementation with all parameters
     block
         type(text_node_t) :: temp_text
-        temp_text = text(id, value, text_size=text_size_arg, width=width, height=height)
+        temp_text = text(id, value, text_size=text_size_dp, width=width_dp, height=height_dp)
     end block
 end subroutine mock_text_full
 
@@ -2518,33 +2576,29 @@ end subroutine validate_vertical_clipping
 real function mock_get_text_width(id, content) result(width)
     character(*), intent(in) :: id, content
     
-    ! First call the text widget to ensure it exists, then get debug info
+    ! First call the text widget to ensure it exists
     call mock_text(id, content)
-    call get_text_debug_info(id, width_dp=width)
+    ! Note: get_text_debug_info returns a string, not width/height
     
-    ! If debug info doesn't provide width, calculate auto-sizing estimate
-    if (width <= 0.0) then
-        width = max(real(len_trim(content)) * 8.0, 40.0)  ! Basic character width estimate
-    end if
+    ! Calculate auto-sizing estimate
+    width = max(real(len_trim(content)) * 8.0, 40.0)  ! Basic character width estimate
 end function mock_get_text_width
 
 real function mock_get_text_height(id, content) result(height)
     character(*), intent(in) :: id, content
-    type(ui_context) :: ctx
+    type(fortui_context_t), pointer :: ctx
     integer :: line_count
     
-    ! First call the text widget to ensure it exists, then get debug info
+    ! First call the text widget to ensure it exists
     call mock_text(id, content)
-    call get_text_debug_info(id, height_dp=height)
+    ! Note: get_text_debug_info returns a string, not width/height
     
-    ! If debug info doesn't provide height, calculate auto-sizing estimate
-    if (height <= 0.0) then
-        ctx => get_default_context()
-        
-        ! Count newlines to estimate line count
-        line_count = count_newlines(content) + 1
-        height = max(real(line_count) * ctx%em_dp * 1.2, 16.0)  ! Line height estimate
-    end if
+    ! Calculate auto-sizing estimate
+    ctx => get_default_context()
+    
+    ! Count newlines to estimate line count
+    line_count = count_newlines(content) + 1
+    height = max(real(line_count) * ctx%units%em_dp * 1.2, 16.0)  ! Line height estimate
 end function mock_get_text_height
 
 integer function count_newlines(text) result(count)
@@ -2562,18 +2616,22 @@ end function count_newlines
 real function mock_get_converted_text_size(id, text_size_arg) result(size_dp)
     character(*), intent(in) :: id
     class(*), intent(in) :: text_size_arg
+    type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     
-    ctx => get_default_context()
+    fortui_ctx => get_default_context()
+    ctx = fortui_ctx%units
     size_dp = convert_to_dp(text_size_arg, ctx)
 end function mock_get_converted_text_size
 
 real function mock_get_converted_text_width(id, width_arg) result(width_dp)
     character(*), intent(in) :: id
     class(*), intent(in) :: width_arg
+    type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     
-    ctx => get_default_context()
+    fortui_ctx => get_default_context()
+    ctx = fortui_ctx%units
     width_dp = convert_to_dp(width_arg, ctx)
 end function mock_get_converted_text_width
 
@@ -2601,7 +2659,7 @@ end subroutine validate_text_cell_wrapping
 
 subroutine test_text_high_dpi_scaling(id, content)
     character(*), intent(in) :: id, content
-    type(ui_context) :: ctx, high_dpi_ctx
+    type(fortui_context_t), pointer :: ctx, high_dpi_ctx
     real :: size_normal, size_high_dpi
     
     ctx => get_default_context()
@@ -2611,15 +2669,16 @@ subroutine test_text_high_dpi_scaling(id, content)
     size_normal = mock_get_text_width(id, content)
     
     ! Test high DPI scaling
+    allocate(high_dpi_ctx)
     high_dpi_ctx = ctx
     high_dpi_ctx%dpi_scale = 2.0
-    call ui_set_context(high_dpi_ctx)
+    call ui_set_context(high_dpi_ctx%units)
     
     call mock_text(id, content)
     size_high_dpi = mock_get_text_width(id, content)
     
     ! Restore context
-    call ui_set_context(ctx)
+    call ui_set_context(ctx%units)
     
     ! Validate DPI scaling response
     if (size_high_dpi <= size_normal * 1.5) then
@@ -2757,7 +2816,8 @@ subroutine test_slider_return_values()
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     
     ! Simulate value change through interaction
-    call simulate_slider_interaction(test_id, 45.0)
+    test_value = 45.0
+    call simulate_slider_interaction(test_id, test_value)
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     
     ! Validate value was updated
@@ -2819,7 +2879,8 @@ subroutine test_slider_value_parameter_handling()
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     
     ! Simulate interaction that changes value
-    call simulate_slider_interaction(test_id, 73.5)
+    test_value = 73.5
+    call simulate_slider_interaction(test_id, test_value)
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     
     ! Validate value was modified
@@ -2942,7 +3003,8 @@ subroutine test_slider_change_detection()
     end if
     
     ! Simulate actual value change
-    call simulate_slider_interaction(test_id, 55.0)
+    test_value = 55.0
+    call simulate_slider_interaction(test_id, test_value)
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     if (.not. value_changed) then
         print *, "  ⚠ WARNING: Change detection may not detect actual changes"
@@ -3147,7 +3209,8 @@ subroutine test_slider_real_time_updates()
     
     ! Simulate rapid updates (like during drag)
     do i = 1, 10
-        call simulate_slider_interaction(test_id, real(i * 10))
+        test_value = real(i * 10)
+        call simulate_slider_interaction(test_id, test_value)
         value_changed = mock_slider(test_id, 0.0, 100.0, 0.1, test_value)
     end do
     
@@ -3226,7 +3289,7 @@ subroutine test_slider_context_responsive_sizing()
     real :: test_value
     logical :: value_changed
     character(len=32) :: test_id = "test_context_slider"
-    type(ui_context) :: ctx, high_dpi_ctx
+    type(fortui_context_t), pointer :: ctx, high_dpi_ctx
     
     test_value = 30.0
     
@@ -3237,14 +3300,15 @@ subroutine test_slider_context_responsive_sizing()
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     
     ! Test with high DPI context
+    allocate(high_dpi_ctx)
     high_dpi_ctx = ctx
     high_dpi_ctx%dpi_scale = 2.0
-    call ui_set_context(high_dpi_ctx)
+    call ui_set_context(high_dpi_ctx%units)
     
     value_changed = mock_slider(test_id, 0.0, 100.0, 1.0, test_value)
     
     ! Restore original context
-    call ui_set_context(ctx)
+    call ui_set_context(ctx%units)
     
     print *, "  ✓ Context responsiveness: sizing adapts to UI context"
 end subroutine test_slider_context_responsive_sizing
@@ -3409,7 +3473,7 @@ subroutine test_slider_unit_conversion_accuracy()
     real :: test_value
     logical :: value_changed
     character(len=32) :: test_id = "test_conversion_slider"
-    type(ui_context) :: ctx
+    type(fortui_context_t), pointer :: ctx
     
     test_value = 50.0
     ctx => get_default_context()
@@ -3762,7 +3826,8 @@ subroutine test_slider_interaction_performance()
     
     ! Simulate rapid interaction updates (like during drag)
     do i = 1, 50
-        call simulate_slider_interaction(test_id, real(i * 2))
+        test_value = real(i * 2)
+        call simulate_slider_interaction(test_id, test_value)
         value_changed = mock_slider(test_id, 0.0, 100.0, 0.1, test_value)
     end do
     
@@ -3809,9 +3874,18 @@ logical function mock_slider_with_dimensions(id, min_val, max_val, step_val, val
     real, intent(in) :: min_val, max_val, step_val
     real, intent(inout) :: value
     class(*), intent(in) :: width, height
+    type(fortui_context_t), pointer :: fortui_ctx
+    type(ui_context) :: ctx
+    real :: width_dp, height_dp
+    
+    ! Convert units to real dp values
+    fortui_ctx => get_default_context()
+    ctx = fortui_ctx%units
+    width_dp = convert_to_dp(width, ctx)
+    height_dp = convert_to_dp(height, ctx)
     
     ! Use the real slider implementation with dimensions
-    value_changed = slider(id, min_val, max_val, step_val, value, width, height)
+    value_changed = slider(id, min_val, max_val, step_val, value, width_dp, height_dp)
 end function mock_slider_with_dimensions
 
 logical function mock_slider_full(id, min_val, max_val, step_val, value, width, height) result(value_changed)
@@ -3819,9 +3893,18 @@ logical function mock_slider_full(id, min_val, max_val, step_val, value, width, 
     real, intent(in) :: min_val, max_val, step_val
     real, intent(inout) :: value
     class(*), intent(in) :: width, height
+    type(fortui_context_t), pointer :: fortui_ctx
+    type(ui_context) :: ctx
+    real :: width_dp, height_dp
+    
+    ! Convert units to real dp values
+    fortui_ctx => get_default_context()
+    ctx = fortui_ctx%units
+    width_dp = convert_to_dp(width, ctx)
+    height_dp = convert_to_dp(height, ctx)
     
     ! Use the real slider implementation with all parameters
-    value_changed = slider(id, min_val, max_val, step_val, value, width, height)
+    value_changed = slider(id, min_val, max_val, step_val, value, width_dp, height_dp)
 end function mock_slider_full
 
 logical function mock_slider_behavior(id, min_val, max_val, step_val, value) result(value_changed)
@@ -3963,8 +4046,10 @@ end subroutine simulate_slider_key_press
 subroutine simulate_slider_click_position(id, target_value)
     character(*), intent(in) :: id
     real, intent(in) :: target_value
+    real :: temp_value
     
-    call simulate_slider_interaction(id, target_value)
+    temp_value = target_value
+    call simulate_slider_interaction(id, temp_value)
 end subroutine simulate_slider_click_position
 
 subroutine simulate_slider_hover(id, is_hovered)
