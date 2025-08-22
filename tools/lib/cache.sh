@@ -16,9 +16,15 @@ is_cache_valid() {
     fi
     
     local current_versions
-    current_versions="$(get_tool_versions)"
+    if ! current_versions="$(get_tool_versions 2>/dev/null)" || [[ -z "$current_versions" ]]; then
+        [[ "${DEBUG:-0}" == "1" ]] && echo "DEBUG: Failed to get current tool versions" >&2
+        return 1
+    fi
     local cached_versions
-    cached_versions="$(cat "$version_file")"
+    if ! cached_versions="$(cat "$version_file" 2>/dev/null)" || [[ -z "$cached_versions" ]]; then
+        [[ "${DEBUG:-0}" == "1" ]] && echo "DEBUG: Failed to read cached versions from $version_file" >&2
+        return 1
+    fi
     
     [[ "$current_versions" == "$cached_versions" ]]
 }
@@ -116,8 +122,15 @@ update_cache_versions() {
     local version_file="${cache_dir}/.tool_versions"
     local versions
     
-    versions=$(get_tool_versions)
-    atomic_write "$version_file" "$versions"
+    if ! versions=$(get_tool_versions 2>/dev/null) || [[ -z "$versions" ]]; then
+        echo "Error: Failed to get tool versions for cache update" >&2
+        return 1
+    fi
+    
+    if ! atomic_write "$version_file" "$versions"; then
+        echo "Error: Failed to write tool versions to cache" >&2
+        return 1
+    fi
 }
 
 # Get cache size in human-readable format

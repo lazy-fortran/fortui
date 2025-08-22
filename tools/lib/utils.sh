@@ -19,35 +19,60 @@ detect_platform() {
 # Tool version detection for cache invalidation
 get_tool_versions() {
     local versions=""
+    local version_output
     
     # Git version
     if command -v git >/dev/null 2>&1; then
-        versions+="git:$(git --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1);"
+        if version_output=$(git --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1) && [[ -n "$version_output" ]]; then
+            versions+="git:${version_output};"
+        else
+            versions+="git:unknown;"
+        fi
     fi
     
     # Make version
     if command -v make >/dev/null 2>&1; then
-        versions+="make:$(make --version | grep -oE '[0-9]+\.[0-9]+' | head -1);"
+        if version_output=$(make --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1) && [[ -n "$version_output" ]]; then
+            versions+="make:${version_output};"
+        else
+            versions+="make:unknown;"
+        fi
     fi
     
     # GCC version
     if command -v gcc >/dev/null 2>&1; then
-        versions+="gcc:$(gcc -dumpversion | head -1);"
+        if version_output=$(gcc -dumpversion 2>/dev/null | head -1) && [[ -n "$version_output" ]]; then
+            versions+="gcc:${version_output};"
+        else
+            versions+="gcc:unknown;"
+        fi
     fi
     
     # Gfortran version
     if command -v gfortran >/dev/null 2>&1; then
-        versions+="gfortran:$(gfortran -dumpversion | head -1);"
+        if version_output=$(gfortran -dumpversion 2>/dev/null | head -1) && [[ -n "$version_output" ]]; then
+            versions+="gfortran:${version_output};"
+        else
+            versions+="gfortran:unknown;"
+        fi
     fi
     
     # FPM version
     if command -v fpm >/dev/null 2>&1; then
-        versions+="fpm:$(fpm --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1);"
+        if version_output=$(fpm --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1) && [[ -n "$version_output" ]]; then
+            versions+="fpm:${version_output};"
+        else
+            versions+="fpm:unknown;"
+        fi
     fi
     
     # PKG-CONFIG version
     if command -v pkg-config >/dev/null 2>&1; then
-        versions+="pkg-config:$(pkg-config --version | head -1);"
+        if version_output=$(pkg-config --version 2>/dev/null | head -1) && [[ -n "$version_output" ]]; then
+            versions+="pkg-config:${version_output};"
+        else
+            versions+="pkg-config:unknown;"
+        fi
     fi
     
     # Build system version for cache invalidation

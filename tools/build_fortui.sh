@@ -55,17 +55,31 @@ build_dependencies() {
     validate_dependency_compatibility "${GUI_CACHE}"
     
     # Build termbox2 (always needed for TUI)
+    echo "Building termbox2 dependency for TUI backend..." >&2
     if ! build_termbox2; then
         echo "Error: Failed to build termbox2 dependency" >&2
+        echo "  This is required for TUI backend functionality" >&2
+        echo "  Check network connectivity and git configuration" >&2
+        echo "  Set DEBUG=1 for detailed build output" >&2
         release_cache_lock "${GUI_CACHE}"
         return 1
     fi
+    echo "termbox2 build completed successfully" >&2
     
     # Build fortran-raylib (only if GUI enabled)
-    if ! build_fortran_raylib; then
-        echo "Error: Failed to build fortran-raylib dependency" >&2
-        release_cache_lock "${GUI_CACHE}"
-        return 1
+    if detect_raylib; then
+        echo "Building fortran-raylib dependency for GUI backend..." >&2
+        if ! build_fortran_raylib; then
+            echo "Error: Failed to build fortran-raylib dependency" >&2
+            echo "  This is required for GUI backend functionality" >&2
+            echo "  Check raylib installation and pkg-config setup" >&2
+            echo "  Set DEBUG=1 for detailed build output" >&2
+            release_cache_lock "${GUI_CACHE}"
+            return 1
+        fi
+        echo "fortran-raylib build completed successfully" >&2
+    else
+        echo "Skipping fortran-raylib build (GUI backend disabled)" >&2
     fi
     
     # Release lock before success return
@@ -94,7 +108,7 @@ get_dependency_flags() {
         if [[ -n "${RAYLIB_ROOT}" ]]; then
             # Security: Validate RAYLIB_ROOT path before use
             local validated_raylib_root
-            if validated_raylib_root=$(validate_path "${RAYLIB_ROOT}"); then
+            if validated_raylib_root=$(validate_path "${RAYLIB_ROOT}" 2>/dev/null) && [[ -n "$validated_raylib_root" ]]; then
                 flags+=" -I${validated_raylib_root}/include -L${validated_raylib_root}/lib -lraylib"
             else
                 echo "Error: Invalid RAYLIB_ROOT path: ${RAYLIB_ROOT}" >&2
@@ -104,12 +118,14 @@ get_dependency_flags() {
              call_pkg_config --exists raylib; then
             # Security: Safely capture and sanitize pkg-config output
             local pkg_flags
-            if pkg_flags=$(call_pkg_config --cflags --libs raylib 2>/dev/null); then
+            if pkg_flags=$(call_pkg_config --cflags --libs raylib 2>/dev/null) && [[ -n "$pkg_flags" ]]; then
                 # Security: Sanitize command output before use
-                pkg_flags=$(sanitize_command_output "$pkg_flags")
-                if [[ -n "$pkg_flags" ]]; then
-                    flags+=" $pkg_flags"
-                    [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Added sanitized pkg-config flags: $pkg_flags" >&2
+                local sanitized_flags
+                if sanitized_flags=$(sanitize_command_output "$pkg_flags" 2>/dev/null) && [[ -n "$sanitized_flags" ]]; then
+                    flags+=" $sanitized_flags"
+                    [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Added sanitized pkg-config flags: $sanitized_flags" >&2
+                else
+                    [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Failed to sanitize pkg-config flags" >&2
                 fi
             else
                 [[ "${DEBUG}" == "1" ]] && echo "DEBUG: Failed to get pkg-config flags for raylib" >&2
@@ -122,8 +138,13 @@ get_dependency_flags() {
             # Add fortran-raylib library path if it exists
             local frg_lib_path
             frg_lib_path="${cache_dir}/fortran-raylib/build/gfortran_*/fortran-raylib"
-            if ls ${frg_lib_path}/*.a >/dev/null 2>&1; then
-                flags+=" -L${frg_lib_path} -lfortran-raylib"
+            # Use find instead of ls for safe glob expansion
+            if find ${frg_lib_path%/*} -name "*.a" -path "*/fortran-raylib/*" 2>/dev/null | head -1 | read -r lib_file; then
+                local lib_dir
+                lib_dir=$(dirname "$lib_file" 2>/dev/null)
+                if [[ -n "$lib_dir" ]] && [[ -d "$lib_dir" ]]; then
+                    flags+=" -L${lib_dir} -lfortran-raylib"
+                fi
             fi
         fi
     fi
