@@ -109,6 +109,76 @@ Cache Status:
 ./tools/build_fortui.sh clean
 ```
 
+## Build Script Robustness
+
+All fortui build scripts include comprehensive validation to ensure smooth operation and helpful error messages when problems occur.
+
+### Command Validation
+
+**What It Does**: Every build script validates that required tools are available before attempting to use them.
+
+**Example**: When you run any FPM-based build script:
+```bash
+./fpm_build.sh
+./run_fmp.sh test
+./build.sh
+```
+
+The script automatically checks for FPM availability and shows helpful error if missing:
+```bash
+Error: Fortran Package Manager (fpm) (command 'fpm') not found in PATH
+
+Please install FPM: https://github.com/fortran-lang/fpm
+
+Current PATH: /usr/local/bin:/usr/bin:/bin
+```
+
+### Validation Functions
+
+**Available in all build scripts via `tools/lib/utils.sh`**:
+
+```bash
+# Check if command exists
+validate_command_available git    # Returns 0 if found, 1 if not
+
+# Require command with helpful error message
+require_command fpm \
+    "Fortran Package Manager" \
+    "Install from: https://github.com/fortran-lang/fpm"
+```
+
+### Error Message Improvements
+
+**Before** (cryptic shell errors):
+```bash
+./fpm_build.sh: line 43: fpm: command not found
+```
+
+**After** (helpful guidance):
+```bash
+Error: Fortran Package Manager (fpm) (command 'fpm') not found in PATH
+
+Please install FPM: https://github.com/fortran-lang/fpm
+
+Current PATH: /usr/local/bin:/usr/bin:/bin
+```
+
+### Validation Coverage
+
+All build scripts validate:
+- **FPM availability**: Required for Fortran compilation
+- **Path safety**: Environment variables checked for security
+- **Dependency tools**: Git, make, pkg-config availability
+- **Lock file integrity**: Build process safety in concurrent environments
+
+### Benefits
+
+1. **Clear Error Messages**: Know exactly what's missing and how to fix it
+2. **Installation Guidance**: Direct links to installation instructions
+3. **PATH Diagnosis**: Shows current PATH to help debug installation issues
+4. **Graceful Failure**: Scripts exit cleanly with proper error codes
+5. **Security**: Validation prevents shell injection and unsafe operations
+
 ## Environment Configuration
 
 ### Core Variables
@@ -599,6 +669,21 @@ unset RAYLIB_ROOT FRG_URL TERMBOX_URL   # Clear custom variables
 ```
 
 ### FPM Integration Issues
+
+**FPM Command Not Found**:
+```bash
+# Error message you might see:
+Error: Fortran Package Manager (fpm) (command 'fmp') not found in PATH
+
+Please install FPM: https://github.com/fortran-lang/fpm
+
+Current PATH: /usr/local/bin:/usr/bin:/bin
+```
+
+**Solutions**:
+1. **Install FPM**: Follow installation guide at https://github.com/fortran-lang/fpm
+2. **Check PATH**: Ensure FPM installation directory is in your PATH
+3. **Verify installation**: `fpm --version` should show version information
 
 **Missing flags**:
 - Make sure dependencies are built first: `./tools/build_fortui.sh build`

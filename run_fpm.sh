@@ -9,6 +9,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Source utilities for command validation
+# shellcheck source=tools/lib/utils.sh
+source "$SCRIPT_DIR/tools/lib/utils.sh"
+
 # Step 1: Build dependencies and capture environment setup
 echo "Setting up build environment..." >&2
 if ! ./tools/build_fortui.sh build; then
@@ -35,5 +39,9 @@ echo "FPM Environment:" >&2
 echo "  FPM_FFLAGS: $FPM_FFLAGS" >&2
 echo "  FPM_LDFLAGS: $FPM_LDFLAGS" >&2
 
-# Step 5: Run FPM with all arguments passed through
+# Step 5: Validate FPM is available before exec
+require_command fpm "Fortran Package Manager (fpm)" \
+    "Please install FPM: https://github.com/fortran-lang/fpm" || exit 1
+
+# Step 6: Run FPM with all arguments passed through
 exec fpm "$@"
