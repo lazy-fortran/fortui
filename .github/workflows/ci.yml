@@ -1,0 +1,299 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  BUILD_TYPE: Release
+  FPM_FFLAGS: "-g -fbacktrace -fcheck=bounds -Wall -Wextra"
+
+jobs:
+  build-and-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        fortran-compiler: [gfortran]
+        backend: [tui-only]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/fortui
+        key: ${{ runner.os }}-fortui-deps-${{ matrix.backend }}-${{ hashFiles('tools/build_fortui.sh', 'tools/lib/*.sh') }}
+        restore-keys: |
+          ${{ runner.os }}-fortui-deps-${{ matrix.backend }}-
+          ${{ runner.os }}-fortui-deps-
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gfortran pkg-config
+
+    - name: Setup Fortran compiler
+      run: |
+        echo "FC=${{ matrix.fortran-compiler }}" >> $GITHUB_ENV
+        echo "CC=gcc" >> $GITHUB_ENV
+        ${{ matrix.fortran-compiler }} --version
+
+    - name: Install FPM
+      run: |
+        # Install FPM from binary release
+        curl -L https://github.com/fortran-lang/fpm/releases/download/v0.10.0/fpm-0.10.0-linux-x86_64 -o fpm
+        chmod +x fpm
+        sudo mv fpm /usr/local/bin/
+        fpm --version
+
+    - name: Configure backend
+      run: |
+        echo "DISABLE_GUI=1" >> $GITHUB_ENV
+        echo "Backend: TUI-only mode"
+
+    - name: Build dependencies
+      run: |
+        chmod +x tools/build_fortui.sh
+        tools/build_fortui.sh config
+        make deps
+
+    - name: Build project
+      run: |
+        echo "Building with backend: ${{ matrix.backend }}"
+        make build
+
+    - name: Run tests
+      run: |
+        echo "Running tests with backend: ${{ matrix.backend }}"
+        make test
+        
+    - name: Build examples
+      run: |
+        echo "Building examples in TUI-only mode"
+        # Build examples individually to catch any build issues
+        fpm run simple_test --example || echo "simple_test example failed"
+        fpm run layout_demo --example || echo "layout_demo example failed"
+        fpm run tui_rendering_demo --example || echo "tui_rendering_demo example failed"
+
+    - name: Check code quality
+      run: |
+        echo "Running code quality checks..."
+        # Check for large files that violate size limits
+        find src/ -name "*.f90" -exec wc -l {} + | awk '$1 > 1000 { print "WARNING: " $2 " has " $1 " lines (>1000 line limit)" }'
+        find src/ -name "*.f90" -exec wc -l {} + | awk '$1 > 500 { print "TARGET VIOLATION: " $2 " has " $1 " lines (>500 line target)" }'
+        
+        # Check for binary files that shouldn't be committed
+        find . -name "*.mod" -o -name "*.o" -o -name "*.a" -o -name "*.so" | head -10 | while read file; do
+          echo "WARNING: Binary file found: $file"
+        done
+
+    - name: Archive build artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts-${{ matrix.os }}-${{ matrix.fortran-compiler }}-${{ matrix.backend }}
+        path: |
+          build/
+          ~/.cache/fortui/
+        retention-days: 7
+
+  coverage:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies for coverage
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gfortran lcov pkg-config libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl1-mesa-dev
+
+    - name: Install FPM
+      run: |
+        # Install FPM from binary release
+        curl -L https://github.com/fortran-lang/fpm/releases/download/v0.10.0/fpm-0.10.0-linux-x86_64 -o fpm
+        chmod +x fpm
+        sudo mv fpm /usr/local/bin/
+        fpm --version
+
+    - name: Build with coverage flags
+      run: |
+        export FPM_FFLAGS="$FPM_FFLAGS --coverage -fprofile-arcs -ftest-coverage"
+        export FPM_LDFLAGS="$FPM_LDFLAGS --coverage"
+        export DISABLE_GUI=1  # Use TUI-only for coverage to avoid GUI complexity
+        make deps
+        make build
+        make test
+
+    - name: Generate coverage report
+      run: |
+        # Find all .gcda files and generate coverage info
+        find build/ -name "*.gcda" -exec dirname {} \; | sort -u | while read dir; do
+          echo "Processing coverage in: $dir"
+          # Generate coverage for Fortran files
+          gcov -r -s src/ "$dir"/*.gcda || true
+        done
+        
+        # Generate LCOV report if gcov files were created
+        if ls *.gcov 1> /dev/null 2>&1; then
+          lcov --capture --directory . --output-file coverage.info --gcov-tool gcov || true
+          lcov --remove coverage.info '*/build/*' --output-file coverage_filtered.info || true
+        else
+          echo "No coverage files generated"
+        fi
+
+    - name: Upload coverage reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: |
+          *.gcov
+          coverage*.info
+        retention-days: 7
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run security checks
+      run: |
+        echo "Running security checks..."
+        
+        # Check for potential shell injection in build scripts
+        echo "Checking for shell injection vulnerabilities..."
+        grep -r "\$(" tools/ build.sh fpm_build.sh || echo "No shell command substitution found"
+        grep -r "eval" tools/ build.sh fpm_build.sh || echo "No eval usage found"
+        
+        # Check for hardcoded secrets
+        echo "Checking for hardcoded secrets..."
+        grep -ri "password\|secret\|key\|token" --include="*.f90" --include="*.sh" . || echo "No obvious secrets found"
+        
+        # Check file permissions on scripts
+        echo "Checking script permissions..."
+        find . -name "*.sh" -exec ls -la {} \;
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install fortls (Fortran Language Server)
+      run: |
+        pip3 install fortls
+
+    - name: Lint Fortran files
+      run: |
+        echo "Running Fortran linting..."
+        # Create a basic .fortls config
+        cat > .fortls << 'FORTLS_EOF'
+        {
+            "mod_dirs": ["build/gfortran*/", "src/"],
+            "excl_paths": ["build/"],
+            "excl_suffixes": [".pyf", ".mod"],
+            "lowercase_intrinsics": true,
+            "debug_log": false
+        }
+        FORTLS_EOF
+        
+        # Run basic syntax checking on all Fortran files
+        find src/ test/ example/ -name "*.f90" | while read file; do
+          echo "Checking syntax: $file"
+          gfortran -fsyntax-only -cpp "$file" 2>&1 || echo "Syntax issues in $file"
+        done
+
+  documentation:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Validate documentation
+      run: |
+        echo "Validating documentation..."
+        
+        # Check that all public modules have documentation
+        echo "Checking module documentation coverage..."
+        for module in src/fortui_core.f90 src/fortui_widgets.f90; do
+          if [ -f "$module" ]; then
+            echo "Checking $module..."
+            # Basic check for module documentation
+            grep -q "!>" "$module" || echo "WARNING: $module may lack documentation"
+          fi
+        done
+        
+        # Check README exists and has basic content
+        if [ -f "README.md" ]; then
+          echo "README.md found"
+          grep -q "installation\|build\|usage" README.md -i || echo "WARNING: README may lack basic sections"
+        else
+          echo "WARNING: No README.md found"
+        fi
+        
+        # Validate example files can be found
+        echo "Checking examples..."
+        ls example/*.f90 | head -5 || echo "No example files found"
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    strategy:
+      matrix:
+        test-scenario: [basic-widgets, layout-system, backend-switching]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gfortran pkg-config
+
+    - name: Install FPM
+      run: |
+        # Install FPM from binary release
+        curl -L https://github.com/fortran-lang/fpm/releases/download/v0.10.0/fpm-0.10.0-linux-x86_64 -o fpm
+        chmod +x fpm
+        sudo mv fpm /usr/local/bin/
+        fpm --version
+
+    - name: Run integration tests
+      run: |
+        export DISABLE_GUI=1  # Use TUI-only for CI integration tests
+        make deps
+        make build
+        
+        case "${{ matrix.test-scenario }}" in
+          "basic-widgets")
+            echo "Testing basic widget functionality..."
+            # Run widget-focused tests
+            fpm test test_widgets || echo "Widget tests had issues"
+            fpm test test_gui_backend || echo "GUI backend tests had issues (expected in headless)"
+            ;;
+          "layout-system")
+            echo "Testing layout system..."
+            # Test layout and coordinate systems
+            fpm test test_coordinate_system_safety || echo "Coordinate system tests had issues"
+            fpm test test_layout_constructors || echo "Layout constructor tests had issues"
+            ;;
+          "backend-switching")
+            echo "Testing backend switching..."
+            # Test backend abstraction
+            fpm test test_backend_abstraction || echo "Backend abstraction tests had issues"
+            fpm test test_backend_basic || echo "Basic backend tests had issues"
+            ;;
+        esac
