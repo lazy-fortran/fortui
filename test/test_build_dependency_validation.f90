@@ -1,14 +1,11 @@
-module test_build_dependency_validation
-! Build system dependency validation tests for Issue #87
+program test_build_dependency_validation
+! Build system dependency validation tests for Issue #87  
 ! Tests that build system can properly resolve and link all required dependencies
 ! GIVEN: Tests were disabled due to build system dependency resolution failures
 ! WHEN: Build system attempts to compile and link test files
 ! THEN: All required symbols and dependencies should be available
 use, intrinsic :: iso_fortran_env, only: error_unit
 implicit none
-
-private
-public :: run_build_dependency_tests
 
 ! Critical dependencies that must be available
 character(len=*), parameter :: REQUIRED_DEPENDENCIES(3) = [ &
@@ -339,17 +336,17 @@ subroutine test_build_script_execution(functional)
     write(*, '(A)') "  build script execution: FAIL (expected until fixed)"
 end subroutine test_build_script_execution
 
-subroutine test_fmp_integration_validation()
+subroutine test_fpm_integration_validation()
     ! GIVEN: FPM must integrate with build script for dependency management
     ! WHEN: Testing FPM integration
     ! THEN: FPM configuration should support build script override
     
-    logical :: fmp_config_exists, build_override_set, cpp_preprocessing_enabled
+    logical :: fpm_config_exists, build_override_set, cpp_preprocessing_enabled
     
     write(*, '(A)') "Testing FPM integration validation..."
     
     ! Check FPM configuration file
-    call check_fmp_configuration(fmp_config_exists)
+    call check_fpm_configuration(fpm_config_exists)
     
     ! Check build script override setting
     call check_build_script_override(build_override_set)
@@ -357,26 +354,26 @@ subroutine test_fmp_integration_validation()
     ! Check CPP preprocessing configuration
     call check_cpp_preprocessing_config(cpp_preprocessing_enabled)
     
-    write(*, '(A,L1)') "  FPM config exists: ", fmp_config_exists
+    write(*, '(A,L1)') "  FPM config exists: ", fpm_config_exists
     write(*, '(A,L1)') "  build script override: ", build_override_set
     write(*, '(A,L1)') "  CPP preprocessing: ", cpp_preprocessing_enabled
     
-    if (.not. (fmp_config_exists .and. build_override_set .and. cpp_preprocessing_enabled)) then
+    if (.not. (fpm_config_exists .and. build_override_set .and. cpp_preprocessing_enabled)) then
         write(error_unit, '(A)') "FAIL: FPM integration not properly configured"
         error stop "FPM integration validation failed"
     end if
     
     write(*, '(A)') "PASS: FPM integration properly configured"
-end subroutine test_fmp_integration_validation
+end subroutine test_fpm_integration_validation
 
-subroutine check_fmp_configuration(exists)
+subroutine check_fpm_configuration(exists)
     ! GIVEN: FPM configuration file should exist
     ! WHEN: Checking for fpm.toml
     ! THEN: Configuration file should be present
     logical, intent(out) :: exists
     
     inquire(file='fpm.toml', exist=exists)
-end subroutine check_fmp_configuration
+end subroutine check_fpm_configuration
 
 subroutine check_build_script_override(override_set)
     ! GIVEN: FPM should use build script override
@@ -534,4 +531,7 @@ subroutine validate_core_symbols(symbols_ok)
     write(*, '(A)') "  core symbol validation: PASS"
 end subroutine validate_core_symbols
 
-end module test_build_dependency_validation
+! Main test execution
+call run_build_dependency_tests()
+
+end program test_build_dependency_validation

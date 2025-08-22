@@ -1,6 +1,9 @@
 program simple_widget_collaboration_test
 ! Simple test to verify Widget-Renderer Collaboration Pattern works
 ! Tests that concrete widgets can collaborate with renderers correctly
+! GIVEN: Widget-renderer collaboration pattern implementation  
+! WHEN: Testing concrete widget collaboration with backend renderers
+! THEN: Widgets should render correctly through renderer abstraction
 use fortui_widget_renderer, only: widget_renderer_t, render_context_t, ui_rect, ui_color
 use fortui_widget_renderer, only: WIDGET_NORMAL, WIDGET_HOVER, WIDGET_PRESSED, WIDGET_FOCUSED, WIDGET_DISABLED
 use fortui_renderable, only: widget_state_t
