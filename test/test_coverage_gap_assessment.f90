@@ -123,6 +123,7 @@ subroutine test_regression_risk_assessment()
     
     integer :: high_risk_areas, medium_risk_areas, low_risk_areas
     character(len=256) :: risk_descriptions(5)
+    integer :: i
     
     write(*, '(A)') "Testing regression risk assessment..."
     
@@ -133,7 +134,7 @@ subroutine test_regression_risk_assessment()
     write(*, '(A,I0)') "  Low regression risk areas: ", low_risk_areas
     
     ! Display specific risk descriptions
-    do integer :: i = 1, size(COVERAGE_GAPS)
+    do i = 1, size(COVERAGE_GAPS)
         write(*, '(A,A,A,A)') "    ", trim(COVERAGE_GAPS(i)%area_name), ": ", &
             trim(COVERAGE_GAPS(i)%regression_risk_description)
     end do
@@ -183,6 +184,7 @@ subroutine test_critical_functionality_impact()
     integer :: critical_areas_unprotected, total_critical_areas
     character(len=64) :: unprotected_areas(10)
     real :: critical_protection_loss
+    integer :: i
     
     write(*, '(A)') "Testing critical functionality impact..."
     
@@ -194,7 +196,7 @@ subroutine test_critical_functionality_impact()
     write(*, '(A,F5.1,A)') "  Critical protection loss: ", critical_protection_loss, "%"
     
     ! List unprotected critical areas
-    do integer :: i = 1, critical_areas_unprotected
+    do i = 1, critical_areas_unprotected
         write(*, '(A,A)') "    Unprotected: ", trim(unprotected_areas(i))
     end do
     
@@ -248,6 +250,7 @@ subroutine test_user_facing_impact_assessment()
     integer :: user_facing_gaps, total_user_areas
     character(len=64) :: affected_user_areas(10)
     real :: user_experience_risk
+    integer :: i
     
     write(*, '(A)') "Testing user-facing impact assessment..."
     
@@ -259,7 +262,7 @@ subroutine test_user_facing_impact_assessment()
     write(*, '(A,F5.1,A)') "  User experience risk: ", user_experience_risk, "%"
     
     ! List affected user-facing areas
-    do integer :: i = 1, user_facing_gaps
+    do i = 1, user_facing_gaps
         write(*, '(A,A)') "    User impact: ", trim(affected_user_areas(i))
     end do
     
@@ -310,13 +313,14 @@ subroutine test_coverage_gap_prioritization()
     character(len=32) :: priority_order(5)
     integer :: priority_scores(5)
     logical :: prioritization_rational
+    integer :: i
     
     write(*, '(A)') "Testing coverage gap prioritization..."
     
     call prioritize_coverage_gaps(priority_order, priority_scores, prioritization_rational)
     
     write(*, '(A)') "  Coverage gap restoration priority order:"
-    do integer :: i = 1, size(priority_order)
+    do i = 1, size(priority_order)
         write(*, '(A,I0,A,A,A,I0,A)') "    ", i, ": ", trim(priority_order(i)), &
             " (score: ", priority_scores(i), ")"
     end do

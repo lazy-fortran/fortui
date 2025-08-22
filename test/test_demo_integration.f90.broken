@@ -664,4 +664,13 @@ end subroutine run_demo_integration_tests
 
 end module test_demo_integration
 
+! Main test program
+program test_demo_integration_program
+use test_demo_integration
+implicit none
+
+    call run_demo_integration_tests()
+    
+end program test_demo_integration_program
+
 

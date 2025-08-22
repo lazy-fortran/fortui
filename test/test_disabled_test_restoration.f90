@@ -347,7 +347,7 @@ subroutine test_gui_compilation_readiness(can_compile)
     
     ! This will FAIL until GUI backend compilation issues are resolved
     can_compile = .false.
-    write(*, '(A)') "  GUI compilation: FAIL (GUI compilation issues)")
+    write(*, '(A)') "  GUI compilation: FAIL (GUI compilation issues)"
 end subroutine test_gui_compilation_readiness
 
 subroutine test_gui_linking_readiness(can_link)

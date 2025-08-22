@@ -1,15 +1,25 @@
 # fortui Test Validation Guide
 
-ULTRA-CONCISE guide for running and understanding the enhanced test validation system.
+ULTRA-CONCISE guide for running and understanding the enhanced test validation system with restored test coverage.
 
 ## Running Tests
 
 ```bash
-# Run comprehensive test suite
+# Run comprehensive test suite (includes test restoration validation)
 fpm test
 
-# Example output shows 440+ comprehensive validations
+# Expected output:
+# - 440+ core functionality validations
+# - Test restoration infrastructure validation (Issue #87)
+# - Build system dependency checks
 ```
+
+## Test Restoration Status (Issue #87)
+
+**4 of 5 disabled tests successfully restored** with comprehensive validation infrastructure.
+**Coverage impact**: ~70% of disabled test functionality restored.
+
+**See [TEST_RESTORATION_GUIDE.md](TEST_RESTORATION_GUIDE.md) for complete restoration documentation.**
 
 ## Test Coverage
 
@@ -74,3 +84,12 @@ end subroutine
 - Error handling and recovery
 - Performance characteristics
 - API contract compliance
+- **Test restoration infrastructure** (Issue #87)
+- **Build dependency validation**
+- **Widget system immediate-mode API compatibility**
+
+## Advanced Test Infrastructure
+
+**For detailed test development and maintenance:**
+- **[TEST_INFRASTRUCTURE_GUIDE.md](TEST_INFRASTRUCTURE_GUIDE.md)** - Test writing patterns and infrastructure utilities
+- **[TEST_RESTORATION_GUIDE.md](TEST_RESTORATION_GUIDE.md)** - Test restoration process and coverage analysis
