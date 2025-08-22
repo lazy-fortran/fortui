@@ -15,6 +15,12 @@ use test_viewport_widget
 use test_widgets
 ! use test_demo_application  ! Temporarily disabled due to API mismatch
 ! use test_demo_integration  ! Temporarily disabled due to API mismatch
+! Test restoration infrastructure modules (Issue #87)
+use test_restoration_infrastructure
+use test_build_dependency_validation
+use test_disabled_test_restoration
+use test_coverage_gap_assessment
+use test_ci_integration_validation
 implicit none
 
 ! Given: Test suite execution
@@ -23,6 +29,7 @@ implicit none
 
 call run_fortran_tests()
 call run_build_script_tests()
+call run_test_restoration_tests()
 
 print *, "All test suites completed!"
 
@@ -123,5 +130,35 @@ subroutine run_build_script_tests()
     
     print *, ""
 end subroutine run_build_script_tests
+
+subroutine run_test_restoration_tests()
+    ! Given: Test restoration infrastructure needed for Issue #87
+    ! When: Running test restoration validation tests
+    ! Then: Execute comprehensive test restoration test suite
+    
+    print *, "=== Test Restoration Infrastructure Tests (Issue #87) ==="
+    print *, "Validating test restoration infrastructure and requirements..."
+    
+    ! Core test restoration infrastructure tests
+    call run_restoration_tests()
+    
+    ! Build system dependency validation tests  
+    call run_build_dependency_tests()
+    
+    ! Disabled test restoration validation tests
+    call run_disabled_test_restoration_tests()
+    
+    ! Coverage gap assessment tests
+    call run_coverage_gap_assessment_tests()
+    
+    ! CI/CD integration validation tests
+    call run_ci_integration_validation_tests()
+    
+    print *, ""
+    print *, "NOTE: These tests are expected to FAIL until test restoration is complete."
+    print *, "They validate the infrastructure needed to restore disabled tests."
+    print *, "✓ Test restoration infrastructure validation completed"
+    print *, ""
+end subroutine run_test_restoration_tests
 
 end program check
