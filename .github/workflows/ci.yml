@@ -212,15 +212,15 @@ jobs:
       run: |
         echo "Running Fortran linting..."
         # Create a basic .fortls config
-        cat > .fortls << EOF
-{
-    "mod_dirs": ["build/gfortran*/", "src/"],
-    "excl_paths": ["build/"],
-    "excl_suffixes": [".pyf", ".mod"],
-    "lowercase_intrinsics": true,
-    "debug_log": false
-}
-EOF
+        cat > .fortls << 'FORTLS_EOF'
+        {
+            "mod_dirs": ["build/gfortran*/", "src/"],
+            "excl_paths": ["build/"],
+            "excl_suffixes": [".pyf", ".mod"],
+            "lowercase_intrinsics": true,
+            "debug_log": false
+        }
+        FORTLS_EOF
         
         # Run basic syntax checking on all Fortran files
         find src/ test/ example/ -name "*.f90" | while read file; do
