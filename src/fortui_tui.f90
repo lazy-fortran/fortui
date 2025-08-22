@@ -168,8 +168,18 @@ subroutine tui_init(self, width, height, title, target_fps, vsync)
         ! -2: Failed to open TTY
         ! -3: Pipe trap error
         
-        ! Don't report errors for expected non-TTY environments
-        ! These are not real errors, just expected limitations
+        ! Check if we're in a truly headless environment vs just non-TTY
+        call get_environment_variable("TERM", term_var, status=ios)
+        
+        if (ios == 0 .and. len_trim(term_var) > 0) then
+            ! We have TERM set but no TTY - likely running in automated environment
+            call report_error("fortui_tui", "tui_init", &
+                "Failed to initialize termbox2. TUI examples require a real " // &
+                "terminal environment. Try running interactively: " // &
+                "'/path/to/terminal' or in a proper terminal session.")
+        end if
+        
+        ! Silent return for truly headless environments (CI, no TERM, etc.)
         return
     end if
     
@@ -268,6 +278,11 @@ logical function tui_is_available(self)
         tui_is_available = .false.
         return
     end if
+    
+    ! Additional check: ensure we can access a TTY device
+    ! This helps detect environments where TERM is set but no real terminal exists
+    ! Note: We can't easily check TTY access from Fortran without system calls,
+    ! so we rely on termbox2's tb_init() to make the final determination
     
     ! TUI is available if we have a terminal and not in headless mode
     tui_is_available = .true.
