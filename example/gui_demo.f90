@@ -1,7 +1,8 @@
 program gui_demo
 ! Comprehensive GUI backend demonstration
 ! Shows automatic backend selection, GUI features, and cross-platform compatibility
-use fortui
+use fortui_core
+use fortui_widgets
 implicit none
 
 logical :: running, save_clicked, load_clicked, auto_save

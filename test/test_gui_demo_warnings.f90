@@ -1,6 +1,7 @@
 ! test_gui_demo_warnings.f90 - Test that GUI demo doesn't produce warning spam
 program test_gui_demo_warnings
-use fortui
+use fortui_core
+use fortui_widgets
 use iso_fortran_env, only: error_unit
 implicit none
 

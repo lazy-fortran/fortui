@@ -1,6 +1,6 @@
 program simple_test
 ! Simple test to verify both critical fixes work
-use fortui
+use fortui_core
 implicit none
 
 type(node) :: empty_node, layout_node  
@@ -9,7 +9,7 @@ logical :: running
 integer :: frame_count = 0
 
 print *, "Testing critical fixes:"
-print *, "1. Module exposure: use fortui gives access to all APIs"
+print *, "1. Module exposure: use fortui_core gives access to lifecycle APIs"
 print *, "2. Array bounds: nodes with no children don't crash"
 
 ! Test module exposure fix
@@ -24,7 +24,7 @@ children(1) = empty_node  ! Child that has no children
 layout_node = column(gap=8.0, children=children)
 deallocate(children)
 
-print *, "✓ All APIs accessible via main fortui module"
+print *, "✓ All core APIs accessible via fortui_core module"
 print *, "✓ Layout constructors work with real values"
 
 ! Test frame cycle with both node types
@@ -49,7 +49,7 @@ call ui_shutdown()
 
 print *, ""
 print *, "🎉 CRITICAL FIXES VALIDATED SUCCESSFULLY"
-print *, "✅ Module exposure fix: 'use fortui' provides complete API"
+print *, "✅ Module exposure fix: 'use fortui_core' provides lifecycle API"
 print *, "✅ Array bounds fix: No crashes with unallocated children"
 print *, "✅ User workflow: Complete example compiles and runs"
 print *, "Frames rendered:", frame_count

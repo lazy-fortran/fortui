@@ -1,6 +1,7 @@
 program button_layout_demo
 ! Demonstrate button widget functionality with click detection
-use fortui
+use fortui_core
+use fortui_widgets
 implicit none
 
 logical :: running = .true.

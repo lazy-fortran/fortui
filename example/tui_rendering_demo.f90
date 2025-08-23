@@ -1,7 +1,8 @@
 program tui_rendering_demo
 ! Demonstration of the enhanced TUI backend visual rendering capabilities
 ! Shows how widgets are rendered as visual elements in the terminal
-use fortui
+use fortui_core
+use fortui_widgets
 implicit none
 
 type(node) :: ui_tree, col1, col2

@@ -1,5 +1,6 @@
 program checkbox_demo
-use fortui
+use fortui_core
+use fortui_widgets
 implicit none
 
 logical :: sound_enabled = .true.
