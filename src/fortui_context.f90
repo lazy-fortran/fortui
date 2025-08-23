@@ -12,10 +12,13 @@ use fortui_widget_renderer, only: widget_renderer_t
 implicit none
 private
 
-! Public types and procedures
-public :: fortui_context_t, create_context, destroy_context
+! Public types and procedures - INTERNAL USE ONLY
+! NOTE: fortui_context_t and lifecycle functions are INTERNAL - not user-visible
 public :: get_default_context, set_default_context
-public :: widget_state_map, widget_state_entry, ui_context
+public :: ui_context
+! Internal exports for fortui_core module only
+public :: fortui_context_t, create_context, destroy_context
+public :: widget_state_map, widget_state_entry
 
 ! Widget state storage types (defined before context type)
 type :: widget_state_entry

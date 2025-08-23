@@ -17,16 +17,12 @@ public :: ui_element, node, view, widget_wrapper
 public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
 public :: ui_set_idle_policy, ui_get_context
 public :: ui_is_initialized, ui_get_backend, ui_get_fortui_context
-! Context-aware function variants (new API)
-public :: ui_init_with_context, ui_shutdown_with_context
-public :: ui_frame_begin_with_context, ui_present_with_context, ui_should_close_with_context
 ! Layout constructors (re-exported from layout constructors)
 public :: column, row, widget
 ! Backend detection (re-exported from backend detection)
 public :: is_gui_available, is_tui_available, is_headless_environment, resolve_backend
 public :: set_environment_variable_simulation, clear_environment_variable_simulation
-! Context management (for new API)
-public :: fortui_context_t, create_context
+! Context management (internal only - not user-visible)
 
 ! Internal state management
 type :: ui_state_t
@@ -51,25 +47,21 @@ interface ui_init
     module procedure ui_init_abstract
 end interface
 
-! Context-aware function interfaces for overloading
+! Simple function interfaces - context managed internally
 interface ui_shutdown
     module procedure ui_shutdown_default
-    module procedure ui_shutdown_with_context
 end interface
 
 interface ui_frame_begin
     module procedure ui_frame_begin_default
-    module procedure ui_frame_begin_with_context
 end interface
 
 interface ui_present
     module procedure ui_present_default
-    module procedure ui_present_with_context
 end interface
 
 interface ui_should_close
     module procedure ui_should_close_default
-    module procedure ui_should_close_with_context
 end interface
 
 ! Core types are now imported from fortui_layout_constructors
