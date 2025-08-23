@@ -53,9 +53,12 @@ cpp.macros = []
 
 # Build script integration:
 # FPM doesn't support build-script in [build] section as expected
-# Use test_with_deps.sh wrapper script instead:
-# ./test_with_deps.sh test [test_name] - runs tests with dependencies
-# ./test_with_deps.sh build - builds project with dependencies
-# This sets FPM_FFLAGS and FPM_LDFLAGS environment variables automatically
+# ALWAYS use wrapper scripts for proper dependency linking:
+# ./fpm_build.sh build               - builds project with static termbox2
+# ./fpm_build.sh run --example <name>  - runs examples with static linking
+# ./fpm_build.sh test                - runs tests with dependencies
+# 
+# NEVER use 'fmp run --example <name>' directly - it will fail to link!
+# Static termbox2 linking requires build script environment setup
 
 
