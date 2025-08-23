@@ -20,6 +20,9 @@ character(len=*), parameter :: BUILD_COMPONENTS(4) = [ &
     'cpp_preprocessing', &
     'dependency_cache ' ]
 
+! Main test execution
+call run_build_dependency_tests()
+
 contains
 
 subroutine run_build_dependency_tests()
@@ -530,8 +533,5 @@ subroutine validate_core_symbols(symbols_ok)
     
     write(*, '(A)') "  core symbol validation: PASS"
 end subroutine validate_core_symbols
-
-! Main test execution
-call run_build_dependency_tests()
 
 end program test_build_dependency_validation
