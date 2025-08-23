@@ -94,12 +94,11 @@ get_dependency_flags() {
     local cache_dir="${GUI_CACHE}"
     local flags=""
     
-    # termbox2 flags
+    # termbox2 flags - static linking only
     if [[ -d "${cache_dir}/termbox2" ]]; then
         flags+=" -I${cache_dir}/termbox2"
-        flags+=" -L${cache_dir}/termbox2 -ltermbox2"
-        # Add RPATH so executables can find the library at runtime
-        flags+=" -Wl,-rpath,${cache_dir}/termbox2"
+        # Use static library directly - no runtime dependencies
+        flags+=" ${cache_dir}/termbox2/libtermbox2.a"
     fi
     
     # raylib/fortran-raylib flags (only if GUI enabled)

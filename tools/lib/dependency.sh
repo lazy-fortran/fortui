@@ -107,9 +107,9 @@ build_termbox2() {
         return 1
     fi
     
-    # Build termbox2
-    if ! (cd "${termbox_dir}" && make); then
-        echo "Error: Failed to build termbox2" >&2
+    # Build termbox2 - static library only
+    if ! (cd "${termbox_dir}" && make libtermbox2.a); then
+        echo "Error: Failed to build termbox2 static library" >&2
         return 1
     fi
     
