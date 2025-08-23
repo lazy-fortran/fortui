@@ -15,7 +15,7 @@ DEFAULT_TERMBOX_URL="https://github.com/termbox/termbox2.git"
 DEFAULT_TERMBOX_REF="master"
 
 # Build system version for cache invalidation
-BUILD_SYSTEM_VERSION="1.0.0"
+BUILD_SYSTEM_VERSION="1.0.1"
 
 # Environment variables (with defaults)
 GUI_CACHE="${GUI_CACHE:-$DEFAULT_CACHE_DIR}"
@@ -26,7 +26,7 @@ FRG_URL="${FRG_URL:-$DEFAULT_FRG_URL}"
 FRG_REF="${FRG_REF:-$DEFAULT_FRG_REF}"
 TERMBOX_URL="${TERMBOX_URL:-$DEFAULT_TERMBOX_URL}"
 TERMBOX_REF="${TERMBOX_REF:-$DEFAULT_TERMBOX_REF}"
-FORCE_REBUILD="${FORCE_REBUILD:-0}"
+FORCE_REBUILD="${FORCE_REBUILD:-1}"
 OFFLINE_MODE="${OFFLINE_MODE:-0}"
 
 # Load modular libraries
