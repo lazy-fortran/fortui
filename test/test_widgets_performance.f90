@@ -105,11 +105,10 @@ end subroutine test_text_performance
 subroutine test_text_rendering_performance()
     real :: start_time, end_time
     integer :: i
-    type(text_node_t) :: text_node
     
     call cpu_time(start_time)
     do i = 1, 500
-        text_node = text("perf_text", "Performance test text content")
+        call text("perf_text", "Performance test text content")
     end do
     call cpu_time(end_time)
     
@@ -123,11 +122,10 @@ end subroutine test_text_rendering_performance
 subroutine test_text_memory_efficiency()
     character(len=32) :: text_id
     integer :: i
-    type(text_node_t) :: text_node
     
     do i = 1, 50
         write(text_id, '("memory_text_", I0)') i
-        text_node = text(text_id, "Memory efficiency test")
+        call text(text_id, "Memory efficiency test")
     end do
     
     print *, "  ✓ Text memory efficiency validated"
@@ -136,12 +134,11 @@ end subroutine test_text_memory_efficiency
 subroutine test_text_large_content_performance()
     character(len=1000) :: large_content
     real :: start_time, end_time
-    type(text_node_t) :: text_node
     
     large_content = repeat("Large content test ", 50)
     
     call cpu_time(start_time)
-    text_node = text("large_text", large_content)
+    call text("large_text", large_content)
     call cpu_time(end_time)
     
     if ((end_time - start_time) < 0.01) then
