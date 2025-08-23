@@ -1,6 +1,6 @@
 program demo
   use fortui_core
-  use fortui_widgets, only: button, slider, checkbox, text, viewport, text_node_t
+  use fortui_widgets, only: button, slider, checkbox, text, viewport
   use fortui_units
   implicit none
 
@@ -64,8 +64,7 @@ program demo
     ! In full implementation, text would be rendered/displayed
     ! For now, just call the function to avoid compiler error
     block
-      type(text_node_t) :: status_text
-      status_text = text("status", status_line(gain, v, grid))
+      call text("status", status_line(gain, v, grid))
     end block
     
     ! Build layout structure (placeholder nodes for now)

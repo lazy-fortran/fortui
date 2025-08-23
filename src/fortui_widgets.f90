@@ -8,8 +8,7 @@ use fortui_units, only: ui_context, ui_get_context, convert_to_dp
 implicit none
 private
 
-! Widget types
-public :: button_node_t, text_node_t, slider_node_t, checkbox_node_t, viewport_node_t
+! Widget functions (immediate-mode only)
 public :: button, text, slider, checkbox, viewport
 
 ! Widget state types for context storage
@@ -195,18 +194,16 @@ logical function button_default(id, label, width, height) result(clicked)
 end function button_default
 
 ! Context-aware text widget implementation
-function text(id, value, text_size, width, height) result(widget_node)
+subroutine text(id, value, text_size, width, height)
     character(*), intent(in) :: id
     character(*), intent(in), optional :: value
     real, intent(in), optional :: text_size, width, height
-    type(text_node_t) :: widget_node
     
     type(fortui_context_t), pointer :: ctx
     integer :: state_index
     type(text_state) :: new_state
     
-    widget_node%id = id
-    
+    ! Immediate-mode text rendering - no node objects exposed
     ! Get context for state management
     ctx => get_default_context()
     if (associated(ctx)) then
@@ -222,17 +219,14 @@ function text(id, value, text_size, width, height) result(widget_node)
             select type(state_obj => ctx%widget_states%entries(state_index)%state)
             type is (text_state)
                 if (present(value)) state_obj%value = value
-                widget_node%value = state_obj%value
             end select
         end if
-    else
-        ! Fallback without context
-        if (present(value)) widget_node%value = value
     end if
     
-    if (present(width)) widget_node%width_dp = width
-    if (present(height)) widget_node%height_dp = height
-end function text
+    ! TODO: Immediate rendering should happen here
+    ! In proper immediate-mode, this would render directly to current UI frame
+    ! For now, text rendering is deferred to present cycle
+end subroutine text
 
 logical function slider(id, min_val, max_val, step_val, value, width, height) &
     result(value_changed)

@@ -7,7 +7,7 @@ use fortui_widgets
   logical :: sound_enabled = .true., enabled = .false.
   real :: volume = 50.0, temperature = 20.0
   ! All widget variables removed - widgets return status/nodes as needed
-  type(text_node_t) :: label_widget, info_widget, terminal_widget
+  ! Widget variables removed - text now works immediate-mode
 
   print *, "=== Testing README Widget Examples ==="
 
@@ -25,10 +25,10 @@ use fortui_widgets
       print *, "Big button clicked!"
   end if
 
-  ! Test text widget examples
-  label_widget = text("label", "Hello World!")
-  info_widget = text("info", "Line 1" // char(10) // "Line 2", text_size=16.0)
-  terminal_widget = text("terminal", "Terminal Text", width=25.0)
+  ! Test text widget examples (immediate-mode)
+  call text("label", "Hello World!")
+  call text("info", "Line 1" // char(10) // "Line 2", text_size=16.0)
+  call text("terminal", "Terminal Text", width=25.0)
 
   ! Test slider examples
   volume_changed = slider("volume", 0.0, 100.0, 5.0, volume, width=120.0)

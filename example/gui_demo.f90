@@ -10,7 +10,7 @@ real :: volume = 50.0, brightness = 75.0
 integer :: frame_count = 0
 character(len=64) :: status_text
 type(view) :: plot_view
-type(text_node_t) :: title_node, subtitle_node, status_node
+! Text node types removed - text widgets work immediate-mode
 type(node) :: root_node  ! Root node for UI tree
 
 print *, "=== fortui GUI Backend Demo ==="
@@ -38,9 +38,9 @@ do while (running)
         frame_count, volume, brightness
     
     ! Demo UI with various widgets  
-    title_node = text("title", "fortui GUI Backend Demo", text_size=20.0)
-    subtitle_node = text("subtitle", "Cross-platform GUI with raylib integration")
-    status_node = text("status", status_text)
+    call text("title", "fortui GUI Backend Demo", text_size=20.0)
+    call text("subtitle", "Cross-platform GUI with raylib integration")
+    call text("status", status_text)
     
     ! Interactive controls
     save_clicked = button("save", "Save Settings", width=120.0, height=35.0)
