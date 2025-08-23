@@ -90,20 +90,17 @@ subroutine test_text_core()
 end subroutine test_text_core
 
 subroutine test_text_minimal()
-    type(text_node_t) :: text_node
-    text_node = text("test_text")
+    call text("test_text")
     print *, "  ✓ Minimal text widget creation successful"
 end subroutine test_text_minimal
 
 subroutine test_text_with_content()
-    type(text_node_t) :: text_node
-    text_node = text("content_text", "Hello World")
+    call text("content_text", "Hello World")
     print *, "  ✓ Text widget with content successful"
 end subroutine test_text_with_content
 
 subroutine test_text_sizing()
-    type(text_node_t) :: text_node
-    text_node = text("sized_text", "Sample Text", text_size=14.0)
+    call text("sized_text", "Sample Text", text_size=14.0)
     print *, "  ✓ Text widget with size successful"
 end subroutine test_text_sizing
 
