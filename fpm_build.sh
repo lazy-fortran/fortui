@@ -31,11 +31,16 @@ fi
 DEPENDENCY_LDFLAGS=$("$BUILD_SCRIPT" ldflags)
 export FPM_LDFLAGS="${FPM_LDFLAGS:-} ${DEPENDENCY_LDFLAGS}"
 
-# Static linking - no runtime library paths needed
+# Set runtime library path for shared libraries
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/fortui"
+if [[ -d "${CACHE_DIR}/termbox2" ]]; then
+    export LD_LIBRARY_PATH="${CACHE_DIR}/termbox2:${LD_LIBRARY_PATH:-}"
+fi
 
 echo "Environment configured:"
 echo "  FPM_FFLAGS: ${FPM_FFLAGS}"
 echo "  FPM_LDFLAGS: ${FPM_LDFLAGS}"
+echo "  LD_LIBRARY_PATH: ${LD_LIBRARY_PATH:-}"
 echo ""
 
 # Validate FPM is available before exec
@@ -44,5 +49,5 @@ require_command fpm "Fortran Package Manager (fpm)" \
 
 # Run FPM with the configured environment
 # Use env to explicitly pass environment variables to ensure propagation
-# Static linking means no runtime library paths needed
-exec env FPM_FFLAGS="${FPM_FFLAGS}" FPM_LDFLAGS="${FPM_LDFLAGS}" fpm "$@"
+# This fixes termbox2 linking issues when GUI backend is enabled (Issues #75, #76)
+exec env FPM_FFLAGS="${FPM_FFLAGS}" FPM_LDFLAGS="${FPM_LDFLAGS}" LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" fpm "$@"
