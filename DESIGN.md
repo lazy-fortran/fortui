@@ -1,7 +1,42 @@
 # fortui — design doc (v0.6.0)
 
+## CRITICAL: Pure Immediate-Mode Philosophy
+
+**fortui is a PURE IMMEDIATE-MODE UI library. This is NON-NEGOTIABLE.**
+
+### What This Means:
+- **NO OBJECT LIFECYCLE**: No create/destroy patterns. Widgets exist only during function calls.
+- **NO EXPOSED STATE**: All state is managed internally by ID. Users never see state objects.
+- **DECLARATION = EXECUTION**: One function call declares, renders, and updates the widget.
+- **STATELESS API**: Every widget call is self-contained. No setup, no cleanup.
+- **SIMPLE FUNCTION CALLS**: Just `if (button("save")) call save_file()` - nothing more.
+
+### Current Violations (TO BE REMOVED):
+- ❌ Widget objects exposed to users (button_widget_t, slider_widget_t, etc.)
+- ❌ Create/destroy patterns (create_context, destroy_context)
+- ❌ State objects in public API (fortui_context_t)
+- ❌ Class-based polymorphism (class(*), extends())
+- ❌ Complex multi-step initialization
+- ❌ Exposed backend interfaces and registration
+
+### Target API (CLEAN):
+```fortran
+! This is ALL the user needs:
+call ui_init("auto", 640, 480, "My App")
+do while (.not. ui_should_close())
+  call ui_frame_begin()
+  
+  if (button("save")) call save_file()
+  if (slider("volume", 0.0, 100.0, 1.0, vol)) call set_volume(vol)
+  if (checkbox("enabled", is_on)) is_on = .not. is_on
+  
+  call ui_present()
+end do
+call ui_shutdown()
+```
+
 ## Goal
-Declarative UI for modern Fortran, one codebase, two backends:
+Immediate-mode UI for modern Fortran, one codebase, two backends:
 - **TUI**: termbox2 (event-driven, diffed output) - **ALWAYS AVAILABLE**
 - **GUI**: raygui/raylib (vsynced, target FPS) - **CONDITIONAL ENHANCEMENT**
 

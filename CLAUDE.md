@@ -1,20 +1,37 @@
 # fortui Project Instructions
 
+## CRITICAL: This is a PURE IMMEDIATE-MODE UI Library
+
+**ABSOLUTE REQUIREMENTS - NO EXCEPTIONS:**
+1. **NO OBJECT LIFECYCLE** - No create/destroy. No widget objects. No cleanup.
+2. **NO EXPOSED STATE** - State is internal only. Users NEVER see state objects.
+3. **SIMPLE FUNCTION CALLS** - Just `if (button("id")) then` - nothing more complex.
+4. **STATELESS PUBLIC API** - Every call is self-contained and complete.
+5. **NO OO PATTERNS** - No classes, no inheritance, no polymorphism in public API.
+
+**VIOLATIONS TO REJECT IN ALL CODE REVIEWS:**
+- ❌ ANY exposed widget type (button_widget_t, etc.)
+- ❌ ANY create/destroy pattern
+- ❌ ANY context object in public API
+- ❌ ANY class(*) or extends() in public API
+- ❌ ANY multi-step initialization
+- ❌ ANY state management by users
+
 ## Project Overview
-**fortui** is a declarative UI library for modern Fortran with dual backends:
+**fortui** is a PURE IMMEDIATE-MODE UI library for modern Fortran with dual backends:
 - **TUI**: termbox2-based terminal interface
 - **GUI**: raygui/raylib-based graphical interface
 
-**Core Philosophy**: One codebase, exact TUI/GUI parity through monospace-first design.
+**Core Philosophy**: Simple, stateless, immediate-mode API with exact TUI/GUI parity.
 
 ## Technical Approach
 
-### Architecture Principles
-- **Immediate-mode UI**: Declaration = drawing = state update in single call
-- **Retained state by ID**: Widgets maintain state keyed by stable string identifiers
-- **Dual backend abstraction**: Same API works for both TUI and GUI with backend-specific optimizations
+### Architecture Principles (NON-NEGOTIABLE)
+- **Pure Immediate-mode**: NO exposed objects, NO lifecycle, just simple functions
+- **Internal state by ID**: State NEVER exposed, managed internally via string keys
+- **Stateless public API**: Every widget call is complete and self-contained
 - **Monospace baseline**: Grid units (gu) = terminal cell (TUI) = glyph size (GUI)
-- **Performance-first**: TUI minimizes terminal writes via diffing, GUI respects target FPS
+- **Zero-setup usage**: Just ui_init() once, then use widgets directly
 
 ### API Design Standards
 - **Small, stable public API**: Two modules only (`fortui_core`, `fortui_widgets`)
