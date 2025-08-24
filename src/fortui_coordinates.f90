@@ -7,7 +7,8 @@ implicit none
 private
 
 public :: coordinate_t, SCREEN_SPACE, VIEWPORT_SPACE, LOGICAL_SPACE
-public :: coordinate_transformer_t, create_transformer, create_screen_coord
+public :: create_transformer, create_screen_coord
+! coordinate_transformer_t is internal - not exposed to users
 public :: safe_px_to_dp, safe_dp_to_px, safe_scale_coordinate, create_viewport_coord, create_logical_coord
 public :: coordinate_error_t, COORD_SUCCESS, COORD_ERROR_ZERO_SCALE, coordinate_to_string
 public :: COORD_ERROR_INVALID_INPUT, COORD_ERROR_OVERFLOW

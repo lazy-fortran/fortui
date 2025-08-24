@@ -110,7 +110,7 @@ subroutine test_demo_widget_integration()
     ! Then: Widget interactions are correctly processed and state is managed
     
     logical :: integration_success
-    class(ui_element), allocatable :: ui
+    ! Immediate mode API - no UI tree objects needed
     
     print *, "=== Demo Widget Integration Tests ==="
     
@@ -226,7 +226,7 @@ subroutine test_demo_variable_declarations()
     real :: test_gain = 1.0
     logical :: test_grid = .false.
     type(view) :: test_view
-    class(ui_element), allocatable :: test_ui
+    ! Immediate mode API - no UI tree objects needed
     logical :: test_running = .true.
     
     ! Validate initial values match specification
@@ -250,11 +250,12 @@ end subroutine test_demo_variable_declarations
 
 subroutine test_demo_layout_structure()
     ! Test the complete layout structure from DESIGN.md
-    class(ui_element), allocatable :: ui
+    ! Immediate mode API - no UI tree objects needed
     logical :: structure_valid
     
     ! Mock the complete layout structure using simplified calls
-    ui = column(gap=1.0)
+    ! UI layout will be created using immediate mode API calls
+    ! No explicit ui object creation needed
     ! Note: This is a simplified test - actual layout construction 
     ! would need to be updated based on current API
     
@@ -352,10 +353,11 @@ subroutine test_demo_shutdown()
 end subroutine test_demo_shutdown
 
 subroutine test_demo_widget_composition(ui)
-    class(ui_element), allocatable, intent(out) :: ui
+    ! Immediate mode API - no UI tree objects needed
     
     ! Test the simplified widget composition
-    ui = column(gap=1.0)
+    ! UI layout will be created using immediate mode API calls
+    ! No explicit ui object creation needed
     ! Note: Widget composition simplified for testing
     ! Full implementation would need current API widgets
     

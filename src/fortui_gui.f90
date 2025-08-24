@@ -9,7 +9,8 @@ implicit none
 private
 
 ! Public types and procedures
-public :: gui_backend_t, register_gui_backend
+public :: register_gui_backend
+! gui_backend_t is internal - not exposed to users
 public :: gui_render_placeholder
 ! Export implementation functions for fortui_core direct calls
 public :: begin_gui_frame_impl, check_gui_quit_impl, render_gui_impl

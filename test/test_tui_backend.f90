@@ -541,7 +541,7 @@ subroutine test_widget_to_cell_mapping()
     ! When: Converting widget layout to cell positions
     ! Then: Should properly position widgets in terminal grid
     
-    type(node) :: test_widget
+    ! node type removed - immediate mode API doesn't use tree objects
     
     ! Test simple widget positioning
     ! Note: present_tui will be implemented in the implementation phase

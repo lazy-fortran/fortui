@@ -2,7 +2,7 @@ module test_viewport_widget
 ! RED phase tests for viewport widget with pan/zoom functionality
 ! Tests viewport function signature, view state management, and cross-backend rendering
 use iso_c_binding
-use fortui_core, only: ui_element, node, view, ui_init, ui_shutdown, ui_frame_begin, &
+use fortui_core, only: view, ui_init, ui_shutdown, ui_frame_begin, &
                        ui_present, ui_should_close
 use fortui_units, only: ui_context, ui_get_context, ui_set_context, convert_to_dp
 use fortui_units, only: dp, em, cw, ch

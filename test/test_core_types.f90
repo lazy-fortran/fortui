@@ -45,7 +45,8 @@ subroutine test_node_initialization()
     ! When: Creating new node instance
     ! Then: Node should have proper default state
     
-    type(node) :: test_node, another_node
+    ! node type removed - immediate mode API doesn't use tree objects
+    ! type(node) :: test_node, another_node
     integer :: test_count = 0
     
     ! Test that node type can be declared and initialized
@@ -71,10 +72,14 @@ subroutine test_node_memory_management()
     ! When: Managing node lifecycle
     ! Then: Memory should be handled correctly
     
-    type(node) :: stack_node
-    type(node), allocatable :: alloc_node
-    type(node), allocatable :: node_array(:)
-    type(node) :: node_array_stack(3)
+    ! node type removed - immediate mode API doesn't use tree objects
+    ! type(node) :: stack_node
+    ! node type removed - immediate mode API doesn't use tree objects
+    ! type(node), allocatable :: alloc_node
+    ! node type removed - immediate mode API doesn't use tree objects
+    ! type(node), allocatable :: node_array(:)
+    ! node type removed - immediate mode API doesn't use tree objects
+    ! type(node) :: node_array_stack(3)
     integer :: test_count = 0
     integer :: i
     
@@ -118,7 +123,8 @@ subroutine test_node_backend_compatibility()
     ! When: Used with both TUI and GUI backends
     ! Then: Node behavior should be consistent
     
-    type(node) :: test_node
+    ! node type removed - immediate mode API doesn't use tree objects
+    ! type(node) :: test_node
     
     ! Node type is backend-agnostic by design
     ! Same structure and behavior regardless of ENABLE_GUI flag
@@ -363,7 +369,8 @@ subroutine test_public_api_access()
     ! When: Accessing node and view types
     ! Then: Should be accessible and usable
     
-    type(node) :: test_node
+    ! node type removed - immediate mode API doesn't use tree objects
+    ! type(node) :: test_node
     type(view) :: test_view
     
     ! Test that public types are accessible

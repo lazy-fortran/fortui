@@ -4,7 +4,7 @@ program gui_test_standalone
     use fortui_backend_init, only: ensure_backends_registered
     use fortui_gui, only: gui_backend_t
     
-    class(backend_interface), pointer :: backend => null()
+    ! Backend interface removed - testing with immediate mode API
     logical :: available, quit
     integer :: i
     integer :: dummy_tree = 0  ! Simple placeholder for tree parameter

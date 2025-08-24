@@ -7,7 +7,8 @@ use iso_c_binding
 implicit none
 private
 
-public :: renderer_t, render_context_t, ui_rect, ui_color
+public :: render_context_t, ui_rect, ui_color
+! renderer_t is internal - not exposed to users
 public :: WIDGET_NORMAL, WIDGET_HOVER, WIDGET_PRESSED, WIDGET_FOCUSED, WIDGET_DISABLED
 ! Export procedure interfaces
 public :: draw_rect_proc, draw_text_proc, draw_line_proc, draw_border_proc

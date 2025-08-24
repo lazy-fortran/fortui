@@ -3,7 +3,7 @@ program simple_gui_test
     use fortui_backend, only: backend_interface, get_backend
     use fortui_backend_init, only: ensure_backends_registered
     
-    class(backend_interface), pointer :: backend => null()
+    ! Backend interface removed - testing with immediate mode API
     logical :: available
     
     print *, "GUI module compiled successfully"

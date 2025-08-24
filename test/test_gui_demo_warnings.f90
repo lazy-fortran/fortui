@@ -5,7 +5,7 @@ use fortui_widgets
 use iso_fortran_env, only: error_unit
 implicit none
 
-type(node) :: root_node
+! node type removed - immediate mode API doesn't use tree objects
 integer :: i
 logical :: warnings_detected = .false.
 
@@ -22,8 +22,8 @@ do i = 1, 5
     ! (widgets would be created here in real demo)
     
     ! Properly end frame with minimal tree to avoid warnings
-    root_node%layout_type = "none"
-    call ui_present(root_node)
+    ! Node objects removed - using immediate mode
+    call ui_present()
     
     if (ui_should_close()) exit
 end do

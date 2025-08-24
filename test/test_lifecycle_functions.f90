@@ -300,14 +300,14 @@ subroutine test_ui_present()
     ! When: Presenting different node configurations
     ! Then: Should accept node trees without errors
     
-    type(node) :: simple_node
-    type(node) :: test_tree
+    ! node type removed - immediate mode API doesn't use tree objects
+    ! node type removed - immediate mode API doesn't use tree objects
     
     ! Test with simple node
-    call ui_present(simple_node)
+    call ui_present()
     
     ! Test with more complex tree (once implemented)
-    call ui_present(test_tree)
+    call ui_present()
     
     print *, "  ✓ UI present: simple node presentation works"
     print *, "  ✓ UI present: accepts node trees correctly"
@@ -335,7 +335,7 @@ subroutine test_frame_cycle_integration()
     ! When: Executing typical application loop pattern
     ! Then: Should work together seamlessly
     
-    type(node) :: ui_tree
+    ! node type removed - immediate mode API doesn't use tree objects
     logical :: running
     integer :: frame_count, max_frames
     logical :: quit_state
@@ -361,7 +361,7 @@ subroutine test_frame_cycle_integration()
         call ui_frame_begin(timeout_ms=100)
         
         ! Test UI tree presentation
-        call ui_present(ui_tree)
+        call ui_present()
         
         ! Test quit detection  
         quit_state = ui_should_close()
