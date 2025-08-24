@@ -6,9 +6,9 @@ module fortui_context
 ! - Clean testing without state bleed
 ! - Explicit state dependencies
 use fortui_error, only: report_error, report_warning
-use fortui_backend, only: backend_interface, backend_registry
+use fortui_backend, only: backend_t, backend_registry
 use fortui_units, only: ui_context
-use fortui_widget_renderer, only: widget_renderer_t
+use fortui_widget_renderer, only: renderer_t
 implicit none
 private
 
@@ -18,13 +18,80 @@ public :: get_default_context, set_default_context
 public :: ui_context
 ! Internal exports for fortui_core module only
 public :: fortui_context_t, create_context, destroy_context
-public :: widget_state_map, widget_state_entry
+public :: widget_state_map, widget_state_entry, widget_state_union
+! Export widget state types for use by fortui_widgets
+public :: button_state, text_state, slider_state, checkbox_state, viewport_state
+
+! Backend-specific state union (replaces class(*) for backends)
+type :: backend_state_union
+    ! Backend type discriminator
+    integer :: backend_type = 0  ! 0=none, 1=tui, 2=gui
+    ! Concrete backend state storage
+    ! NOTE: These will be defined when backend modules are refactored
+    integer :: placeholder  ! Temporary until backend state types are defined
+end type backend_state_union
+
+! Define widget state types here to avoid circular dependencies
+! Button widget state
+type :: button_state
+    logical :: pressed = .false.
+    logical :: hover = .false.
+    logical :: clicked_this_frame = .false.
+    integer :: last_frame_clicked = -1
+end type button_state
+
+! Text widget state
+type :: text_state
+    character(len=1024) :: value = ""
+    logical :: focused = .false.
+    integer :: cursor_pos = 1
+end type text_state
+
+! Slider widget state
+type :: slider_state
+    real :: current_value = 0.0
+    logical :: dragging = .false.
+    real :: last_mouse_x = 0.0
+end type slider_state
+
+! Checkbox widget state
+type :: checkbox_state
+    logical :: checked = .false.
+    logical :: hover = .false.
+end type checkbox_state
+
+! Viewport widget state
+type :: viewport_state
+    logical :: dragging = .false.
+    real :: last_mouse_x = 0.0
+    real :: last_mouse_y = 0.0
+    real :: viewport_x = 0.0
+    real :: viewport_y = 0.0
+    real :: viewport_w = 0.0
+    real :: viewport_h = 0.0
+    real :: prev_scale_x = 1.0
+    real :: prev_scale_y = 1.0
+    real :: prev_off_x = 0.0
+    real :: prev_off_y = 0.0
+end type viewport_state
 
 ! Widget state storage types (defined before context type)
+! Union type for widget-specific state (replaces class(*))
+type :: widget_state_union
+    ! State type discriminator
+    integer :: state_type = 0  ! 0=none, 1=button, 2=text, 3=slider, 4=checkbox, 5=viewport
+    ! Concrete state storage (only one active at a time)
+    type(button_state) :: button
+    type(text_state) :: text
+    type(slider_state) :: slider
+    type(checkbox_state) :: checkbox
+    type(viewport_state) :: viewport
+end type widget_state_union
+
 type :: widget_state_entry
     character(len=256) :: id = ""
     character(len=32) :: widget_type = ""
-    class(*), allocatable :: state
+    type(widget_state_union) :: state
     logical :: active = .false.
 end type widget_state_entry
 
@@ -48,10 +115,10 @@ type :: fortui_context_t
     
     ! Backend management
     character(len=32) :: active_backend = ""
-    class(backend_interface), pointer :: backend => null()
+    type(backend_t), pointer :: backend => null()
     
     ! Widget renderer (collaboration pattern)
-    class(widget_renderer_t), pointer :: renderer => null()
+    type(renderer_t), pointer :: renderer => null()
     
     ! Window/display state
     integer :: window_width = 80
@@ -65,8 +132,8 @@ type :: fortui_context_t
     ! Unit system context (encapsulates fortui_units state)
     type(ui_context) :: units
     
-    ! Backend-specific state (polymorphic storage)
-    class(*), allocatable :: backend_state
+    ! Backend-specific state (union type storage)
+    type(backend_state_union) :: backend_state
     
     ! Widget state storage (hash table for scalability)
     type(widget_state_map) :: widget_states
@@ -347,9 +414,8 @@ function map_get_state(self, id, widget_type) result(index)
             trim(self%entries(i)%id) == trim(id) .and. &
             trim(self%entries(i)%widget_type) == trim(widget_type)) then
             
-            if (allocated(self%entries(i)%state)) then
-                index = i
-            end if
+            ! Always return valid index for active entries
+            index = i
             return
         end if
     end do
@@ -359,7 +425,7 @@ subroutine map_set_state(self, id, widget_type, state)
     class(widget_state_map), intent(inout) :: self
     character(*), intent(in) :: id
     character(*), intent(in) :: widget_type
-    class(*), intent(in) :: state
+    type(widget_state_union), intent(in) :: state
     
     integer :: i, slot
     
@@ -397,10 +463,8 @@ subroutine map_set_state(self, id, widget_type, state)
     self%entries(slot)%id = trim(id)
     self%entries(slot)%widget_type = trim(widget_type)
     
-    ! State will be automatically deallocated when reassigned
-    
-    ! Allocate and copy new state
-    allocate(self%entries(slot)%state, source=state)
+    ! Copy union state directly (no allocation needed)
+    self%entries(slot)%state = state
     self%entries(slot)%active = .true.
 end subroutine map_set_state
 
@@ -443,14 +507,14 @@ end subroutine map_resize
 ! Renderer management methods
 function context_get_renderer(self) result(renderer)
     class(fortui_context_t), intent(in) :: self
-    class(widget_renderer_t), pointer :: renderer
+    type(renderer_t), pointer :: renderer
     
     renderer => self%renderer
 end function context_get_renderer
 
 subroutine context_set_renderer(self, renderer)
     class(fortui_context_t), intent(inout) :: self
-    class(widget_renderer_t), intent(in), target :: renderer
+    type(renderer_t), intent(in), target :: renderer
     
     self%renderer => renderer
 end subroutine context_set_renderer

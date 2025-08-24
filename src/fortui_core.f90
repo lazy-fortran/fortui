@@ -7,6 +7,7 @@ use fortui_layout_constructors
 use fortui_context, only: fortui_context_t, get_default_context, create_context, set_default_context
 use fortui_error
 use iso_fortran_env, only: error_unit
+use iso_c_binding
 implicit none
 private
 
@@ -28,7 +29,7 @@ public :: set_environment_variable_simulation, clear_environment_variable_simula
 type :: ui_state_t
     logical :: initialized = .false.
     character(len=32) :: active_backend = ""
-    class(backend_interface), pointer :: backend => null()
+    type(backend_t), pointer :: backend => null()
     integer :: window_width = 0
     integer :: window_height = 0
     character(len=256) :: window_title = ""
@@ -129,10 +130,15 @@ subroutine ui_init_with_context(ctx, backend, width, height, title, target_fps, 
     
     ! Initialize the selected backend if available
     if (associated(ctx%backend)) then
-        if (ctx%backend%is_available()) then
-            call ctx%backend%init(ctx%window_width, ctx%window_height, &
-                                  ctx%window_title, ctx%target_fps, &
-                                  ctx%vsync_enabled)
+        if (associated(ctx%backend%is_available)) then
+            if (ctx%backend%is_available(ctx%backend%backend_data)) then
+                if (associated(ctx%backend%init)) then
+                    call ctx%backend%init(ctx%backend%backend_data, &
+                                         ctx%window_width, ctx%window_height, &
+                                         ctx%window_title, ctx%target_fps, &
+                                         ctx%vsync_enabled)
+                end if
+            end if
         end if
     end if
     
@@ -358,8 +364,8 @@ subroutine ui_frame_begin_with_context(ctx, timeout_ms)
     call ctx%begin_frame()
     
     ! Backend-specific frame preparation
-    if (associated(ctx%backend)) then
-        call ctx%backend%begin_frame()
+    if (associated(ctx%backend) .and. associated(ctx%backend%begin_frame)) then
+        call ctx%backend%begin_frame(ctx%backend%backend_data)
     else
         write(error_unit, '(A)') "ui_frame_begin_with_context: Error - No backend available"
         return
@@ -404,8 +410,8 @@ subroutine ui_present_with_context(ctx, tree)
     end if
     
     ! Backend-specific presentation
-    if (associated(ctx%backend)) then
-        call ctx%backend%render(tree)
+    if (associated(ctx%backend) .and. associated(ctx%backend%render)) then
+        call ctx%backend%render(ctx%backend%backend_data, c_null_ptr)  ! TODO: Fix tree passing
     else
         write(error_unit, '(A)') "ui_present_with_context: Error - No backend available"
     end if
@@ -438,8 +444,8 @@ logical function ui_should_close_with_context(ctx) result(should_close)
         return
     end if
     
-    if (associated(ctx%backend)) then
-        should_close = ctx%backend%check_quit() .or. ctx%should_quit
+    if (associated(ctx%backend) .and. associated(ctx%backend%check_quit)) then
+        should_close = ctx%backend%check_quit(ctx%backend%backend_data) .or. ctx%should_quit
     else
         should_close = .true.
     end if
@@ -465,8 +471,8 @@ subroutine ui_shutdown_with_context(ctx)
     type(fortui_context_t), intent(inout) :: ctx
     
     ! Call backend's shutdown method if available
-    if (associated(ctx%backend)) then
-        call ctx%backend%shutdown()
+    if (associated(ctx%backend) .and. associated(ctx%backend%shutdown)) then
+        call ctx%backend%shutdown(ctx%backend%backend_data)
     end if
     
     ! Shutdown context

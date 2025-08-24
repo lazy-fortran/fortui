@@ -2,10 +2,11 @@ module fortui_backend_init
 ! Context-aware backend registration module
 ! Separates registration from core to avoid circular dependencies
 use fortui_backend
-use fortui_tui, only: register_tui_backend
+use fortui_tui_simple, only: register_simple_tui_backend
 use fortui_context, only: fortui_context_t, get_default_context
-use fortui_tui_renderer, only: tui_renderer_t
-use fortui_gui_renderer, only: gui_renderer_t
+! Temporarily disabled polymorphic renderers for Issue #121
+! use fortui_tui_renderer, only: tui_renderer_t
+! use fortui_gui_renderer, only: gui_renderer_t
 #ifdef ENABLE_GUI
 use fortui_gui, only: register_gui_backend
 #endif
@@ -26,27 +27,16 @@ contains
 subroutine ensure_backends_registered_with_context(ctx)
     type(fortui_context_t), intent(inout) :: ctx
     
-    ! Use proper backend_state field instead of widget_states
-    if (.not. allocated(ctx%backend_state)) then
-        ! Initialize backend registration state in proper location
-        allocate(ctx%backend_state, source=backend_registration_state())
-    end if
+    ! For now, always register backends (simplified for polymorphism removal)
+    ! TODO: Implement proper backend registration state with union type
     
-    ! Check if already registered
-    select type(state_obj => ctx%backend_state)
-    type is (backend_registration_state)
-        if (state_obj%backends_registered) return
-        
-        ! Always register TUI backend
-        call register_tui_backend()
-        
+    ! Always register TUI backend
+    call register_simple_tui_backend()
+    
 #ifdef ENABLE_GUI
-        ! Register GUI backend if compiled in
-        call register_gui_backend()
+    ! Register GUI backend if compiled in
+    call register_gui_backend()
 #endif
-        
-        state_obj%backends_registered = .true.
-    end select
 end subroutine ensure_backends_registered_with_context
 
 ! Default context version for backward compatibility
@@ -60,7 +50,7 @@ subroutine ensure_backends_registered()
     else
         ! Fallback to direct registration without context
         ! (for cases where context is not yet available)
-        call register_tui_backend()
+        call register_simple_tui_backend()
         
 #ifdef ENABLE_GUI
         call register_gui_backend()
@@ -73,34 +63,10 @@ subroutine initialize_renderer(ctx, backend_name)
     type(fortui_context_t), intent(inout) :: ctx
     character(*), intent(in) :: backend_name
     
-    select case(trim(backend_name))
-    case("tui")
-        ! Create and set TUI renderer
-        block
-            type(tui_renderer_t), pointer :: tui_renderer
-            allocate(tui_renderer)
-            call tui_renderer%initialize(ctx%window_width, ctx%window_height)
-            call ctx%set_renderer(tui_renderer)
-        end block
-        
-    case("gui")
-        ! Create and set GUI renderer
-        block
-            type(gui_renderer_t), pointer :: gui_renderer
-            allocate(gui_renderer)
-            call gui_renderer%initialize(ctx%window_width, ctx%window_height, ctx%dpi_scale)
-            call ctx%set_renderer(gui_renderer)
-        end block
-        
-    case default
-        ! Default to TUI renderer
-        block
-            type(tui_renderer_t), pointer :: default_renderer
-            allocate(default_renderer)
-            call default_renderer%initialize(80, 24)
-            call ctx%set_renderer(default_renderer)
-        end block
-    end select
+    ! Temporarily stub out renderer initialization for Issue #121
+    ! This will be properly implemented after renderer polymorphism is removed
+    ! For now, just set renderer to null to avoid crashes
+    ctx%renderer => null()
 end subroutine initialize_renderer
 
 end module fortui_backend_init

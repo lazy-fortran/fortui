@@ -1,7 +1,9 @@
 module fortui_widgets
 ! Context-aware widgets module implementing Context Object Pattern
 use iso_c_binding
-use fortui_context, only: fortui_context_t, get_default_context
+use fortui_context, only: fortui_context_t, get_default_context, &
+                          button_state, text_state, slider_state, &
+                          checkbox_state, viewport_state, widget_state_union
 use fortui_core, only: view, ui_element
 use fortui_core, only: view
 use fortui_units, only: ui_context, ui_get_context, convert_to_dp
@@ -11,48 +13,8 @@ private
 ! Widget functions (immediate-mode only)
 public :: button, text, slider, checkbox, viewport
 
-! Widget state types for context storage
+! Widget state types for context storage (re-exported from context)
 public :: button_state, text_state, slider_state, checkbox_state, viewport_state
-
-! Button widget state for context storage
-type :: button_state
-    logical :: pressed = .false.
-    logical :: hover = .false.
-    logical :: clicked_this_frame = .false.
-    integer :: last_frame_clicked = -1
-end type button_state
-
-! Widget state types for context storage
-type :: text_state
-    character(len=1024) :: value = ""
-    logical :: focused = .false.
-    integer :: cursor_pos = 1
-end type text_state
-
-type :: slider_state
-    real :: current_value = 0.0
-    logical :: dragging = .false.
-    real :: last_mouse_x = 0.0
-end type slider_state
-
-type :: checkbox_state
-    logical :: checked = .false.
-    logical :: hover = .false.
-end type checkbox_state
-
-type :: viewport_state
-    logical :: dragging = .false.
-    real :: last_mouse_x = 0.0
-    real :: last_mouse_y = 0.0
-    real :: viewport_x = 0.0
-    real :: viewport_y = 0.0
-    real :: viewport_w = 0.0
-    real :: viewport_h = 0.0
-    real :: prev_scale_x = 1.0
-    real :: prev_scale_y = 1.0
-    real :: prev_off_x = 0.0
-    real :: prev_off_y = 0.0
-end type viewport_state
 
 ! Widget node types
 type, extends(ui_element) :: button_node_t
@@ -115,7 +77,7 @@ logical function button_with_context(ctx, id, label, width, height) result(click
     real :: button_width_dp, button_height_dp
     character(len=256) :: display_label
     integer :: state_index
-    type(button_state) :: new_state
+    type(widget_state_union) :: new_state_union
     
     ! Validate context
     if (.not. ctx%is_valid()) then
@@ -127,8 +89,9 @@ logical function button_with_context(ctx, id, label, width, height) result(click
     state_index = ctx%widget_states%get(id, "button")
     if (state_index == 0) then
         ! Create new button state
-        new_state = button_state()  ! Initialize with defaults
-        call ctx%widget_states%set(id, "button", new_state)
+        new_state_union%state_type = 1  ! button type
+        new_state_union%button = button_state()  ! Initialize with defaults
+        call ctx%widget_states%set(id, "button", new_state_union)
         state_index = ctx%widget_states%get(id, "button")
     end if
     
@@ -158,22 +121,22 @@ logical function button_with_context(ctx, id, label, width, height) result(click
     end if
     
     ! Update state for this frame
-    ! Access state through the entries array
-    select type(state_obj => ctx%widget_states%entries(state_index)%state)
-    type is (button_state)
-        if (state_obj%last_frame_clicked == ctx%frame_count) then
-            clicked = state_obj%clicked_this_frame
+    ! Access state through the entries array using union
+    if (ctx%widget_states%entries(state_index)%state%state_type == 1) then
+        ! Button state
+        if (ctx%widget_states%entries(state_index)%state%button%last_frame_clicked == ctx%frame_count) then
+            clicked = ctx%widget_states%entries(state_index)%state%button%clicked_this_frame
         else
             ! Simulate button interaction for demonstration
             ! In real implementation, would check mouse/keyboard input
             clicked = .false.
-            state_obj%clicked_this_frame = clicked
-            state_obj%last_frame_clicked = ctx%frame_count
+            ctx%widget_states%entries(state_index)%state%button%clicked_this_frame = clicked
+            ctx%widget_states%entries(state_index)%state%button%last_frame_clicked = ctx%frame_count
         end if
-    class default
+    else
         ! Invalid state type
         clicked = .false.
-    end select
+    end if
 end function button_with_context
 
 logical function button_default(id, label, width, height) result(clicked)
@@ -201,7 +164,7 @@ subroutine text(id, value, text_size, width, height)
     
     type(fortui_context_t), pointer :: ctx
     integer :: state_index
-    type(text_state) :: new_state
+    type(widget_state_union) :: new_state_union
     
     ! Immediate-mode text rendering - no node objects exposed
     ! Get context for state management
@@ -211,15 +174,16 @@ subroutine text(id, value, text_size, width, height)
         state_index = ctx%widget_states%get(id, "text")
         if (state_index == 0) then
             ! Create new text state
-            new_state = text_state()
-            if (present(value)) new_state%value = value
-            call ctx%widget_states%set(id, "text", new_state)
+            new_state_union%state_type = 2  ! text type
+            new_state_union%text = text_state()
+            if (present(value)) new_state_union%text%value = value
+            call ctx%widget_states%set(id, "text", new_state_union)
         else
-            ! Update value if provided
-            select type(state_obj => ctx%widget_states%entries(state_index)%state)
-            type is (text_state)
-                if (present(value)) state_obj%value = value
-            end select
+            ! Update value if provided using union access
+            if (present(value) .and. &
+                ctx%widget_states%entries(state_index)%state%state_type == 2) then
+                ctx%widget_states%entries(state_index)%state%text%value = value
+            end if
         end if
     end if
     
@@ -237,7 +201,7 @@ logical function slider(id, min_val, max_val, step_val, value, width, height) &
     
     type(fortui_context_t), pointer :: ctx
     integer :: state_index
-    type(slider_state) :: new_state
+    type(widget_state_union) :: new_state_union
     real :: min_v, max_v
     
     value_changed = .false.
@@ -255,26 +219,26 @@ logical function slider(id, min_val, max_val, step_val, value, width, height) &
         state_index = ctx%widget_states%get(id, "slider")
         if (state_index == 0) then
             ! Create new slider state
-            new_state = slider_state()
+            new_state_union%state_type = 3  ! slider type
+            new_state_union%slider = slider_state()
             if (present(value)) then
-                new_state%current_value = max(min_v, min(max_v, value))
+                new_state_union%slider%current_value = max(min_v, min(max_v, value))
             else
-                new_state%current_value = min_v
+                new_state_union%slider%current_value = min_v
             end if
-            call ctx%widget_states%set(id, "slider", new_state)
+            call ctx%widget_states%set(id, "slider", new_state_union)
         else
-            ! Update and return current value
-            select type(state_obj => ctx%widget_states%entries(state_index)%state)
-            type is (slider_state)
+            ! Update and return current value using union access
+            if (ctx%widget_states%entries(state_index)%state%state_type == 3) then
                 if (present(value)) then
                     ! Check if value changed
-                    if (abs(state_obj%current_value - value) > 1e-6) then
-                        state_obj%current_value = max(min_v, min(max_v, value))
+                    if (abs(ctx%widget_states%entries(state_index)%state%slider%current_value - value) > 1e-6) then
+                        ctx%widget_states%entries(state_index)%state%slider%current_value = max(min_v, min(max_v, value))
                         value_changed = .true.
                     end if
-                    value = state_obj%current_value
+                    value = ctx%widget_states%entries(state_index)%state%slider%current_value
                 end if
-            end select
+            end if
         end if
     else
         ! Fallback without context - just clamp value
@@ -292,7 +256,7 @@ logical function checkbox(id, checked, label, width, height) result(toggled)
     
     type(fortui_context_t), pointer :: ctx
     integer :: state_index
-    type(checkbox_state) :: new_state
+    type(widget_state_union) :: new_state_union
     
     toggled = .false.
     
@@ -303,22 +267,22 @@ logical function checkbox(id, checked, label, width, height) result(toggled)
         state_index = ctx%widget_states%get(id, "checkbox")
         if (state_index == 0) then
             ! Create new checkbox state
-            new_state = checkbox_state()
-            if (present(checked)) new_state%checked = checked
-            call ctx%widget_states%set(id, "checkbox", new_state)
+            new_state_union%state_type = 4  ! checkbox type
+            new_state_union%checkbox = checkbox_state()
+            if (present(checked)) new_state_union%checkbox%checked = checked
+            call ctx%widget_states%set(id, "checkbox", new_state_union)
         else
-            ! Update and return current state
-            select type(state_obj => ctx%widget_states%entries(state_index)%state)
-            type is (checkbox_state)
+            ! Update and return current state using union access
+            if (ctx%widget_states%entries(state_index)%state%state_type == 4) then
                 if (present(checked)) then
                     ! Check if state changed
-                    if (state_obj%checked .neqv. checked) then
-                        state_obj%checked = checked
+                    if (ctx%widget_states%entries(state_index)%state%checkbox%checked .neqv. checked) then
+                        ctx%widget_states%entries(state_index)%state%checkbox%checked = checked
                         toggled = .true.
                     end if
-                    checked = state_obj%checked
+                    checked = ctx%widget_states%entries(state_index)%state%checkbox%checked
                 end if
-            end select
+            end if
         end if
     else
         ! Fallback without context - no state persistence
@@ -336,7 +300,7 @@ logical function viewport(id, width, height, view_state) result(view_changed)
     type(fortui_context_t), pointer :: ctx
     type(ui_context) :: ui_ctx
     integer :: state_index
-    type(viewport_state) :: new_state
+    type(widget_state_union) :: new_state_union
     real :: width_dp, height_dp
     real :: mouse_x, mouse_y, scroll_x, scroll_y
     logical :: mouse_left, mouse_right, mouse_middle
@@ -360,22 +324,24 @@ logical function viewport(id, width, height, view_state) result(view_changed)
     state_index = ctx%widget_states%get(id, "viewport")
     if (state_index == 0) then
         ! Create new viewport state
-        new_state = viewport_state()
-        new_state%prev_scale_x = view_state%scale_x
-        new_state%prev_scale_y = view_state%scale_y
-        new_state%prev_off_x = view_state%off_x
-        new_state%prev_off_y = view_state%off_y
-        new_state%viewport_w = width_dp
-        new_state%viewport_h = height_dp
-        call ctx%widget_states%set(id, "viewport", new_state)
+        new_state_union%state_type = 5  ! viewport type
+        new_state_union%viewport = viewport_state()
+        new_state_union%viewport%prev_scale_x = view_state%scale_x
+        new_state_union%viewport%prev_scale_y = view_state%scale_y
+        new_state_union%viewport%prev_off_x = view_state%off_x
+        new_state_union%viewport%prev_off_y = view_state%off_y
+        new_state_union%viewport%viewport_w = width_dp
+        new_state_union%viewport%viewport_h = height_dp
+        call ctx%widget_states%set(id, "viewport", new_state_union)
         state_index = ctx%widget_states%get(id, "viewport")
     end if
     
     if (state_index == 0) return
     
-    ! Process viewport interaction
-    select type(state_obj => ctx%widget_states%entries(state_index)%state)
-    type is (viewport_state)
+    ! Process viewport interaction using union access
+    if (ctx%widget_states%entries(state_index)%state%state_type == 5) then
+        ! Viewport state - use short alias for readability
+        associate (state_obj => ctx%widget_states%entries(state_index)%state%viewport)
         ! Check if view has changed since last frame
         view_changed = (abs(view_state%scale_x - state_obj%prev_scale_x) > 1e-6) &
                        .or. (abs(view_state%scale_y - state_obj%prev_scale_y) > 1e-6) &
@@ -426,7 +392,8 @@ logical function viewport(id, width, height, view_state) result(view_changed)
         state_obj%prev_scale_y = view_state%scale_y
         state_obj%prev_off_x = view_state%off_x
         state_obj%prev_off_y = view_state%off_y
-    end select
+        end associate
+    end if
 
 contains
     
