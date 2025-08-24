@@ -10,7 +10,7 @@ private
 
 ! Public types and procedures
 public :: gui_backend_t, register_gui_backend
-public :: gui_render_tree
+public :: gui_render_placeholder
 ! Export implementation functions for fortui_core direct calls
 public :: begin_gui_frame_impl, check_gui_quit_impl, render_gui_impl
 
@@ -324,12 +324,11 @@ subroutine begin_gui_frame_impl()
     ! call ClearBackground(BLACK)
 end subroutine begin_gui_frame_impl
 
-! Present GUI frame with widget tree
-subroutine render_gui_impl(tree)
-    class(*), intent(in) :: tree
+! Present GUI frame (tree rendering moved to specialized modules)
+subroutine render_gui_impl()
     
-    ! Render the widget tree
-    call gui_render_tree(tree, 0.0, 0.0)
+    ! GUI rendering is handled by the backend pattern now
+    ! Actual widget tree rendering happens in widget-specific modules
     
     ! End raylib drawing
     ! call EndDrawing()
@@ -366,16 +365,14 @@ logical function gui_check_quit(self)
     end if
 end function gui_check_quit
 
-! Render widget tree recursively (simplified to avoid circular dependencies)
-recursive subroutine gui_render_tree(tree, x, y)
-    class(*), intent(in) :: tree
+! Render widget placeholder (tree rendering moved to specialized modules)
+subroutine gui_render_placeholder(x, y)
     real, intent(in) :: x, y
     
-    ! Simplified rendering - just draw a placeholder for any widget
-    ! In a real implementation, this would properly handle node types
-    ! but we avoid circular dependencies by not importing fortui_core types
+    ! Draw a placeholder widget - actual rendering is handled elsewhere
+    ! to avoid circular dependencies
     call gui_draw_text("W", nint(x), nint(y), GREEN)
-end subroutine gui_render_tree
+end subroutine gui_render_placeholder
 
 ! Helper function to draw text (simulated for testing)
 subroutine gui_draw_text(text, x, y, draw_color)
@@ -487,15 +484,14 @@ subroutine gui_begin_frame(self)
 end subroutine gui_begin_frame
 
 ! Type-bound procedure: Present GUI frame
-subroutine gui_render(self, tree)
+subroutine gui_render(self)
     class(gui_backend_t), intent(inout) :: self
-    class(*), intent(in) :: tree
     
     if (.not. self%initialized) return
     
     ! Render the UI tree (delegate to existing implementation)
-    call render_gui_impl(tree)
-    ! The actual tree rendering happens through gui_render_tree
+    call render_gui_impl()
+    ! The actual tree rendering happens through widget-specific modules
     if (self%in_frame .and. self%window_created) then
         ! Would call EndDrawing() here
         self%in_frame = .false.

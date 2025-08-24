@@ -59,6 +59,12 @@ interface ch
     module procedure make_ch
 end interface
 
+! Overloaded interface for convert_to_dp to replace class(*) polymorphism  
+interface convert_to_dp
+    module procedure convert_unit_value_to_dp
+    module procedure convert_real_to_dp
+    module procedure convert_integer_to_dp
+end interface convert_to_dp
 
 contains
 
@@ -121,66 +127,63 @@ end function make_ch
 
 ! Unit conversion engine with runtime type checking
 
-real function convert_to_dp(unit_arg, ctx) result(dp_val)
-    ! Convert any unit type or bare real to density-independent pixels
-    ! Uses runtime type checking for class(*) polymorphism
+real function convert_unit_value_to_dp(unit_arg, ctx) result(dp_val)
+    ! Convert unit_value type to density-independent pixels
     use fortui_coordinates, only: safe_px_to_dp, coordinate_error_t, COORD_SUCCESS
-    class(*), intent(in) :: unit_arg
+    type(unit_value), intent(in) :: unit_arg
     type(ui_context), intent(in) :: ctx
     type(coordinate_error_t) :: error
     
-    select type(unit_arg)
-        type is (unit_value)
-            ! Handle unit_value types with conversion based on unit_type
-            select case (trim(unit_arg%unit_type))
-                case ("dp")
-                    ! Direct assignment - dp is the base unit
-                    dp_val = unit_arg%value
-                    
-                case ("em")
-                    ! Convert em to dp: value * em_dp
-                    dp_val = unit_arg%value * ctx%em_dp
-                    
-                case ("sp")
-                    ! Convert sp to dp: value * text_scale
-                    dp_val = unit_arg%value * ctx%text_scale
-                    
-                case ("px")
-                    ! Convert px to dp using safe coordinate conversion (Issue #62 fix)
-                    dp_val = safe_px_to_dp(unit_arg%value, ctx%dpi_scale, error)
-                    ! Error handling is internal to safe_px_to_dp
-                    
-                case ("cw")
-                    ! Convert cw to dp: value * cell_w_dp (TUI cell width)
-                    dp_val = unit_arg%value * ctx%cell_w_dp
-                    
-                case ("ch")
-                    ! Convert ch to dp: value * cell_h_dp (TUI cell height)
-                    dp_val = unit_arg%value * ctx%cell_h_dp
-                    
-                case default
-                    ! Unknown unit type - this should not happen with proper operators
-                    call report_error("fortui_units", "convert_to_dp", &
-                        "Unknown unit type '" // trim(unit_arg%unit_type) // "'")
-                    dp_val = unit_arg%value  ! Fallback to raw value
-            end select
+    ! Handle unit_value types with conversion based on unit_type
+    select case (trim(unit_arg%unit_type))
+        case ("dp")
+            ! Direct assignment - dp is the base unit
+            dp_val = unit_arg%value
             
-        type is (real)
-            ! Handle bare real values - treat as dp by default per DESIGN.md
-            dp_val = unit_arg
+        case ("em")
+            ! Convert em to dp: value * em_dp
+            dp_val = unit_arg%value * ctx%em_dp
             
-        type is (integer)
-            ! Handle integer values - convert to real and treat as dp
-            dp_val = real(unit_arg)
+        case ("sp")
+            ! Convert sp to dp: value * text_scale
+            dp_val = unit_arg%value * ctx%text_scale
             
-        class default
-            ! Unsupported type - provide clear error message
-            call report_error("fortui_units", "convert_to_dp", &
-                "Unsupported type passed to convert_to_dp. " // &
-                "Supported types: unit_value, real, integer")
-            dp_val = 0.0  ! Safe fallback value
+        case ("px")
+            ! Convert px to dp using safe coordinate conversion (Issue #62 fix)
+            dp_val = safe_px_to_dp(unit_arg%value, ctx%dpi_scale, error)
+            ! Error handling is internal to safe_px_to_dp
+            
+        case ("cw")
+            ! Convert cw to dp: value * cell_w_dp (TUI cell width)
+            dp_val = unit_arg%value * ctx%cell_w_dp
+            
+        case ("ch")
+            ! Convert ch to dp: value * cell_h_dp (TUI cell height)
+            dp_val = unit_arg%value * ctx%cell_h_dp
+            
+        case default
+            ! Unknown unit type - this should not happen with proper operators
+            call report_error("fortui_units", "convert_unit_value_to_dp", &
+                "Unknown unit type '" // trim(unit_arg%unit_type) // "'")
+            dp_val = unit_arg%value  ! Fallback to raw value
     end select
-end function convert_to_dp
+end function convert_unit_value_to_dp
+
+real function convert_real_to_dp(unit_arg, ctx) result(dp_val)
+    ! Handle bare real values - treat as dp by default per DESIGN.md
+    real, intent(in) :: unit_arg
+    type(ui_context), intent(in) :: ctx
+    
+    dp_val = unit_arg
+end function convert_real_to_dp
+
+real function convert_integer_to_dp(unit_arg, ctx) result(dp_val)
+    ! Handle integer values - convert to real and treat as dp
+    integer, intent(in) :: unit_arg
+    type(ui_context), intent(in) :: ctx
+    
+    dp_val = real(unit_arg)
+end function convert_integer_to_dp
 
 ! UI context management functions
 

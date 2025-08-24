@@ -1,7 +1,7 @@
 module fortui_layout_constructors
 ! Layout constructor functions (column, row) and node assignment operations
 ! Provides immediate-mode layout construction with gap and children parameters
-use fortui_units, only: convert_to_dp, ui_get_context, ui_context
+use fortui_units, only: convert_to_dp, ui_get_context, ui_context, unit_value
 implicit none
 private
 
@@ -39,12 +39,39 @@ contains
     generic :: assignment(=) => assign_node
 end type node
 
+! Overloaded interfaces for layout constructors to replace class(*) polymorphism
+interface column
+    module procedure column_no_params
+    module procedure column_real_gap
+    module procedure column_unit_gap  
+    module procedure column_children_only
+    module procedure column_real_gap_children
+    module procedure column_unit_gap_children
+end interface column
+
+interface row
+    module procedure row_no_params
+    module procedure row_real_gap
+    module procedure row_unit_gap
+    module procedure row_children_only
+    module procedure row_real_gap_children
+    module procedure row_unit_gap_children
+end interface row
+
 contains
 
 ! Layout constructor implementations
-function column(gap, children) result(n)
-    class(*), intent(in), optional :: gap
-    class(ui_element), intent(in), optional :: children(:)
+function column_no_params() result(n)
+    type(node) :: n
+    
+    ! Initialize column layout node
+    n%layout_type = "column"
+    n%gap_dp = 0.0  ! Default gap
+    ! children remains unallocated for empty arrays
+end function column_no_params
+
+function column_real_gap(gap) result(n)
+    real, intent(in) :: gap
     type(node) :: n
     
     type(ui_context) :: ctx
@@ -54,24 +81,92 @@ function column(gap, children) result(n)
     n%layout_type = "column"
     
     ! Process gap parameter with convert_to_dp()
-    if (present(gap)) then
-        call ui_get_context(ctx)
-        gap_dp_value = convert_to_dp(gap, ctx)
-        n%gap_dp = gap_dp_value
-    else
-        n%gap_dp = 0.0  ! Default gap per test specifications
-    end if
+    call ui_get_context(ctx)
+    gap_dp_value = convert_to_dp(gap, ctx)
+    n%gap_dp = gap_dp_value
+    ! children remains unallocated for empty arrays
+end function column_real_gap
+
+function column_unit_gap(gap) result(n)
+    type(unit_value), intent(in) :: gap
+    type(node) :: n
+    
+    type(ui_context) :: ctx
+    real :: gap_dp_value
+    
+    ! Initialize column layout node
+    n%layout_type = "column"
+    
+    ! Process gap parameter with convert_to_dp()
+    call ui_get_context(ctx)
+    gap_dp_value = convert_to_dp(gap, ctx)
+    n%gap_dp = gap_dp_value
+    ! children remains unallocated for empty arrays
+end function column_unit_gap
+
+function column_children_only(children) result(n)
+    class(ui_element), intent(in) :: children(:)
+    type(node) :: n
+    
+    ! Initialize column layout node
+    n%layout_type = "column"
+    n%gap_dp = 0.0  ! Default gap
     
     ! Handle children array
-    if (present(children)) then
-        allocate(n%children(size(children)), source=children)
-    ! else - children remains unallocated for empty arrays
-    end if
-end function column
+    allocate(n%children(size(children)), source=children)
+end function column_children_only
 
-function row(gap, children) result(n)
-    class(*), intent(in), optional :: gap
-    class(ui_element), intent(in), optional :: children(:)
+function column_real_gap_children(gap, children) result(n)
+    real, intent(in) :: gap
+    class(ui_element), intent(in) :: children(:)
+    type(node) :: n
+    
+    type(ui_context) :: ctx
+    real :: gap_dp_value
+    
+    ! Initialize column layout node
+    n%layout_type = "column"
+    
+    ! Process gap parameter with convert_to_dp()
+    call ui_get_context(ctx)
+    gap_dp_value = convert_to_dp(gap, ctx)
+    n%gap_dp = gap_dp_value
+    
+    ! Handle children array
+    allocate(n%children(size(children)), source=children)
+end function column_real_gap_children
+
+function column_unit_gap_children(gap, children) result(n)
+    type(unit_value), intent(in) :: gap
+    class(ui_element), intent(in) :: children(:)
+    type(node) :: n
+    
+    type(ui_context) :: ctx
+    real :: gap_dp_value
+    
+    ! Initialize column layout node
+    n%layout_type = "column"
+    
+    ! Process gap parameter with convert_to_dp()
+    call ui_get_context(ctx)
+    gap_dp_value = convert_to_dp(gap, ctx)
+    n%gap_dp = gap_dp_value
+    
+    ! Handle children array
+    allocate(n%children(size(children)), source=children)
+end function column_unit_gap_children
+
+function row_no_params() result(n)
+    type(node) :: n
+    
+    ! Initialize row layout node
+    n%layout_type = "row"
+    n%gap_dp = 0.0  ! Default gap
+    ! children remains unallocated for empty arrays
+end function row_no_params
+
+function row_real_gap(gap) result(n)
+    real, intent(in) :: gap
     type(node) :: n
     
     type(ui_context) :: ctx
@@ -81,20 +176,80 @@ function row(gap, children) result(n)
     n%layout_type = "row"
     
     ! Process gap parameter with convert_to_dp()
-    if (present(gap)) then
-        call ui_get_context(ctx)
-        gap_dp_value = convert_to_dp(gap, ctx)
-        n%gap_dp = gap_dp_value
-    else
-        n%gap_dp = 0.0  ! Default gap per test specifications
-    end if
+    call ui_get_context(ctx)
+    gap_dp_value = convert_to_dp(gap, ctx)
+    n%gap_dp = gap_dp_value
+    ! children remains unallocated for empty arrays
+end function row_real_gap
+
+function row_unit_gap(gap) result(n)
+    type(unit_value), intent(in) :: gap
+    type(node) :: n
+    
+    type(ui_context) :: ctx
+    real :: gap_dp_value
+    
+    ! Initialize row layout node
+    n%layout_type = "row"
+    
+    ! Process gap parameter with convert_to_dp()
+    call ui_get_context(ctx)
+    gap_dp_value = convert_to_dp(gap, ctx)
+    n%gap_dp = gap_dp_value
+    ! children remains unallocated for empty arrays
+end function row_unit_gap
+
+function row_children_only(children) result(n)
+    class(ui_element), intent(in) :: children(:)
+    type(node) :: n
+    
+    ! Initialize row layout node
+    n%layout_type = "row"
+    n%gap_dp = 0.0  ! Default gap
     
     ! Handle children array
-    if (present(children)) then
-        allocate(n%children(size(children)), source=children)
-    ! else - children remains unallocated for empty arrays
-    end if
-end function row
+    allocate(n%children(size(children)), source=children)
+end function row_children_only
+
+function row_real_gap_children(gap, children) result(n)
+    real, intent(in) :: gap
+    class(ui_element), intent(in) :: children(:)
+    type(node) :: n
+    
+    type(ui_context) :: ctx
+    real :: gap_dp_value
+    
+    ! Initialize row layout node
+    n%layout_type = "row"
+    
+    ! Process gap parameter with convert_to_dp()
+    call ui_get_context(ctx)
+    gap_dp_value = convert_to_dp(gap, ctx)
+    n%gap_dp = gap_dp_value
+    
+    ! Handle children array
+    allocate(n%children(size(children)), source=children)
+end function row_real_gap_children
+
+function row_unit_gap_children(gap, children) result(n)
+    type(unit_value), intent(in) :: gap
+    class(ui_element), intent(in) :: children(:)
+    type(node) :: n
+    
+    type(ui_context) :: ctx
+    real :: gap_dp_value
+    
+    ! Initialize row layout node
+    n%layout_type = "row"
+    
+    ! Process gap parameter with convert_to_dp()
+    call ui_get_context(ctx)
+    gap_dp_value = convert_to_dp(gap, ctx)
+    n%gap_dp = gap_dp_value
+    
+    ! Handle children array
+    allocate(n%children(size(children)), source=children)
+end function row_unit_gap_children
 
 ! Assignment operator implementation for proper memory management
 recursive subroutine assign_node(lhs, rhs)

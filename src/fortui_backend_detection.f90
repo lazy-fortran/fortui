@@ -1,7 +1,7 @@
 module fortui_backend_detection
 ! Backend availability detection and resolution logic
 ! Provides environment detection and backend selection functionality
-use fortui_backend, only: backend_interface, get_backend, select_best_backend
+use fortui_backend, only: backend_t, get_backend, select_best_backend
 use fortui_error, only: report_error, report_warning, report_info
 implicit none
 private
@@ -61,11 +61,15 @@ end function resolve_backend
 
 logical function is_gui_available()
     ! Check if GUI backend can be initialized
-    class(backend_interface), pointer :: gui_backend
+    type(backend_t), pointer :: gui_backend
     
     gui_backend => get_backend("gui")
     if (associated(gui_backend)) then
-        is_gui_available = gui_backend%is_available()
+        if (associated(gui_backend%is_available)) then
+            is_gui_available = gui_backend%is_available(gui_backend%backend_data)
+        else
+            is_gui_available = .false.
+        end if
     else
         is_gui_available = .false.
     end if
@@ -73,11 +77,15 @@ end function is_gui_available
 
 logical function is_tui_available()
     ! Check if TUI backend can be initialized
-    class(backend_interface), pointer :: tui_backend
+    type(backend_t), pointer :: tui_backend
     
     tui_backend => get_backend("tui")
     if (associated(tui_backend)) then
-        is_tui_available = tui_backend%is_available()
+        if (associated(tui_backend%is_available)) then
+            is_tui_available = tui_backend%is_available(tui_backend%backend_data)
+        else
+            is_tui_available = .false.
+        end if
     else
         is_tui_available = .false.
     end if

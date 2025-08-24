@@ -1,14 +1,14 @@
 program test_backend_basic
 ! Basic test to verify Backend Registry Pattern implementation
-use fortui_backend
-use fortui_backend_init
-use fortui_tui
+use fortui_backend, only: backend_t, get_backend, select_best_backend
+use fortui_tui_simple, only: register_simple_tui_backend
+use fortui_backend_init, only: ensure_backends_registered
 #ifdef ENABLE_GUI
 use fortui_gui
 #endif
 implicit none
 
-class(backend_interface), pointer :: backend
+type(backend_t), pointer :: backend
 logical :: test_passed
 
 print *, "========================================"
@@ -18,7 +18,7 @@ print *, ""
 
 ! Test 1: Register TUI backend
 print *, "Test 1: Registering TUI backend..."
-call register_tui_backend()
+call register_simple_tui_backend()
 backend => get_backend("tui")
 if (associated(backend)) then
     print *, "  ✓ TUI backend registered successfully"
@@ -29,7 +29,7 @@ end if
 
 ! Test 2: Check TUI availability
 print *, "Test 2: Checking TUI availability..."
-if (backend%is_available()) then
+if (associated(backend%is_available) .and. backend%is_available(backend%backend_data)) then
     print *, "  ✓ TUI backend reports as available"
 else
     print *, "  ✗ TUI backend should always be available"
@@ -74,7 +74,7 @@ end if
 
 ! Test 5: Test duplicate registration
 print *, "Test 5: Testing duplicate registration handling..."
-call register_tui_backend()  ! Register again
+call register_simple_tui_backend()  ! Register again
 backend => get_backend("tui")
 if (associated(backend)) then
     print *, "  ✓ Duplicate registration handled correctly"

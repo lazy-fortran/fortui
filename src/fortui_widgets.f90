@@ -6,7 +6,7 @@ use fortui_context, only: fortui_context_t, get_default_context, &
                           checkbox_state, viewport_state, widget_state_union
 use fortui_core, only: view, ui_element
 use fortui_core, only: view
-use fortui_units, only: ui_context, ui_get_context, convert_to_dp
+use fortui_units, only: ui_context, ui_get_context, convert_to_dp, unit_value
 implicit none
 private
 
@@ -64,6 +64,14 @@ interface button
     module procedure button_default
     module procedure button_with_context
 end interface
+
+! Overloaded interface for viewport to replace class(*) polymorphism
+interface viewport
+    module procedure viewport_real_real
+    module procedure viewport_unit_unit
+    module procedure viewport_real_unit
+    module procedure viewport_unit_real
+end interface viewport
 
 contains
 
@@ -292,9 +300,9 @@ logical function checkbox(id, checked, label, width, height) result(toggled)
     end if
 end function checkbox
 
-logical function viewport(id, width, height, view_state) result(view_changed)
+logical function viewport_real_real(id, width, height, view_state) result(view_changed)
     character(*), intent(in) :: id
-    class(*), intent(in) :: width, height
+    real, intent(in) :: width, height
     type(view), intent(inout) :: view_state
     
     type(fortui_context_t), pointer :: ctx
@@ -317,8 +325,8 @@ logical function viewport(id, width, height, view_state) result(view_changed)
     ! Get UI context for conversions
     call ui_get_context(ui_ctx)
     
-    ! Convert dimensions to dp using class(*) interface
-    call process_viewport_size(width, height, ui_ctx, width_dp, height_dp)
+    ! Convert dimensions to dp
+    call process_viewport_size_real_real(width, height, ui_ctx, width_dp, height_dp)
     
     ! Get or create viewport state
     state_index = ctx%widget_states%get(id, "viewport")
@@ -394,12 +402,244 @@ logical function viewport(id, width, height, view_state) result(view_changed)
         state_obj%prev_off_y = view_state%off_y
         end associate
     end if
+end function viewport_real_real
 
-contains
+logical function viewport_unit_unit(id, width, height, view_state) result(view_changed)
+    character(*), intent(in) :: id
+    type(unit_value), intent(in) :: width, height
+    type(view), intent(inout) :: view_state
     
-    subroutine process_viewport_size(width_arg, height_arg, ctx, w_dp, h_dp)
-        ! Convert class(*) dimensions to dp with minimum size enforcement
-        class(*), intent(in) :: width_arg, height_arg
+    type(fortui_context_t), pointer :: ctx
+    type(ui_context) :: ui_ctx
+    integer :: state_index
+    type(widget_state_union) :: new_state_union
+    real :: width_dp, height_dp
+    real :: mouse_x, mouse_y, scroll_x, scroll_y
+    logical :: mouse_left, mouse_right, mouse_middle
+    
+    view_changed = .false.
+    
+    ! Get context for state management
+    ctx => get_default_context()
+    if (.not. associated(ctx)) then
+        ! Fallback without context
+        return
+    end if
+    
+    ! Get UI context for conversions
+    call ui_get_context(ui_ctx)
+    
+    ! Convert dimensions to dp
+    call process_viewport_size_unit_unit(width, height, ui_ctx, width_dp, height_dp)
+    
+    ! Get or create viewport state
+    state_index = ctx%widget_states%get(id, "viewport")
+    if (state_index == 0) then
+        ! Create new viewport state
+        new_state_union%state_type = 5  ! viewport type
+        new_state_union%viewport = viewport_state()
+        new_state_union%viewport%prev_scale_x = view_state%scale_x
+        new_state_union%viewport%prev_scale_y = view_state%scale_y
+        new_state_union%viewport%prev_off_x = view_state%off_x
+        new_state_union%viewport%prev_off_y = view_state%off_y
+        new_state_union%viewport%viewport_w = width_dp
+        new_state_union%viewport%viewport_h = height_dp
+        call ctx%widget_states%set(id, "viewport", new_state_union)
+        state_index = ctx%widget_states%get(id, "viewport")
+    end if
+    
+    if (state_index == 0) return
+    
+    ! Get backend input for mouse/keyboard handling
+    call get_input_state(mouse_x, mouse_y, mouse_left, mouse_right, &
+                          mouse_middle, scroll_x, scroll_y)
+    
+    ! Check for view changes
+    associate(vp => ctx%widget_states%entries(state_index)%state%viewport)
+        ! Store current state as previous
+        vp%prev_scale_x = view_state%scale_x
+        vp%prev_scale_y = view_state%scale_y
+        vp%prev_off_x = view_state%off_x
+        vp%prev_off_y = view_state%off_y
+        
+        ! Handle pan/zoom input
+        call update_pan(view_state, mouse_x - vp%last_mouse_x, mouse_y - vp%last_mouse_y, &
+                        width_dp, height_dp)
+        call update_zoom(view_state, 1.0 + scroll_y * 0.1, mouse_x, mouse_y, width_dp, height_dp)
+        
+        ! Check for changes
+        if (abs(vp%prev_scale_x - view_state%scale_x) > 1e-6 .or. &
+            abs(vp%prev_scale_y - view_state%scale_y) > 1e-6 .or. &
+            abs(vp%prev_off_x - view_state%off_x) > 1e-6 .or. &
+            abs(vp%prev_off_y - view_state%off_y) > 1e-6) then
+            view_changed = .true.
+        end if
+        
+        ! Update state
+        vp%last_mouse_x = mouse_x
+        vp%last_mouse_y = mouse_y
+        end associate
+end function viewport_unit_unit
+
+logical function viewport_real_unit(id, width, height, view_state) result(view_changed)
+    character(*), intent(in) :: id
+    real, intent(in) :: width
+    type(unit_value), intent(in) :: height
+    type(view), intent(inout) :: view_state
+    
+    type(fortui_context_t), pointer :: ctx
+    type(ui_context) :: ui_ctx
+    integer :: state_index
+    type(widget_state_union) :: new_state_union
+    real :: width_dp, height_dp
+    real :: mouse_x, mouse_y, scroll_x, scroll_y
+    logical :: mouse_left, mouse_right, mouse_middle
+    
+    view_changed = .false.
+    
+    ! Get context for state management
+    ctx => get_default_context()
+    if (.not. associated(ctx)) then
+        ! Fallback without context
+        return
+    end if
+    
+    ! Get UI context for conversions
+    call ui_get_context(ui_ctx)
+    
+    ! Convert dimensions to dp
+    call process_viewport_size_real_unit(width, height, ui_ctx, width_dp, height_dp)
+    
+    ! Get or create viewport state
+    state_index = ctx%widget_states%get(id, "viewport")
+    if (state_index == 0) then
+        ! Create new viewport state
+        new_state_union%state_type = 5  ! viewport type
+        new_state_union%viewport = viewport_state()
+        new_state_union%viewport%prev_scale_x = view_state%scale_x
+        new_state_union%viewport%prev_scale_y = view_state%scale_y
+        new_state_union%viewport%prev_off_x = view_state%off_x
+        new_state_union%viewport%prev_off_y = view_state%off_y
+        new_state_union%viewport%viewport_w = width_dp
+        new_state_union%viewport%viewport_h = height_dp
+        call ctx%widget_states%set(id, "viewport", new_state_union)
+        state_index = ctx%widget_states%get(id, "viewport")
+    end if
+    
+    if (state_index == 0) return
+    
+    ! Get backend input for mouse/keyboard handling
+    call get_input_state(mouse_x, mouse_y, mouse_left, mouse_right, &
+                          mouse_middle, scroll_x, scroll_y)
+    
+    ! Check for view changes
+    associate(vp => ctx%widget_states%entries(state_index)%state%viewport)
+        ! Store current state as previous
+        vp%prev_scale_x = view_state%scale_x
+        vp%prev_scale_y = view_state%scale_y
+        vp%prev_off_x = view_state%off_x
+        vp%prev_off_y = view_state%off_y
+        
+        ! Handle pan/zoom input
+        call update_pan(view_state, mouse_x - vp%last_mouse_x, mouse_y - vp%last_mouse_y, &
+                        width_dp, height_dp)
+        call update_zoom(view_state, 1.0 + scroll_y * 0.1, mouse_x, mouse_y, width_dp, height_dp)
+        
+        ! Check for changes
+        if (abs(vp%prev_scale_x - view_state%scale_x) > 1e-6 .or. &
+            abs(vp%prev_scale_y - view_state%scale_y) > 1e-6 .or. &
+            abs(vp%prev_off_x - view_state%off_x) > 1e-6 .or. &
+            abs(vp%prev_off_y - view_state%off_y) > 1e-6) then
+            view_changed = .true.
+        end if
+        
+        ! Update state
+        vp%last_mouse_x = mouse_x
+        vp%last_mouse_y = mouse_y
+        end associate
+end function viewport_real_unit
+
+logical function viewport_unit_real(id, width, height, view_state) result(view_changed)
+    character(*), intent(in) :: id
+    type(unit_value), intent(in) :: width
+    real, intent(in) :: height
+    type(view), intent(inout) :: view_state
+    
+    type(fortui_context_t), pointer :: ctx
+    type(ui_context) :: ui_ctx
+    integer :: state_index
+    type(widget_state_union) :: new_state_union
+    real :: width_dp, height_dp
+    real :: mouse_x, mouse_y, scroll_x, scroll_y
+    logical :: mouse_left, mouse_right, mouse_middle
+    
+    view_changed = .false.
+    
+    ! Get context for state management
+    ctx => get_default_context()
+    if (.not. associated(ctx)) then
+        ! Fallback without context
+        return
+    end if
+    
+    ! Get UI context for conversions
+    call ui_get_context(ui_ctx)
+    
+    ! Convert dimensions to dp
+    call process_viewport_size_unit_real(width, height, ui_ctx, width_dp, height_dp)
+    
+    ! Get or create viewport state
+    state_index = ctx%widget_states%get(id, "viewport")
+    if (state_index == 0) then
+        ! Create new viewport state
+        new_state_union%state_type = 5  ! viewport type
+        new_state_union%viewport = viewport_state()
+        new_state_union%viewport%prev_scale_x = view_state%scale_x
+        new_state_union%viewport%prev_scale_y = view_state%scale_y
+        new_state_union%viewport%prev_off_x = view_state%off_x
+        new_state_union%viewport%prev_off_y = view_state%off_y
+        new_state_union%viewport%viewport_w = width_dp
+        new_state_union%viewport%viewport_h = height_dp
+        call ctx%widget_states%set(id, "viewport", new_state_union)
+        state_index = ctx%widget_states%get(id, "viewport")
+    end if
+    
+    if (state_index == 0) return
+    
+    ! Get backend input for mouse/keyboard handling
+    call get_input_state(mouse_x, mouse_y, mouse_left, mouse_right, &
+                          mouse_middle, scroll_x, scroll_y)
+    
+    ! Check for view changes
+    associate(vp => ctx%widget_states%entries(state_index)%state%viewport)
+        ! Store current state as previous
+        vp%prev_scale_x = view_state%scale_x
+        vp%prev_scale_y = view_state%scale_y
+        vp%prev_off_x = view_state%off_x
+        vp%prev_off_y = view_state%off_y
+        
+        ! Handle pan/zoom input
+        call update_pan(view_state, mouse_x - vp%last_mouse_x, mouse_y - vp%last_mouse_y, &
+                        width_dp, height_dp)
+        call update_zoom(view_state, 1.0 + scroll_y * 0.1, mouse_x, mouse_y, width_dp, height_dp)
+        
+        ! Check for changes
+        if (abs(vp%prev_scale_x - view_state%scale_x) > 1e-6 .or. &
+            abs(vp%prev_scale_y - view_state%scale_y) > 1e-6 .or. &
+            abs(vp%prev_off_x - view_state%off_x) > 1e-6 .or. &
+            abs(vp%prev_off_y - view_state%off_y) > 1e-6) then
+            view_changed = .true.
+        end if
+        
+        ! Update state
+        vp%last_mouse_x = mouse_x
+        vp%last_mouse_y = mouse_y
+        end associate
+end function viewport_unit_real
+    
+    subroutine process_viewport_size_real_real(width_arg, height_arg, ctx, w_dp, h_dp)
+        ! Convert real dimensions to dp with minimum size enforcement
+        real, intent(in) :: width_arg, height_arg
         type(ui_context), intent(in) :: ctx
         real, intent(out) :: w_dp, h_dp
         
@@ -412,7 +652,60 @@ contains
         ! Ensure minimum usable size
         w_dp = max(w_dp, ctx%em_dp * 2.0)
         h_dp = max(h_dp, ctx%em_dp * 1.5)
-    end subroutine process_viewport_size
+    end subroutine process_viewport_size_real_real
+    
+    subroutine process_viewport_size_unit_unit(width_arg, height_arg, ctx, w_dp, h_dp)
+        ! Convert unit_value dimensions to dp with minimum size enforcement
+        type(unit_value), intent(in) :: width_arg, height_arg
+        type(ui_context), intent(in) :: ctx
+        real, intent(out) :: w_dp, h_dp
+        
+        ! Convert width (required parameter)
+        w_dp = convert_to_dp(width_arg, ctx)
+        
+        ! Convert height (required parameter)
+        h_dp = convert_to_dp(height_arg, ctx)
+        
+        ! Ensure minimum usable size
+        w_dp = max(w_dp, ctx%em_dp * 2.0)
+        h_dp = max(h_dp, ctx%em_dp * 1.5)
+    end subroutine process_viewport_size_unit_unit
+    
+    subroutine process_viewport_size_real_unit(width_arg, height_arg, ctx, w_dp, h_dp)
+        ! Convert mixed real/unit dimensions to dp with minimum size enforcement
+        real, intent(in) :: width_arg
+        type(unit_value), intent(in) :: height_arg
+        type(ui_context), intent(in) :: ctx
+        real, intent(out) :: w_dp, h_dp
+        
+        ! Convert width (required parameter)
+        w_dp = convert_to_dp(width_arg, ctx)
+        
+        ! Convert height (required parameter)
+        h_dp = convert_to_dp(height_arg, ctx)
+        
+        ! Ensure minimum usable size
+        w_dp = max(w_dp, ctx%em_dp * 2.0)
+        h_dp = max(h_dp, ctx%em_dp * 1.5)
+    end subroutine process_viewport_size_real_unit
+    
+    subroutine process_viewport_size_unit_real(width_arg, height_arg, ctx, w_dp, h_dp)
+        ! Convert mixed unit/real dimensions to dp with minimum size enforcement
+        type(unit_value), intent(in) :: width_arg
+        real, intent(in) :: height_arg
+        type(ui_context), intent(in) :: ctx
+        real, intent(out) :: w_dp, h_dp
+        
+        ! Convert width (required parameter)
+        w_dp = convert_to_dp(width_arg, ctx)
+        
+        ! Convert height (required parameter)
+        h_dp = convert_to_dp(height_arg, ctx)
+        
+        ! Ensure minimum usable size
+        w_dp = max(w_dp, ctx%em_dp * 2.0)
+        h_dp = max(h_dp, ctx%em_dp * 1.5)
+    end subroutine process_viewport_size_unit_real
 
     subroutine update_pan(view_state, mouse_delta_x, mouse_delta_y, &
                           viewport_width, viewport_height)
@@ -502,7 +795,5 @@ contains
         ! Input system integration would go here
         ! For now, return safe defaults to prevent crashes
     end subroutine get_input_state
-
-end function viewport
 
 end module fortui_widgets
