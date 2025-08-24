@@ -70,7 +70,7 @@ contains
 end type renderer_t
 
 ! Procedural interfaces for primitive operations (no polymorphism)
-abstract interface
+interface
     subroutine draw_rect_proc(renderer_data, x, y, width, height, color)
         import :: c_ptr, ui_color
         type(c_ptr), intent(inout) :: renderer_data

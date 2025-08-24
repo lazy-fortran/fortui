@@ -32,49 +32,40 @@ subroutine test_coordinate_types()
 end subroutine test_coordinate_types
 
 subroutine test_coordinate_abstraction()
-    ! Test that coordinate types enforce explicit space representation
-    type(screen_space_t) :: screen_coord
-    type(viewport_space_t) :: viewport_coord
-    type(logical_space_t) :: logical_coord
+    ! Test that coordinate types enforce explicit space representation via discriminated union
+    type(coordinate_t) :: screen_coord, viewport_coord, logical_coord
     
-    ! Initialize coordinates
-    screen_coord%x = 100.0
-    screen_coord%y = 200.0
-    
-    viewport_coord%x = 0.5
-    viewport_coord%y = 0.75
-    
-    logical_coord%x = 42.7
-    logical_coord%y = 33.3
+    ! Initialize coordinates using constructors
+    screen_coord = create_screen_coord(100.0, 200.0)
+    viewport_coord = create_viewport_coord(0.5, 0.75)
+    logical_coord = create_logical_coord(42.7, 33.3)
     
     call assert_real_equal(screen_coord%x, 100.0, "Screen coordinate X assignment")
     call assert_real_equal(screen_coord%y, 200.0, "Screen coordinate Y assignment")
+    call assert_true(screen_coord%space_type == SCREEN_SPACE, "Screen coordinate type tag")
     call assert_real_equal(viewport_coord%x, 0.5, "Viewport coordinate X assignment")
     call assert_real_equal(viewport_coord%y, 0.75, "Viewport coordinate Y assignment")
+    call assert_true(viewport_coord%space_type == VIEWPORT_SPACE, "Viewport coordinate type tag")
     call assert_real_equal(logical_coord%x, 42.7, "Logical coordinate X assignment")
     call assert_real_equal(logical_coord%y, 33.3, "Logical coordinate Y assignment")
+    call assert_true(logical_coord%space_type == LOGICAL_SPACE, "Logical coordinate type tag")
 end subroutine test_coordinate_abstraction
 
 subroutine test_coordinate_string_representations()
     ! Test coordinate to string conversion for debugging
-    type(screen_space_t) :: screen_coord
-    type(viewport_space_t) :: viewport_coord
-    type(logical_space_t) :: logical_coord
+    type(coordinate_t) :: screen_coord, viewport_coord, logical_coord
     character(64) :: str
     
-    screen_coord%x = 150.0
-    screen_coord%y = 250.0
-    str = screen_coord%to_string()
+    screen_coord = create_screen_coord(150.0, 250.0)
+    str = coordinate_to_string(screen_coord)
     call assert_true(len_trim(str) > 0, "Screen coordinate string representation")
     
-    viewport_coord%x = 0.25
-    viewport_coord%y = 0.80
-    str = viewport_coord%to_string()
+    viewport_coord = create_viewport_coord(0.25, 0.80)
+    str = coordinate_to_string(viewport_coord)
     call assert_true(len_trim(str) > 0, "Viewport coordinate string representation")
     
-    logical_coord%x = 64.0
-    logical_coord%y = 48.0
-    str = logical_coord%to_string()
+    logical_coord = create_logical_coord(64.0, 48.0)
+    str = coordinate_to_string(logical_coord)
     call assert_true(len_trim(str) > 0, "Logical coordinate string representation")
 end subroutine test_coordinate_string_representations
 
@@ -221,69 +212,66 @@ end subroutine test_coordinate_transformations
 subroutine test_screen_to_logical_transform()
     ! Test screen to logical space transformation
     type(coordinate_transformer_t) :: transformer
-    type(screen_space_t) :: screen_coord
-    type(logical_space_t) :: logical_coord
+    type(coordinate_t) :: screen_coord, logical_coord
     type(coordinate_error_t) :: error
     
     transformer = create_transformer(2.0_real32, 800.0_real32, 600.0_real32)
     
-    screen_coord%x = 200.0
-    screen_coord%y = 150.0
+    screen_coord = create_screen_coord(200.0, 150.0)
     
     logical_coord = transformer%transform_screen_to_logical(screen_coord, error)
     
     call assert_error_success(error, "Screen to logical transformation")
     call assert_real_equal(logical_coord%x, 100.0, "Screen to logical X: 200/2 = 100")
     call assert_real_equal(logical_coord%y, 75.0, "Screen to logical Y: 150/2 = 75")
+    call assert_true(logical_coord%space_type == LOGICAL_SPACE, "Output coordinate has logical space type")
 end subroutine test_screen_to_logical_transform
 
 subroutine test_logical_to_screen_transform()
     ! Test logical to screen space transformation
     type(coordinate_transformer_t) :: transformer
-    type(logical_space_t) :: logical_coord
-    type(screen_space_t) :: screen_coord
+    type(coordinate_t) :: logical_coord, screen_coord
     type(coordinate_error_t) :: error
     
     transformer = create_transformer(1.5_real32, 800.0_real32, 600.0_real32)
     
-    logical_coord%x = 100.0
-    logical_coord%y = 80.0
+    logical_coord = create_logical_coord(100.0, 80.0)
     
     screen_coord = transformer%transform_logical_to_screen(logical_coord, error)
     
     call assert_error_success(error, "Logical to screen transformation")
     call assert_real_equal(screen_coord%x, 150.0, "Logical to screen X: 100*1.5 = 150")
     call assert_real_equal(screen_coord%y, 120.0, "Logical to screen Y: 80*1.5 = 120")
+    call assert_true(screen_coord%space_type == SCREEN_SPACE, "Output coordinate has screen space type")
 end subroutine test_logical_to_screen_transform
 
 subroutine test_viewport_transforms()
     ! Test viewport coordinate transformations
     type(coordinate_transformer_t) :: transformer
-    type(viewport_space_t) :: viewport_coord
-    type(screen_space_t) :: screen_coord
+    type(coordinate_t) :: viewport_coord, screen_coord
     type(coordinate_error_t) :: error
     
     transformer = create_transformer(1.0_real32, 800.0_real32, 600.0_real32)
     
     ! Viewport to screen
-    viewport_coord%x = 0.5  ! Center X
-    viewport_coord%y = 0.25 ! Quarter Y
+    viewport_coord = create_viewport_coord(0.5, 0.25)  ! Center X, Quarter Y
     
     screen_coord = transformer%transform_viewport_to_screen(viewport_coord, error)
     
     call assert_error_success(error, "Viewport to screen transformation")
     call assert_real_equal(screen_coord%x, 400.0, "Viewport to screen X: 0.5*800 = 400")
     call assert_real_equal(screen_coord%y, 150.0, "Viewport to screen Y: 0.25*600 = 150")
+    call assert_true(screen_coord%space_type == SCREEN_SPACE, "V2S output has screen space type")
     
     ! Screen to viewport
-    screen_coord%x = 200.0
-    screen_coord%y = 300.0
+    screen_coord = create_screen_coord(200.0, 300.0)
     
     viewport_coord = transformer%transform_screen_to_viewport(screen_coord, error)
     
     call assert_error_success(error, "Screen to viewport transformation")
     call assert_real_equal(viewport_coord%x, 0.25, "Screen to viewport X: 200/800 = 0.25")
     call assert_real_equal(viewport_coord%y, 0.5, "Screen to viewport Y: 300/600 = 0.5")
+    call assert_true(viewport_coord%space_type == VIEWPORT_SPACE, "S2V output has viewport space type")
 end subroutine test_viewport_transforms
 
 subroutine test_error_handling()
@@ -315,15 +303,13 @@ end subroutine test_overflow_protection
 subroutine test_invalid_viewport_coordinates()
     ! Test handling of invalid viewport coordinates
     type(coordinate_transformer_t) :: transformer
-    type(viewport_space_t) :: viewport_coord
-    type(screen_space_t) :: screen_coord
+    type(coordinate_t) :: viewport_coord, screen_coord
     type(coordinate_error_t) :: error
     
     transformer = create_transformer(1.0_real32, 800.0_real32, 600.0_real32)
     
     ! Viewport coordinates out of range
-    viewport_coord%x = 1.5  ! > 1.0
-    viewport_coord%y = -0.5 ! < 0.0
+    viewport_coord = create_viewport_coord(1.5, -0.5)  ! > 1.0 and < 0.0
     
     screen_coord = transformer%transform_viewport_to_screen(viewport_coord, error)
     call assert_error_code(error, COORD_ERROR_INVALID_INPUT, "Invalid viewport coordinates")
@@ -332,14 +318,12 @@ end subroutine test_invalid_viewport_coordinates
 subroutine test_zero_viewport_dimensions()
     ! Test handling of zero viewport dimensions
     type(coordinate_transformer_t) :: transformer
-    type(screen_space_t) :: screen_coord
-    type(viewport_space_t) :: viewport_coord
+    type(coordinate_t) :: screen_coord, viewport_coord
     type(coordinate_error_t) :: error
     
     transformer = create_transformer(1.0_real32, 0.0_real32, 600.0_real32)
     
-    screen_coord%x = 100.0
-    screen_coord%y = 100.0
+    screen_coord = create_screen_coord(100.0, 100.0)
     
     viewport_coord = transformer%transform_screen_to_viewport(screen_coord, error)
     call assert_error_code(error, COORD_ERROR_ZERO_SCALE, "Zero viewport width error")

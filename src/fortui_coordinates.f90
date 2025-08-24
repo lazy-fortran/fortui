@@ -6,10 +6,10 @@ use iso_fortran_env, only: real32
 implicit none
 private
 
-public :: coordinate_t, screen_space_t, viewport_space_t, logical_space_t
-public :: coordinate_transformer_t, create_transformer
-public :: safe_px_to_dp, safe_dp_to_px, safe_scale_coordinate
-public :: coordinate_error_t, COORD_SUCCESS, COORD_ERROR_ZERO_SCALE
+public :: coordinate_t, SCREEN_SPACE, VIEWPORT_SPACE, LOGICAL_SPACE
+public :: coordinate_transformer_t, create_transformer, create_screen_coord
+public :: safe_px_to_dp, safe_dp_to_px, safe_scale_coordinate, create_viewport_coord, create_logical_coord
+public :: coordinate_error_t, COORD_SUCCESS, COORD_ERROR_ZERO_SCALE, coordinate_to_string
 public :: COORD_ERROR_INVALID_INPUT, COORD_ERROR_OVERFLOW
 
 ! Error handling for coordinate operations
@@ -23,31 +23,21 @@ type :: coordinate_error_t
     character(256) :: message = ""
 end type coordinate_error_t
 
-! Abstract coordinate type - enforces explicit coordinate space
-type, abstract :: coordinate_t
+! Discriminated union coordinate type - enforces explicit coordinate space
+type :: coordinate_t
     real(real32) :: x = 0.0
     real(real32) :: y = 0.0
-contains
-    procedure(coordinate_to_string_interface), deferred :: to_string
+    integer :: space_type = 0  ! 1=screen, 2=viewport, 3=logical
 end type coordinate_t
 
-! Screen space coordinates (pixels, absolute)
-type, extends(coordinate_t) :: screen_space_t
-contains
-    procedure :: to_string => screen_to_string
-end type screen_space_t
+! Screen space coordinates (pixels, absolute) - convenience constructor
+integer, parameter :: SCREEN_SPACE = 1
 
-! Viewport space coordinates (relative to viewport, 0-1 range)  
-type, extends(coordinate_t) :: viewport_space_t
-contains
-    procedure :: to_string => viewport_to_string
-end type viewport_space_t
+! Viewport space coordinates (relative to viewport, 0-1 range) - convenience constructor
+integer, parameter :: VIEWPORT_SPACE = 2
 
-! Logical space coordinates (density-independent pixels, dp)
-type, extends(coordinate_t) :: logical_space_t
-contains
-    procedure :: to_string => logical_to_string
-end type logical_space_t
+! Logical space coordinates (density-independent pixels, dp) - convenience constructor
+integer, parameter :: LOGICAL_SPACE = 3
 
 ! Coordinate transformation context with validation
 type :: coordinate_transformer_t
@@ -63,13 +53,17 @@ contains
     procedure :: transform_screen_to_viewport => transform_s2v
 end type coordinate_transformer_t
 
-! Abstract interface for coordinate string representation
-abstract interface
-    function coordinate_to_string_interface(this) result(str)
+! Procedure pointer type for coordinate string representation
+type :: coordinate_to_string_proc
+    procedure(coordinate_to_string_proc_interface), pointer, nopass :: proc => null()
+end type coordinate_to_string_proc
+
+interface
+    function coordinate_to_string_proc_interface(coord) result(str)
         import :: coordinate_t
-        class(coordinate_t), intent(in) :: this
+        type(coordinate_t), intent(in) :: coord
         character(64) :: str
-    end function coordinate_to_string_interface
+    end function coordinate_to_string_proc_interface
 end interface
 
 contains
@@ -188,10 +182,17 @@ end subroutine transformer_validate
 ! Screen to logical space transformation
 function transform_s2l(self, screen_coord, error) result(logical_coord)
     class(coordinate_transformer_t), intent(in) :: self
-    type(screen_space_t), intent(in) :: screen_coord
+    type(coordinate_t), intent(in) :: screen_coord
     type(coordinate_error_t), intent(out) :: error
-    type(logical_space_t) :: logical_coord
+    type(coordinate_t) :: logical_coord
     
+    if (screen_coord%space_type /= SCREEN_SPACE) then
+        error%code = COORD_ERROR_INVALID_INPUT
+        error%message = "Expected screen space coordinate for transform_s2l"
+        return
+    end if
+    
+    logical_coord%space_type = LOGICAL_SPACE
     logical_coord%x = safe_px_to_dp(screen_coord%x, self%dpi_scale, error)
     if (error%code /= COORD_SUCCESS) return
     
@@ -201,10 +202,17 @@ end function transform_s2l
 ! Logical to screen space transformation
 function transform_l2s(self, logical_coord, error) result(screen_coord)
     class(coordinate_transformer_t), intent(in) :: self
-    type(logical_space_t), intent(in) :: logical_coord
+    type(coordinate_t), intent(in) :: logical_coord
     type(coordinate_error_t), intent(out) :: error
-    type(screen_space_t) :: screen_coord
+    type(coordinate_t) :: screen_coord
     
+    if (logical_coord%space_type /= LOGICAL_SPACE) then
+        error%code = COORD_ERROR_INVALID_INPUT
+        error%message = "Expected logical space coordinate for transform_l2s"
+        return
+    end if
+    
+    screen_coord%space_type = SCREEN_SPACE
     screen_coord%x = safe_dp_to_px(logical_coord%x, self%dpi_scale, error)
     if (error%code /= COORD_SUCCESS) return
     
@@ -214,9 +222,15 @@ end function transform_l2s
 ! Viewport to screen space transformation
 function transform_v2s(self, viewport_coord, error) result(screen_coord)
     class(coordinate_transformer_t), intent(in) :: self
-    type(viewport_space_t), intent(in) :: viewport_coord
+    type(coordinate_t), intent(in) :: viewport_coord
     type(coordinate_error_t), intent(out) :: error
-    type(screen_space_t) :: screen_coord
+    type(coordinate_t) :: screen_coord
+    
+    if (viewport_coord%space_type /= VIEWPORT_SPACE) then
+        error%code = COORD_ERROR_INVALID_INPUT
+        error%message = "Expected viewport space coordinate for transform_v2s"
+        return
+    end if
     
     ! Validate viewport coordinates (should be 0-1)
     if (viewport_coord%x < 0.0 .or. viewport_coord%x > 1.0 .or. &
@@ -224,12 +238,14 @@ function transform_v2s(self, viewport_coord, error) result(screen_coord)
         error%code = COORD_ERROR_INVALID_INPUT
         write(error%message, '(A,F6.3,A,F6.3,A)') "Viewport coordinates out of range: (", &
             viewport_coord%x, ", ", viewport_coord%y, ")"
+        screen_coord%space_type = SCREEN_SPACE
         screen_coord%x = 0.0
         screen_coord%y = 0.0
         return
     end if
     
     error%code = COORD_SUCCESS
+    screen_coord%space_type = SCREEN_SPACE
     screen_coord%x = viewport_coord%x * self%viewport_width
     screen_coord%y = viewport_coord%y * self%viewport_height
 end function transform_v2s
@@ -237,14 +253,21 @@ end function transform_v2s
 ! Screen to viewport space transformation
 function transform_s2v(self, screen_coord, error) result(viewport_coord)
     class(coordinate_transformer_t), intent(in) :: self
-    type(screen_space_t), intent(in) :: screen_coord
+    type(coordinate_t), intent(in) :: screen_coord
     type(coordinate_error_t), intent(out) :: error
-    type(viewport_space_t) :: viewport_coord
+    type(coordinate_t) :: viewport_coord
+    
+    if (screen_coord%space_type /= SCREEN_SPACE) then
+        error%code = COORD_ERROR_INVALID_INPUT
+        error%message = "Expected screen space coordinate for transform_s2v"
+        return
+    end if
     
     ! Safe division with zero-check
     if (self%viewport_width <= epsilon(1.0_real32)) then
         error%code = COORD_ERROR_ZERO_SCALE
         error%message = "Viewport width too close to zero for screen->viewport conversion"
+        viewport_coord%space_type = VIEWPORT_SPACE
         viewport_coord%x = 0.0
         viewport_coord%y = 0.0
         return
@@ -253,33 +276,58 @@ function transform_s2v(self, screen_coord, error) result(viewport_coord)
     if (self%viewport_height <= epsilon(1.0_real32)) then
         error%code = COORD_ERROR_ZERO_SCALE
         error%message = "Viewport height too close to zero for screen->viewport conversion"
+        viewport_coord%space_type = VIEWPORT_SPACE
         viewport_coord%x = 0.0
         viewport_coord%y = 0.0
         return
     end if
     
     error%code = COORD_SUCCESS
+    viewport_coord%space_type = VIEWPORT_SPACE
     viewport_coord%x = screen_coord%x / self%viewport_width
     viewport_coord%y = screen_coord%y / self%viewport_height
 end function transform_s2v
 
-! String representations for debugging
-function screen_to_string(this) result(str)
-    class(screen_space_t), intent(in) :: this
-    character(64) :: str
-    write(str, '(A,F8.2,A,F8.2,A)') "screen(", this%x, ", ", this%y, ")"
-end function screen_to_string
+! Coordinate constructors
+function create_screen_coord(x, y) result(coord)
+    real(real32), intent(in) :: x, y
+    type(coordinate_t) :: coord
+    coord%x = x
+    coord%y = y
+    coord%space_type = SCREEN_SPACE
+end function create_screen_coord
 
-function viewport_to_string(this) result(str)
-    class(viewport_space_t), intent(in) :: this
-    character(64) :: str
-    write(str, '(A,F6.3,A,F6.3,A)') "viewport(", this%x, ", ", this%y, ")"
-end function viewport_to_string
+function create_viewport_coord(x, y) result(coord)
+    real(real32), intent(in) :: x, y
+    type(coordinate_t) :: coord
+    coord%x = x
+    coord%y = y
+    coord%space_type = VIEWPORT_SPACE
+end function create_viewport_coord
 
-function logical_to_string(this) result(str)
-    class(logical_space_t), intent(in) :: this
+function create_logical_coord(x, y) result(coord)
+    real(real32), intent(in) :: x, y
+    type(coordinate_t) :: coord
+    coord%x = x
+    coord%y = y
+    coord%space_type = LOGICAL_SPACE
+end function create_logical_coord
+
+! Single string representation function for all coordinate types
+function coordinate_to_string(coord) result(str)
+    type(coordinate_t), intent(in) :: coord
     character(64) :: str
-    write(str, '(A,F8.2,A,F8.2,A)') "logical(", this%x, ", ", this%y, "dp)"
-end function logical_to_string
+    
+    select case (coord%space_type)
+    case (SCREEN_SPACE)
+        write(str, '(A,F8.2,A,F8.2,A)') "screen(", coord%x, ", ", coord%y, ")"
+    case (VIEWPORT_SPACE)
+        write(str, '(A,F6.3,A,F6.3,A)') "viewport(", coord%x, ", ", coord%y, ")"
+    case (LOGICAL_SPACE)
+        write(str, '(A,F8.2,A,F8.2,A)') "logical(", coord%x, ", ", coord%y, "dp)"
+    case default
+        write(str, '(A,F8.2,A,F8.2,A)') "unknown(", coord%x, ", ", coord%y, ")"
+    end select
+end function coordinate_to_string
 
 end module fortui_coordinates

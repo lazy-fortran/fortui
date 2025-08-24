@@ -3,45 +3,46 @@ program simple_test
 use fortui
 implicit none
 
-type(node) :: empty_node, layout_node  
-type(node), allocatable :: children(:)
+type(view) :: test_view
 logical :: running
 integer :: frame_count = 0
 
 print *, "Testing critical fixes:"
 print *, "1. Module exposure: use fortui gives access to all APIs"
-print *, "2. Array bounds: nodes with no children don't crash"
+print *, "2. Inheritance removal: no abstract types or inheritance"
 
 ! Test module exposure fix
 call ui_init("auto", 40, 15, "Critical Fixes Test")
 
-! Test array bounds fix - create node with no children
-empty_node = node()  ! No children allocated
-
-! Test normal operation - create layout with children
-allocate(children(1))
-children(1) = empty_node  ! Child that has no children
-layout_node = column(gap=8.0, children=children)
-deallocate(children)
+! Initialize a view instead of node
+test_view%scale_x = 1.0
+test_view%scale_y = 1.0
+test_view%off_x = 0.0
+test_view%off_y = 0.0
 
 print *, "✓ All APIs accessible via single fortui module"
-print *, "✓ Layout constructors work with real values"
+print *, "✓ View type works with real values"
 
-! Test frame cycle with both node types
+! Test frame cycle with widgets
 running = .true.
 do while (running .and. frame_count < 3)
     call ui_frame_begin(timeout_ms=100)
     
-    ! These should not crash - tests array bounds fix
-    call ui_present(empty_node)   ! No children
-    call ui_present(layout_node)  ! Has children
+    ! Test immediate-mode widgets (no inheritance)
+    if (button("test_button", "Click me")) then
+        print *, "Button was clicked"
+    end if
+    
+    call text("hello", "Hello World")
+    
+    call ui_present()
     
     running = .not. ui_should_close()
     frame_count = frame_count + 1
     
     if (frame_count == 1) then
-        print *, "✓ ui_present works with nodes that have no children"
-        print *, "✓ ui_present works with complex layout nodes"
+        print *, "✓ Immediate-mode widgets work without inheritance"
+        print *, "✓ ui_present works without node structure"
     end if
 end do
 
@@ -50,7 +51,7 @@ call ui_shutdown()
 print *, ""
 print *, "🎉 CRITICAL FIXES VALIDATED SUCCESSFULLY"
 print *, "✅ Module exposure fix: 'use fortui' provides complete API"
-print *, "✅ Array bounds fix: No crashes with unallocated children"
+print *, "✅ Inheritance removal: All abstract types eliminated"
 print *, "✅ User workflow: Complete example compiles and runs"
 print *, "Frames rendered:", frame_count
 

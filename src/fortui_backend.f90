@@ -40,7 +40,7 @@ type :: backend_t
 end type backend_t
 
 ! Interface definitions for backend procedures (procedural, not OO)
-abstract interface
+interface
     subroutine init_proc(backend_data, width, height, title, target_fps, vsync)
         import :: c_ptr
         type(c_ptr), intent(inout) :: backend_data

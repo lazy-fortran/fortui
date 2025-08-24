@@ -14,8 +14,8 @@ public :: gui_render_placeholder
 ! Export implementation functions for fortui_core direct calls
 public :: begin_gui_frame_impl, check_gui_quit_impl, render_gui_impl
 
-! GUI backend implementation
-type, extends(backend_interface) :: gui_backend_t
+! GUI backend implementation (concrete type, no inheritance)
+type :: gui_backend_t
     logical :: initialized = .false.
     logical :: window_created = .false.
     integer :: window_width = 800
@@ -32,6 +32,8 @@ type, extends(backend_interface) :: gui_backend_t
     real :: char_height = 16.0
     ! Rendering context
     logical :: in_frame = .false.
+    ! Backend capabilities
+    type(backend_capability) :: capabilities
 contains
     procedure :: init => gui_init
     procedure :: shutdown => gui_shutdown
