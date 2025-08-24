@@ -2444,10 +2444,7 @@ subroutine mock_text(id, value)
     character(*), intent(in) :: id, value
     
     ! Use the real text implementation when available
-    block
-        type(text_node_t) :: temp_text
-        temp_text = text(id, value)
-    end block
+    call text(id, value)
 end subroutine mock_text
 
 subroutine mock_text_with_text_size(id, value, text_size_arg)
@@ -2463,10 +2460,7 @@ subroutine mock_text_with_text_size(id, value, text_size_arg)
     text_size_dp = convert_to_dp(text_size_arg, ctx)
     
     ! Use the real text implementation with text_size
-    block
-        type(text_node_t) :: temp_text
-        temp_text = text(id, value, text_size=text_size_dp)
-    end block
+    call text(id, value, text_size=text_size_dp)
 end subroutine mock_text_with_text_size
 
 subroutine mock_text_with_dimensions(id, value, width, height)

@@ -10,11 +10,6 @@ use fortui_units, only: dp, ui_context, ui_get_context
 use fortui_widgets
 implicit none
 
-! Main program entry point
-call run_demo_application_tests()
-
-contains
-
 ! Demo application state for testing
 type :: demo_app_state_t
     real :: gain = 1.0
@@ -44,6 +39,9 @@ end type demo_app_state_t
 
 ! Global test state
 type(demo_app_state_t), save :: demo_state
+
+! Main program entry point
+call run_demo_application_tests()
 
 contains
 
@@ -303,24 +301,6 @@ subroutine test_demo_helper_functions()
     
     print *, "✓ Demo helper functions correct"
     
-contains
-    subroutine zoom(v,f)
-        type(view),intent(inout)::v
-        real,intent(in)::f
-        v%scale_x=v%scale_x*f
-        v%scale_y=v%scale_y*f
-    end subroutine zoom
-    
-    function status_line(g, v, show) result(s)
-        real,intent(in)::g
-        type(view),intent(in)::v
-        logical,intent(in)::show
-        character(len=:),allocatable::s
-        character(len=96)::buf
-        write(buf,'("gain=",F4.2,"  scale=(",F4.2,",",F4.2,")  off=(",F5.1,",",F5.1,")  grid=",L1)') &
-          g, v%scale_x, v%scale_y, v%off_x, v%off_y, show
-        s=trim(buf)
-    end function status_line
 end subroutine test_demo_helper_functions
 
 subroutine test_demo_initialization()
@@ -386,17 +366,6 @@ subroutine test_demo_widget_composition(ui)
     
     print *, "✓ Demo widget composition successful"
     
-contains
-    function status_line(g, v, show) result(s)
-        real,intent(in)::g
-        type(view),intent(in)::v
-        logical,intent(in)::show
-        character(len=:),allocatable::s
-        character(len=96)::buf
-        write(buf,'("gain=",F4.2,"  scale=(",F4.2,",",F4.2,")  off=(",F5.1,",",F5.1,")  grid=",L1)') &
-          g, v%scale_x, v%scale_y, v%off_x, v%off_y, show
-        s=trim(buf)
-    end function status_line
 end subroutine test_demo_widget_composition
 
 subroutine test_demo_widget_interactions()
@@ -420,13 +389,6 @@ subroutine test_demo_widget_interactions()
     
     print *, "✓ Demo widget interactions processed"
     
-contains
-    subroutine zoom(v,f)
-        type(view),intent(inout)::v
-        real,intent(in)::f
-        v%scale_x=v%scale_x*f
-        v%scale_y=v%scale_y*f
-    end subroutine zoom
 end subroutine test_demo_widget_interactions
 
 subroutine test_demo_state_management()
@@ -482,13 +444,6 @@ subroutine test_demo_button_behavior()
     
     print *, "✓ Demo button behavior correct"
     
-contains
-    subroutine zoom(v,f)
-        type(view),intent(inout)::v
-        real,intent(in)::f
-        v%scale_x=v%scale_x*f
-        v%scale_y=v%scale_y*f
-    end subroutine zoom
 end subroutine test_demo_button_behavior
 
 subroutine test_demo_slider_behavior()
@@ -620,6 +575,25 @@ subroutine run_demo_application_tests()
     print *, "✅ Build system integration ready"
     print *, "✅ Performance targets met"
 end subroutine run_demo_application_tests
+
+! Common procedures shared by multiple test subroutines
+subroutine zoom(v, f)
+    type(view), intent(inout) :: v
+    real, intent(in) :: f
+    v%scale_x = v%scale_x * f
+    v%scale_y = v%scale_y * f
+end subroutine zoom
+
+function status_line(g, v, show) result(s)
+    real, intent(in) :: g
+    type(view), intent(in) :: v
+    logical, intent(in) :: show
+    character(len=:), allocatable :: s
+    character(len=96) :: buf
+    write(buf,'("gain=",F4.2,"  scale=(",F4.2,",",F4.2,")  off=(",F5.1,",",F5.1,")  grid=",L1)') &
+      g, v%scale_x, v%scale_y, v%off_x, v%off_y, show
+    s = trim(buf)
+end function status_line
 
 end program test_demo_application
 

@@ -44,152 +44,78 @@ Monospace-first for exact TUI/GUI parity. Proportional text is a future opt-in.
 
 ## Build System Architecture
 
-### Single Package Design
-- One `fortui` package (no submodules or package splits)
-- Custom build script `tools/build_fortui.sh` orchestrates dependency management
-- FPM integration with build-script override and CPP preprocessing support
-- **Fail-safe guarantee**: TUI backend always builds, GUI only when dependencies available
-- **Zero external dependencies in repo**: All dependencies fetched and cached locally
+### Simplified Single Package Design (CURRENT)
+- One `fortui` package - completely self-contained
+- **Standard FPM build** - `fpm build` works directly without scripts
+- **Embedded termbox2** - C library included in `src/c/` directory
+- **Minimal CPP usage** - Only essential `ENABLE_TUI=1` macro
+- **No external dependencies** - Everything needed is included in the repository
+- **Fail-safe guarantee**: TUI backend always builds, GUI optional via system raylib
 
-### Dependency Management Strategy
+### Dependency Architecture
 
-#### TUI Backend Dependencies (Always Required)
-- **termbox2**: Clone from `github.com/termbox/termbox2` on demand
-- **Build process**: Compile `termbox2.h` to static library
-- **Cache location**: `${GUI_CACHE:-$HOME/.cache/fortui}/termbox2/`
-- **Version pinning**: Use specific commit SHA for reproducible builds
-- **Cross-platform**: Linux first, extensible to macOS/Windows
+#### TUI Backend (Always Available)
+- **termbox2**: Embedded directly in `src/c/termbox2.c` and `src/c/termbox2.h`
+- **Build process**: FPM automatically compiles C sources
+- **No external fetching** - All code included in repository
+- **Cross-platform**: Linux first, extensible design
 
-#### GUI Backend Dependencies (Conditional)
-- **Primary**: `lazy-fortran/fortran-raygui` Fortran bindings
-- **System raylib**: Detect via pkg-config or RAYLIB_ROOT environment
-- **Build process**: Clone fortran-raygui only when raylib available
-- **Cache location**: `${GUI_CACHE:-$HOME/.cache/fortui}/fortran-raygui/`
+#### GUI Backend (Optional Enhancement)
+- **System raylib**: Must be installed via package manager
+- **Detection**: Automatic via FPM's built-in dependency resolution
 - **Graceful degradation**: Missing raylib → TUI-only build (no failure)
-
-#### Detection and Probing System
-```bash
-# Multi-method raylib detection (ordered by reliability):
-1. pkg-config --exists raylib && pkg-config --cflags --libs raylib
-2. RAYLIB_ROOT environment variable with lib/include validation
-3. Standard system paths (/usr/local, /usr, /opt/raylib)
-4. Homebrew paths (macOS: /opt/homebrew, /usr/local)
-5. Development builds (./raylib, ../raylib relative to project)
-
-# Headless environment detection:
-- Check DISPLAY, WAYLAND_DISPLAY environment variables
-- Probe for X11/Wayland libraries at runtime
-- Fallback to TUI when GUI not possible
-```
+- **No build scripts**: Standard FPM conditional compilation
 
 ### Developer Control Interface
 
 #### Environment Variables
 ```bash
-# Force text-only build (skip GUI entirely)
+# Force TUI-only build (skip GUI detection)
 DISABLE_GUI=1 fpm build
 
-# Use prebuilt raylib installation
+# Use custom raylib installation
 RAYLIB_ROOT=/usr/local fpm build
 
-# Override fortran-raygui source and branch
-FRG_URL=https://github.com/user/fork.git FRG_REF=feature-branch fpm build
-
-# Control dependency cache location
-GUI_CACHE=/tmp/fortui_deps fpm build
-
-# Force dependency refresh (ignore cached builds)
-FORCE_REBUILD=1 fpm build
-
-# Verbose build output for debugging
-FORTUI_VERBOSE=1 fpm build
+# Standard FPM environment variables work
+FPM_FFLAGS="-O3" fpm build
 ```
 
-#### Build Script Integration
-- **FPM override**: `build-script = "tools/build_fortui.sh"`
-- **CPP preprocessing**: `preprocess.cpp.suffixes = ["F90", "f90"]`
-- **Conditional sources**: Backend files included based on available dependencies
-- **Library linking**: Dynamic link flags set by build script
+#### Build System Integration
+- **Native FPM**: Standard `fpm.toml` configuration only
+- **CPP preprocessing**: Minimal usage via `preprocess.cpp` section
+- **Self-contained**: No build scripts or external tools required
 
-### Conditional Compilation Architecture
+### Minimal Conditional Compilation
 
-#### CPP Macro Strategy
+#### Simplified CPP Macro Strategy
 ```fortran
-! Core compilation flags set by build system:
+! Minimal compilation flags (from fpm.toml):
+#ifdef ENABLE_TUI
+  ! TUI backend - always available
+  use fortui_tui
+#endif
+
 #ifdef ENABLE_GUI
-  ! GUI backend implementation
-  use raygui_bindings
-#endif
-
-#ifdef ENABLE_TUI  
-  ! TUI backend implementation (always enabled)
-  use termbox2_bindings
-#endif
-
-! Runtime backend selection:
-#if defined(ENABLE_GUI) && defined(ENABLE_TUI)
-  ! Dual backend support - runtime selection
-#elif defined(ENABLE_TUI)
-  ! TUI-only build
-#else
-  #error "At least TUI backend must be available"
+  ! GUI backend - conditional based on raylib availability
+  use fortui_gui
 #endif
 ```
 
-#### Backend Runtime Detection
+#### Runtime Backend Selection
 ```fortran
-function is_gui_available() result(available)
-  logical :: available
-  
-#ifdef ENABLE_GUI
-  ! Check if we're in a graphical environment
-  available = check_display_environment()
-#else
-  available = .false.
-#endif
-end function
-
-function check_display_environment() result(has_display)
-  logical :: has_display
-  character(len=256) :: display_var
-  
-  ! Check for X11 or Wayland display
-  call get_environment_variable("DISPLAY", display_var)
-  if (len_trim(display_var) > 0) then
-    has_display = .true.
-    return
-  end if
-  
-  call get_environment_variable("WAYLAND_DISPLAY", display_var)
-  has_display = len_trim(display_var) > 0
-end function
+! Backend selection handled by backend registry pattern
+call ui_init("auto", width, height, title)  ! Automatic selection
+call ui_init("tui", width, height, title)   ! Force TUI
+call ui_init("gui", width, height, title)   ! Force GUI
 ```
 
-### Build Process Flow
+### Simplified Build Process
 
-#### Phase 1: Environment Assessment
-1. Detect operating system and architecture
-2. Check for GUI environment (DISPLAY, WAYLAND_DISPLAY)
-3. Probe for raylib installation
-4. Determine available backends
-5. Set compilation mode (TUI-only or TUI+GUI)
-
-#### Phase 2: Dependency Resolution
-1. **termbox2** (always required):
-   - Check cache or clone from GitHub
-   - Build static library with appropriate flags
-   - Verify successful compilation
-
-2. **fortran-raygui** (if GUI enabled):
-   - Verify raylib availability first
-   - Check cache or clone fortran-raygui
-   - Build with detected raylib paths
-   - Handle failure gracefully (fallback to TUI-only)
-
-#### Phase 3: FPM Configuration Generation
-1. Generate preprocessor definitions:
-   - `-DENABLE_TUI=1` (always)
-   - `-DENABLE_GUI=1` (if available)
+#### Single-Step Build
+1. **FPM compilation**: `fpm build` handles everything
+2. **C compilation**: termbox2.c compiled automatically by FPM
+3. **Conditional backends**: GUI support enabled if raylib detected
+4. **No external tools**: Everything handled by standard FPM
    
 2. Set include paths:
    - termbox2 headers
@@ -211,23 +137,16 @@ end function
 
 #### Graceful Degradation Path
 ```
-GUI requested → raylib not found → Build TUI-only (warning)
-GUI requested → headless environment → Runtime TUI fallback
-TUI requested → termbox2 build fails → Fatal error (required)
+GUI requested → raylib not found → TUI-only build (automatic)
+GUI requested → headless environment → Runtime TUI fallback  
+TUI always works → termbox2 embedded in repository
 ```
 
-#### Build Diagnostics
+#### Build Status
 ```bash
-# Verbose output shows:
-[fortui] Detecting environment...
-[fortui] Found raylib via pkg-config: -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
-[fortui] GUI backend enabled
-[fortui] Building termbox2...
-[fortui] termbox2 built successfully
-[fortui] Fetching fortran-raygui...
-[fortui] fortran-raygui ready
-[fortui] Configuring FPM with dual backends...
-[fortui] Build configuration complete
+# Standard FPM output:
+fpm build
+Project is up to date
 ```
 
 ### Testing Infrastructure
