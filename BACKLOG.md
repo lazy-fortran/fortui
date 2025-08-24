@@ -6,6 +6,7 @@
 - [ ] #117: refactor: Remove unnecessary documentation and bloat
 - [ ] #115: refactor: Simplify ui_init to single-step initialization
 - [ ] #114: refactor: Remove renderer abstraction from public API
+- [ ] #128: test: Convert build system simplification placeholders to actual tests
 - [ ] #113: refactor: Remove backend registration and interface exposure
 - [ ] #112: refactor: Simplify widget API to pure immediate-mode functions
 - [ ] #111: refactor: Remove class-based polymorphism from public API
