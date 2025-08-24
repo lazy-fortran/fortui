@@ -14,7 +14,6 @@
 - [ ] #109: refactor: Remove exposed widget types from public API
 
 ## DOING (Current Work)
-- [x] #116: refactor: Clean up build system to remove unnecessary complexity (branch: test/build-system-cleanup-validation)
 
 ## FUTURE SPRINTS (High-level Planning)
 ### Sprint 2: API Cleanup Completion
@@ -23,3 +22,4 @@
 - Key decisions: Pure immediate-mode functions only
 
 ## DONE (Completed Sprints)
+- [x] #116: refactor: Clean up build system to remove unnecessary complexity
