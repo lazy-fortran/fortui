@@ -709,9 +709,9 @@ end subroutine mock_reset
 ! Mock widget methods
 subroutine mock_widget_render(self, renderer, context, state)
     class(mock_renderable_widget_t), intent(inout) :: self
-    class(*), intent(inout) :: renderer  ! Would be widget_renderer_t in real implementation
-    class(*), intent(in) :: context      ! Would be render_context_t in real implementation
-    class(*), intent(in) :: state        ! Would be widget_state_t in real implementation
+    type(mock_widget_renderer_t), intent(inout) :: renderer  ! Concrete renderer type
+    type(mock_render_context_t), intent(in) :: context       ! Concrete context type
+    type(mock_widget_state_t), intent(in) :: state           ! Concrete state type
     
     self%render_called = .true.
     ! In real implementation, this would call renderer's appropriate draw method
@@ -721,7 +721,7 @@ subroutine mock_widget_update_state(self, mouse_x, mouse_y, mouse_pressed, state
     class(mock_renderable_widget_t), intent(inout) :: self
     real, intent(in) :: mouse_x, mouse_y
     logical, intent(in) :: mouse_pressed
-    class(*), intent(inout) :: state     ! Would be widget_state_t in real implementation
+    type(mock_widget_state_t), intent(inout) :: state     ! Concrete state type
     
     self%update_state_called = .true.
     ! In real implementation, this would update widget's internal state

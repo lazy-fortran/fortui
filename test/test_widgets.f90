@@ -2,7 +2,7 @@ module test_widgets
 ! Comprehensive tests for fortui widget system with immediate-mode button implementation
 ! Tests unified class(*) interface, click detection, state management, auto-sizing, and cross-backend compatibility
 use fortui_core
-use fortui_units
+use fortui_units, only: ui_context, unit_value, dp, em, ch, sp, px, cw, convert_to_dp
 use fortui_widgets
 use fortui_test_utils
 use fortui_context, only: fortui_context_t, get_default_context
@@ -1176,9 +1176,17 @@ logical function mock_button_with_label(id, label) result(clicked)
     clicked = button(id, label)
 end function mock_button_with_label
 
-logical function mock_button_with_dimensions(id, width, height) result(clicked)
+! Overloaded interface for mock button test functions
+interface mock_button_with_dimensions
+    module procedure mock_button_with_dimensions_real_real
+    module procedure mock_button_with_dimensions_unit_unit
+    module procedure mock_button_with_dimensions_real_unit
+    module procedure mock_button_with_dimensions_unit_real
+end interface mock_button_with_dimensions
+
+logical function mock_button_with_dimensions_real_real(id, width, height) result(clicked)
     character(*), intent(in) :: id
-    class(*), intent(in) :: width, height
+    real, intent(in) :: width, height
     type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     real :: width_dp, height_dp
@@ -1191,11 +1199,64 @@ logical function mock_button_with_dimensions(id, width, height) result(clicked)
     
     ! Use the real button implementation with dimensions
     clicked = button(id, width=width_dp, height=height_dp)
-end function mock_button_with_dimensions
+end function mock_button_with_dimensions_real_real
+
+logical function mock_button_with_dimensions_unit_unit(id, width, height) result(clicked)
+    character(*), intent(in) :: id
+    type(unit_value), intent(in) :: width, height
+    type(fortui_context_t), pointer :: fortui_ctx
+    type(ui_context) :: ctx
+    real :: width_dp, height_dp
+    
+    ! Convert units to real dp values
+    fortui_ctx => get_default_context()
+    ctx = fortui_ctx%units
+    width_dp = convert_to_dp(width, ctx)
+    height_dp = convert_to_dp(height, ctx)
+    
+    ! Use the real button implementation with dimensions
+    clicked = button(id, width=width_dp, height=height_dp)
+end function mock_button_with_dimensions_unit_unit
+
+logical function mock_button_with_dimensions_real_unit(id, width, height) result(clicked)
+    character(*), intent(in) :: id
+    real, intent(in) :: width
+    type(unit_value), intent(in) :: height
+    type(fortui_context_t), pointer :: fortui_ctx
+    type(ui_context) :: ctx
+    real :: width_dp, height_dp
+    
+    ! Convert units to real dp values
+    fortui_ctx => get_default_context()
+    ctx = fortui_ctx%units
+    width_dp = convert_to_dp(width, ctx)
+    height_dp = convert_to_dp(height, ctx)
+    
+    ! Use the real button implementation with dimensions
+    clicked = button(id, width=width_dp, height=height_dp)
+end function mock_button_with_dimensions_real_unit
+
+logical function mock_button_with_dimensions_unit_real(id, width, height) result(clicked)
+    character(*), intent(in) :: id
+    type(unit_value), intent(in) :: width
+    real, intent(in) :: height
+    type(fortui_context_t), pointer :: fortui_ctx
+    type(ui_context) :: ctx
+    real :: width_dp, height_dp
+    
+    ! Convert units to real dp values
+    fortui_ctx => get_default_context()
+    ctx = fortui_ctx%units
+    width_dp = convert_to_dp(width, ctx)
+    height_dp = convert_to_dp(height, ctx)
+    
+    ! Use the real button implementation with dimensions
+    clicked = button(id, width=width_dp, height=height_dp)
+end function mock_button_with_dimensions_unit_real
 
 logical function mock_button_full(id, label, width, height) result(clicked)
     character(*), intent(in) :: id, label
-    class(*), intent(in) :: width, height
+    type(unit_value), intent(in) :: width, height
     type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     real :: width_dp, height_dp
@@ -1301,7 +1362,7 @@ end function mock_get_button_height
 
 real function mock_get_converted_width(id, width_arg) result(width_dp)
     character(*), intent(in) :: id
-    class(*), intent(in) :: width_arg
+    type(unit_value), intent(in) :: width_arg
     type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     
@@ -1312,7 +1373,7 @@ end function mock_get_converted_width
 
 real function mock_get_converted_height(id, height_arg) result(height_dp)
     character(*), intent(in) :: id
-    class(*), intent(in) :: height_arg
+    type(unit_value), intent(in) :: height_arg
     type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     
@@ -2456,7 +2517,7 @@ end subroutine mock_text
 
 subroutine mock_text_with_text_size(id, value, text_size_arg)
     character(*), intent(in) :: id, value
-    class(*), intent(in) :: text_size_arg
+    type(unit_value), intent(in) :: text_size_arg
     type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     real :: text_size_dp
@@ -2472,7 +2533,7 @@ end subroutine mock_text_with_text_size
 
 subroutine mock_text_with_dimensions(id, value, width, height)
     character(*), intent(in) :: id, value
-    class(*), intent(in) :: width, height
+    type(unit_value), intent(in) :: width, height
     type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     real :: width_dp, height_dp
@@ -2489,7 +2550,7 @@ end subroutine mock_text_with_dimensions
 
 subroutine mock_text_full(id, value, text_size_arg, width, height)
     character(*), intent(in) :: id, value
-    class(*), intent(in) :: text_size_arg, width, height
+    type(unit_value), intent(in) :: text_size_arg, width, height
     type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     real :: text_size_dp, width_dp, height_dp
@@ -2610,7 +2671,7 @@ end function count_newlines
 
 real function mock_get_converted_text_size(id, text_size_arg) result(size_dp)
     character(*), intent(in) :: id
-    class(*), intent(in) :: text_size_arg
+    type(unit_value), intent(in) :: text_size_arg
     type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     
@@ -2621,7 +2682,7 @@ end function mock_get_converted_text_size
 
 real function mock_get_converted_text_width(id, width_arg) result(width_dp)
     character(*), intent(in) :: id
-    class(*), intent(in) :: width_arg
+    type(unit_value), intent(in) :: width_arg
     type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     
@@ -3868,7 +3929,7 @@ logical function mock_slider_with_dimensions(id, min_val, max_val, step_val, val
     character(*), intent(in) :: id
     real, intent(in) :: min_val, max_val, step_val
     real, intent(inout) :: value
-    class(*), intent(in) :: width, height
+    type(unit_value), intent(in) :: width, height
     type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     real :: width_dp, height_dp
@@ -3887,7 +3948,7 @@ logical function mock_slider_full(id, min_val, max_val, step_val, value, width, 
     character(*), intent(in) :: id
     real, intent(in) :: min_val, max_val, step_val
     real, intent(inout) :: value
-    class(*), intent(in) :: width, height
+    type(unit_value), intent(in) :: width, height
     type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     real :: width_dp, height_dp
@@ -5240,7 +5301,7 @@ subroutine mock_checkbox_with_dimensions(id, checked, width, height)
     ! Call real checkbox with dimensions implementation for testing
     character(*), intent(in) :: id
     logical, intent(inout) :: checked
-    class(*), intent(in) :: width, height
+    type(unit_value), intent(in) :: width, height
     
     ! Call the actual checkbox widget with dimensions
     block
@@ -5259,7 +5320,7 @@ subroutine mock_checkbox_full(id, checked, label, width, height)
     ! Call real checkbox with all parameters implementation for testing
     character(*), intent(in) :: id, label
     logical, intent(inout) :: checked
-    class(*), intent(in) :: width, height
+    type(unit_value), intent(in) :: width, height
     
     ! Call the actual checkbox widget with all parameters
     block

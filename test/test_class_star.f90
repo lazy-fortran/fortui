@@ -12,10 +12,14 @@ contains
 
 function test_func(id, optional_param) result(res)
     character(*), intent(in) :: id
-    class(*), intent(in), optional :: optional_param
+    type(my_type), intent(in), optional :: optional_param
     type(my_type) :: res
     
-    res%val = 42
+    if (present(optional_param)) then
+        res%val = optional_param%val
+    else
+        res%val = 42
+    end if
 end function test_func
 
 end module test_class_star
