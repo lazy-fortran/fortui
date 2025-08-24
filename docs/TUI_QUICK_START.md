@@ -5,10 +5,7 @@ Get the TUI backend running in 3 steps with visual widget rendering.
 ## Setup
 
 ```bash
-# Build termbox2 dependency
-./tools/build_fortui.sh build
-
-# Compile with TUI support
+# Simple direct build with embedded termbox2
 fpm build
 ```
 

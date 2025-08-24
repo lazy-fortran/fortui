@@ -10,10 +10,9 @@ sudo apt install libraylib-dev    # Ubuntu/Debian
 brew install raylib               # macOS
 # Windows: Download from raylib.com
 
-# Build with GUI backend enabled
-source fmp_env.sh                 # Detects raylib automatically
-fmp build
-fmp run --example gui_demo
+# Build with GUI backend enabled (FPM detects raylib automatically)
+fpm build
+fpm run --example gui_demo
 ```
 
 ## Basic Usage

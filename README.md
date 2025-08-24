@@ -18,43 +18,39 @@ A declarative UI library for modern Fortran with dual backends: terminal (TUI) a
 
 ## Installation
 
-### Quick Start (5 minutes)
+### Quick Start (2 minutes)
 
 **1. Clone and Build:**
 ```bash
 git clone https://github.com/krystophny/fortui.git
 cd fortui
 
-# Automatic GUI/TUI build (detects raylib)
-./fpm_build.sh build      # Builds dependencies and project with proper flags
+# Simple direct build with embedded termbox2
+fpm build
+
+# Alternative: use convenience wrapper (sets TUI mode automatically)
+./build.sh
 ```
 
 **2. Test Installation:**
 ```bash
-./fpm_build.sh test                           # Run test suite
-FORTUI_BACKEND=gui ./fpm_build.sh run --example simple_test  # GUI example (if raylib available)
-./fpm_build.sh run --example simple_test     # TUI example (always works)
+fpm test                                    # Run test suite
+fpm run --example simple_test              # TUI example (always works)
 ```
 
-**IMPORTANT:** Always use `./fpm_build.sh` instead of `fpm` directly. This ensures:
-- Proper `ENABLE_GUI` compilation flags are set
-- Dependencies (raylib, termbox2) are linked correctly
-- Runtime library paths (`LD_LIBRARY_PATH`) are configured
-- Security validation and hardening features are active
+**That's it!** The build system is now drastically simplified:
+- **Direct FPM build** - `fpm build` works out of the box
+- **Optional build wrapper** - `./build.sh` sets TUI-only mode automatically  
+- **Embedded termbox2** - C library included in project
+- **No complex dependencies** - Everything self-contained
+- **TUI always available** - Terminal backend always works
 
-**3. Context-Aware Applications:**
-```bash
-# For OpenMP thread safety
-export FPM_FFLAGS="-cpp -fopenmp $(./tools/build_fortui.sh flags)"
-export FPM_LDFLAGS="$(./tools/build_fortui.sh ldflags) -fopenmp"
-fpm build your_app.f90
-```
 
 ### Prerequisites
 
 **Required:**
 - Modern Fortran compiler (gfortran 9+ or ifort)
-- **TUI backend**: termbox2 library (built automatically)
+- **TUI backend**: termbox2 library (embedded in project)
 
 **Optional (for GUI backend):**
 - **raylib library**: Install via system package manager
@@ -63,102 +59,55 @@ fpm build your_app.f90
   brew install raylib               # macOS  
   sudo dnf install raylib-devel     # Fedora/RHEL
   ```
-- **fortran-raygui bindings**: Fetched and built automatically when GUI enabled
 
-### Build Methods
+### Build System Simplification
 
-fortui provides multiple build methods for different workflows:
+The build system has been dramatically simplified. **No complex scripts or dependency management needed:**
 
-#### Method 1: Using FPM with Environment Setup (Recommended)
 ```bash
-# Clone repository  
+# Clone and build in one step
 git clone https://github.com/krystophny/fortui.git
 cd fortui
+fpm build
 
-# Automatic GUI/TUI build (detects raylib)
-source fpm_env.sh         # Builds dependencies, configures FPM
-fpm build                 # GUI+TUI if raylib found, TUI-only otherwise
+# Run examples and tests
 fpm test
-fpm run --example gui_demo
+fpm run --example simple_test
+fpm run --example button_layout_demo
+```
+
+**What changed:**
+- ✅ **termbox2 embedded** - C library included directly in `src/c/`
+- ✅ **FPM native build** - Works with standard `fpm build` command
+- ✅ **No external scripts** - Eliminated all `./tools/build_fortui.sh` complexity
+- ✅ **Minimal CPP usage** - Only essential backend selection macros
+- ✅ **Self-contained** - No dependency fetching or caching systems
+
+### Optional GUI Backend
+
+**GUI support requires raylib to be installed system-wide:**
+
+```bash
+# Install raylib (Ubuntu/Debian)
+sudo apt install libraylib-dev
+
+# Install raylib (macOS)
+brew install raylib
+
+# Install raylib (Fedora/RHEL)
+sudo dnf install raylib-devel
+
+# Build with GUI support (automatic detection)
+fpm build
 
 # Force TUI-only build
-DISABLE_GUI=1 source fpm_env.sh
-fpm build                 # TUI backend only
+DISABLE_GUI=1 fpm build
 ```
 
-#### Method 2: Using Make
-```bash
-# Build everything (dependencies + project)  
-make                      # GUI+TUI if raylib available
-
-# Run tests
-make test
-
-# Build TUI-only version
-DISABLE_GUI=1 make
-```
-
-#### Method 3: Direct Build Script + FPM
-```bash
-# Build dependencies first
-./tools/build_fortui.sh build
-
-# Then use FPM with automatic flags
-export FPM_FFLAGS="$(./tools/build_fortui.sh fpmflags)"
-export FPM_LDFLAGS="$(./tools/build_fortui.sh ldflags)"
-fpm build
-```
-
-### Advanced Build System
-
-Enterprise-grade build system with dependency management, network resilience, and cross-platform support:
-
-#### Environment Variables
-```bash
-# Core controls
-DISABLE_GUI=1           # Force TUI-only build
-RAYLIB_ROOT=/opt/raylib # Custom raylib installation
-GUI_CACHE=/tmp/deps     # Custom cache location
-
-# Advanced features  
-FORCE_REBUILD=1         # Ignore cache, rebuild everything
-OFFLINE_MODE=1          # Work with cached dependencies only
-DEBUG=1                 # Enable detailed build diagnostics
-
-# Repository customization
-FRG_URL=https://github.com/user/fortran-raylib.git
-FRG_REF=feature-branch
-TERMBOX_URL=https://github.com/user/termbox2.git  
-TERMBOX_REF=custom-ref
-```
-
-#### Build Commands
-```bash
-# Build all dependencies
-./tools/build_fortui.sh build
-
-# View configuration and status
-./tools/build_fortui.sh config
-./tools/build_fortui.sh status
-
-# Get compiler flags
-./tools/build_fortui.sh flags    # ENABLE_GUI=0|1
-./tools/build_fortui.sh ldflags  # Linker flags
-
-# Cache management
-./tools/build_fortui.sh clean
-```
-
-#### Enterprise Features
-- **Network resilience**: Automatic retry with exponential backoff (3 attempts, 1-30s delays)
-- **Concurrent safety**: File locking with 5-minute timeout and stale lock detection
-- **Version tracking**: Smart cache invalidation when build tools change
-- **Corruption recovery**: Automatic detection and repair of corrupted git repositories
-- **Security hardening**: Input validation, path sanitization, and shell injection prevention
-- **Cross-platform**: Linux, macOS, Windows with platform-specific optimizations
-- **FPM integration**: Build-script override with CPP preprocessing support
-
-**Complete Documentation**: [BUILD_GUIDE.md](BUILD_GUIDE.md) | [Integration Examples](INTEGRATION_EXAMPLES.md) | [Security Features](BUILD_GUIDE.md#security-features)
+**Environment Variables:**
+- `DISABLE_GUI=1` - Force TUI-only build (skip GUI backend)
+- `RAYLIB_ROOT=/path` - Use custom raylib installation
+- Standard `FPM_FFLAGS` and `FPM_LDFLAGS` work as expected
 
 ## Quick Start
 
@@ -259,12 +208,7 @@ end program
 
 **Compilation Requirements:**
 ```bash
-# Build dependencies and enable GUI backend
-./tools/build_fortui.sh build
-
-# Compile with GUI support for multiple instances
-export FPM_FFLAGS="-cpp $(./tools/build_fortui.sh flags)"
-export FPM_LDFLAGS="$(./tools/build_fortui.sh ldflags)"
+# Simple direct build
 fpm build
 ```
 
@@ -319,16 +263,10 @@ end program
 
 **Compilation Requirements:**
 ```bash
-# Build fortui with dependencies first
-./tools/build_fortui.sh build
-
-# Compile with OpenMP support
-export FPM_FFLAGS="-cpp -fopenmp $(./tools/build_fortui.sh flags)"
-export FPM_LDFLAGS="$(./tools/build_fortui.sh ldflags) -fopenmp"
+# Build with OpenMP support
+export FPM_FFLAGS="-cpp -fopenmp"
+export FPM_LDFLAGS="-fopenmp"
 fpm build
-
-# Alternative: Use make with OpenMP
-OPENMP=1 make
 ```
 
 ```fortran
@@ -829,16 +767,7 @@ plot_view%off_x = 100.0    ! Pan right by 100 units
 
 **Compilation Requirements:**
 ```bash
-# Build fortui first
-./tools/build_fortui.sh build
-
-# Compile with proper flags for widget-renderer architecture
-export FPM_FFLAGS="-cpp $(./tools/build_fortui.sh flags)"
-export FPM_LDFLAGS="$(./tools/build_fortui.sh ldflags)"
-fpm build widget_demo.f90
-
-# Or use the simplified environment setup
-source fpm_env.sh
+# Simple direct build
 fpm build widget_demo.f90
 ```
 

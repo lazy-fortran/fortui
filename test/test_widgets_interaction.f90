@@ -190,14 +190,13 @@ subroutine test_mixed_widget_frame()
     logical :: btn1_clicked, btn2_clicked, cb_clicked, slider_changed
     logical :: cb_checked = .true.
     real :: slider_val = 25.0
-    type(text_node_t) :: text_node
     
     ! Simulate a frame with multiple widget types
     btn1_clicked = button("frame_btn_1", "Button 1")
     cb_clicked = checkbox("frame_cb", cb_checked, "Checkbox")
     slider_changed = slider("frame_slider", 0.0, 100.0, 1.0, slider_val)
     btn2_clicked = button("frame_btn_2", "Button 2")
-    text_node = text("frame_text", "Frame Text")
+    call text("frame_text", "Frame Text")
     
     print *, "  ✓ Mixed widget frame handling successful"
 end subroutine test_mixed_widget_frame

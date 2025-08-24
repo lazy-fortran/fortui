@@ -70,10 +70,9 @@ end subroutine simulate_slider_drag
 subroutine simulate_text_input(id, text_value)
     character(*), intent(in) :: id
     character(*), intent(in) :: text_value
-    type(text_node_t) :: node
     
     ! Create text widget with value
-    node = text(id, text_value)
+    call text(id, text_value)
 end subroutine simulate_text_input
 
 subroutine simulate_key_press(key_code)

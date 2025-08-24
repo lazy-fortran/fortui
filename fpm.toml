@@ -41,20 +41,18 @@ implicit-typing = false
 implicit-external = false
 source-form = "free"
 
+# Minimal preprocessing - only for essential backend selection
 [preprocess]
 cpp.suffixes = ["F90", "f90"]
 cpp.directories = ["src", "app", "test", "example"]
-# Macros are set dynamically by build script via FPM_FFLAGS
-cpp.macros = []
+# TUI backend always enabled, GUI optional via DISABLE_GUI environment variable
+cpp.macros = ["ENABLE_TUI=1"]
 
-# Build script integration:
-# FPM doesn't support build-script in [build] section as expected
-# ALWAYS use wrapper scripts for proper dependency linking:
-# ./fpm_build.sh build               - builds project with static termbox2
-# ./fpm_build.sh run --example <name>  - runs examples with static linking
-# ./fpm_build.sh test                - runs tests with dependencies
-# 
-# NEVER use 'fmp run --example <name>' directly - it will fail to link!
-# Static termbox2 linking requires build script environment setup
+# C source compilation - FPM automatically compiles C files in src/
+# The termbox2.c and termbox2.h files will be compiled and linked automatically
 
+# Simple build process:
+# fpm build                    - builds project with embedded termbox2
+# fpm run --example simple_test  - runs simple example directly
+# fmp test                    - runs tests
 

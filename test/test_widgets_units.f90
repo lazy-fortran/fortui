@@ -62,20 +62,17 @@ subroutine test_text_unit_integration()
 end subroutine test_text_unit_integration
 
 subroutine test_text_sp_units()
-    type(text_node_t) :: text_node
-    text_node = text("sp_text", "SP Text", text_size=16.0)
+    call text("sp_text", "SP Text", text_size=16.0)
     print *, "  ✓ Text with sp units successful"
 end subroutine test_text_sp_units
 
 subroutine test_text_em_context()
-    type(text_node_t) :: text_node
-    text_node = text("em_text", "EM Text", text_size=1.2)
+    call text("em_text", "EM Text", text_size=1.2)
     print *, "  ✓ Text with em units successful"
 end subroutine test_text_em_context
 
 subroutine test_text_unit_conversion()
-    type(text_node_t) :: text_node
-    text_node = text("mixed_text", "Mixed Text", text_size=14.0, width=200.0)
+    call text("mixed_text", "Mixed Text", text_size=14.0, width=200.0)
     print *, "  ✓ Text with mixed unit conversion successful"
 end subroutine test_text_unit_conversion
 

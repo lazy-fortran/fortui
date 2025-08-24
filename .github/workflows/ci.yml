@@ -8,7 +8,7 @@ on:
 
 env:
   BUILD_TYPE: Release
-  FPM_FFLAGS: "-g -fbacktrace -fcheck=bounds -Wall -Wextra"
+  FPM_FFLAGS: "-g -fbacktrace -fcheck=bounds -Wall -Wextra -cpp -DTUI_ONLY -DENABLE_TUI=1"
 
 jobs:
   build-and-test:
@@ -18,20 +18,10 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         fortran-compiler: [gfortran]
-        backend: [tui-only]
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Cache dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/fortui
-        key: ${{ runner.os }}-fortui-deps-${{ matrix.backend }}-${{ hashFiles('tools/build_fortui.sh', 'tools/lib/*.sh') }}
-        restore-keys: |
-          ${{ runner.os }}-fortui-deps-${{ matrix.backend }}-
-          ${{ runner.os }}-fortui-deps-
 
     - name: Install system dependencies
       run: |
@@ -52,26 +42,15 @@ jobs:
         sudo mv fpm /usr/local/bin/
         fpm --version
 
-    - name: Configure backend
-      run: |
-        echo "DISABLE_GUI=1" >> $GITHUB_ENV
-        echo "Backend: TUI-only mode"
-
-    - name: Build dependencies
-      run: |
-        chmod +x tools/build_fortui.sh
-        tools/build_fortui.sh config
-        make deps
-
     - name: Build project
       run: |
-        echo "Building with backend: ${{ matrix.backend }}"
-        make build
+        echo "Building with embedded termbox2 backend (TUI-only)"
+        fpm build
 
     - name: Run tests
       run: |
-        echo "Running tests with backend: ${{ matrix.backend }}"
-        make test
+        echo "Running tests with embedded backend"
+        fpm test
         
     - name: Build examples
       run: |
@@ -97,10 +76,9 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: build-artifacts-${{ matrix.os }}-${{ matrix.fortran-compiler }}-${{ matrix.backend }}
+        name: build-artifacts-${{ matrix.os }}-${{ matrix.fortran-compiler }}
         path: |
           build/
-          ~/.cache/fortui/
         retention-days: 7
 
   coverage:
@@ -115,7 +93,7 @@ jobs:
     - name: Install dependencies for coverage
       run: |
         sudo apt-get update
-        sudo apt-get install -y gfortran lcov pkg-config libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl1-mesa-dev
+        sudo apt-get install -y gfortran lcov pkg-config
 
     - name: Install FPM
       run: |
@@ -129,10 +107,8 @@ jobs:
       run: |
         export FPM_FFLAGS="$FPM_FFLAGS --coverage -fprofile-arcs -ftest-coverage"
         export FPM_LDFLAGS="$FPM_LDFLAGS --coverage"
-        export DISABLE_GUI=1  # Use TUI-only for coverage to avoid GUI complexity
-        make deps
-        make build
-        make test
+        fpm build
+        fpm test
 
     - name: Generate coverage report
       run: |
@@ -173,8 +149,8 @@ jobs:
         
         # Check for potential shell injection in build scripts
         echo "Checking for shell injection vulnerabilities..."
-        grep -r "\$(" tools/ build.sh fpm_build.sh || echo "No shell command substitution found"
-        grep -r "eval" tools/ build.sh fpm_build.sh || echo "No eval usage found"
+        grep -r "\$(" build.sh Makefile fmp_build.sh || echo "No shell command substitution found"
+        grep -r "eval" build.sh Makefile fpm_build.sh || echo "No eval usage found"
         
         # Check for hardcoded secrets
         echo "Checking for hardcoded secrets..."
@@ -273,9 +249,7 @@ jobs:
 
     - name: Run integration tests
       run: |
-        export DISABLE_GUI=1  # Use TUI-only for CI integration tests
-        make deps
-        make build
+        fpm build
         
         case "${{ matrix.test-scenario }}" in
           "basic-widgets")
