@@ -1,7 +1,6 @@
 # Development Backlog
 
 ## CURRENT SPRINT (Detailed GitHub Issues)
-- [ ] #121: [CRITICAL] Class-based polymorphism violates immediate-mode design
 - [ ] #119: EPIC: Restore pure immediate-mode API by removing OO contamination
 - [ ] #117: refactor: Remove unnecessary documentation and bloat
 - [ ] #115: refactor: Simplify ui_init to single-step initialization
@@ -14,6 +13,7 @@
 - [ ] #109: refactor: Remove exposed widget types from public API
 
 ## DOING (Current Work)
+- [x] #121: [CRITICAL] Class-based polymorphism violates immediate-mode design (branch: fix-class-polymorphism-121)
 
 ## FUTURE SPRINTS (High-level Planning)
 ### Sprint 2: API Cleanup Completion
