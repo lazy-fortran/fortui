@@ -267,7 +267,7 @@ jobs:
           "backend-switching")
             echo "Testing backend switching..."
             # Test backend abstraction
-            fmp test test_backend_abstraction || echo "Backend abstraction tests had issues"
+            fpm test test_backend_abstraction || echo "Backend abstraction tests had issues"
             fpm test test_backend_basic || echo "Basic backend tests had issues"
             ;;
         esac
