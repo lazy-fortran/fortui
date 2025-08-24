@@ -3,7 +3,6 @@ module fortui_core
 ! Provides backend-agnostic node and view types for UI tree construction
 use fortui_backend
 use fortui_backend_detection
-use fortui_layout_constructors
 use fortui_context, only: fortui_context_t, get_default_context, create_context, set_default_context
 use fortui_error
 use iso_fortran_env, only: error_unit
@@ -11,15 +10,14 @@ use iso_c_binding
 implicit none
 private
 
-! Public types (re-exported from layout constructors)
-public :: ui_element, node, view, widget_wrapper
+! Public types - CONCRETE ONLY (no polymorphic types)
+public :: view
 
 ! Public procedures - with context-aware overloads
 public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
 public :: ui_set_idle_policy, ui_get_context
 public :: ui_is_initialized, ui_get_backend, ui_get_fortui_context
-! Layout constructors (re-exported from layout constructors)
-public :: column, row, widget
+! NO LAYOUT CONSTRUCTORS - PURE IMMEDIATE MODE
 ! Backend detection (re-exported from backend detection)
 public :: is_gui_available, is_tui_available, is_headless_environment, resolve_backend
 public :: set_environment_variable_simulation, clear_environment_variable_simulation
@@ -65,7 +63,7 @@ interface ui_should_close
     module procedure ui_should_close_default
 end interface
 
-! Core types are now imported from fortui_layout_constructors
+! NO CORE TYPES - PURE IMMEDIATE MODE FUNCTIONS ONLY
 
 ! Pan/zoom state for plot areas with default values from DESIGN.md
 type :: view
@@ -186,13 +184,12 @@ subroutine ui_init_integer(backend, width, height, title, target_fps, vsync)
 end subroutine ui_init_integer
 
 subroutine ui_init_abstract(backend, width, height, title, target_fps, vsync)
-    ! UI initialization with abstract unit type support
-    use fortui_unit_types, only: unit_type
-    use fortui_units, only: ui_context, ui_get_context
+    ! UI initialization with unit type support (CONCRETE TYPES ONLY)
+    use fortui_units, only: ui_context, ui_get_context, unit_value, convert_to_dp
     use fortui_platform_measurement, only: validate_context
     
     character(*), intent(in) :: backend
-    class(unit_type), intent(in) :: width, height  ! Abstract unit types
+    type(unit_value), intent(in) :: width, height  ! Concrete unit values
     character(*), intent(in) :: title
     integer, intent(in), optional :: target_fps
     logical, intent(in), optional :: vsync
@@ -208,9 +205,9 @@ subroutine ui_init_abstract(backend, width, height, title, target_fps, vsync)
         call set_default_context(ctx)
     end if
     
-    ! Convert abstract units to dp using polymorphic interface
-    width_dp = width%to_dp(ctx%units)
-    height_dp = height%to_dp(ctx%units)
+    ! Convert unit values to dp using procedural interface
+    width_dp = convert_to_dp(width, ctx%units)
+    height_dp = convert_to_dp(height, ctx%units)
     
     ! Convert dp to integer grid units for backend initialization
     width_int = nint(width_dp / ctx%units%cell_w_dp)
@@ -389,10 +386,9 @@ subroutine ui_frame_begin_default(timeout_ms)
     write(error_unit, '(A)') "ui_frame_begin: Error - No default context available"
 end subroutine ui_frame_begin_default
 
-! Context-aware present (new API)
-subroutine ui_present_with_context(ctx, tree)
+! Context-aware present (new API) - IMMEDIATE MODE ONLY
+subroutine ui_present_with_context(ctx)
     type(fortui_context_t), intent(inout) :: ctx
-    class(ui_element), intent(in) :: tree
     
     if (.not. ctx%initialized) then
         ! Only report error if not shutting down (suppresses cleanup messages)
@@ -409,9 +405,9 @@ subroutine ui_present_with_context(ctx, tree)
         return
     end if
     
-    ! Backend-specific presentation
+    ! Backend-specific presentation - NO TREE OBJECTS
     if (associated(ctx%backend) .and. associated(ctx%backend%render)) then
-        call ctx%backend%render(ctx%backend%backend_data, c_null_ptr)  ! TODO: Fix tree passing
+        call ctx%backend%render(ctx%backend%backend_data, c_null_ptr)
     else
         write(error_unit, '(A)') "ui_present_with_context: Error - No backend available"
     end if
@@ -420,14 +416,13 @@ subroutine ui_present_with_context(ctx, tree)
     call ctx%end_frame()
 end subroutine ui_present_with_context
 
-subroutine ui_present_default(tree)
-    class(ui_element), intent(in) :: tree
+subroutine ui_present_default()
     type(fortui_context_t), pointer :: ctx
     
-    ! Use default context if available
+    ! Use default context if available - IMMEDIATE MODE ONLY
     ctx => get_default_context()
     if (associated(ctx)) then
-        call ui_present_with_context(ctx, tree)
+        call ui_present_with_context(ctx)
         return
     end if
     

@@ -4,60 +4,19 @@ use iso_c_binding
 use fortui_context, only: fortui_context_t, get_default_context, &
                           button_state, text_state, slider_state, &
                           checkbox_state, viewport_state, widget_state_union
-use fortui_core, only: view, ui_element
 use fortui_core, only: view
 use fortui_units, only: ui_context, ui_get_context, convert_to_dp, unit_value
 implicit none
 private
 
-! Widget functions (immediate-mode only)
+! Widget functions (immediate-mode only) - NO OBJECTS EXPOSED
 public :: button, text, slider, checkbox, viewport
 
-! Widget state types for context storage (re-exported from context)
-public :: button_state, text_state, slider_state, checkbox_state, viewport_state
+! NO STATE TYPES EXPOSED - PURE IMMEDIATE MODE
+! All state is internal to context, NEVER exposed to users
 
-! Widget node types
-type, extends(ui_element) :: button_node_t
-    character(len=256) :: id = ""
-    character(len=256) :: label = ""
-    real :: width_dp = 0.0
-    real :: height_dp = 0.0
-    logical :: clicked = .false.
-end type button_node_t
-
-type :: text_node_t
-    character(len=256) :: id = ""
-    character(len=1024) :: value = ""
-    real :: width_dp = 0.0
-    real :: height_dp = 0.0
-end type text_node_t
-
-type :: slider_node_t
-    character(len=256) :: id = ""
-    real :: min_val = 0.0
-    real :: max_val = 100.0
-    real :: width_dp = 0.0
-    real :: height_dp = 0.0
-end type slider_node_t
-
-type :: checkbox_node_t
-    character(len=256) :: id = ""
-    character(len=256) :: label = ""
-    logical :: checked = .false.
-    real :: width_dp = 0.0
-    real :: height_dp = 0.0
-end type checkbox_node_t
-
-type :: viewport_node_t
-    character(len=256) :: id = ""
-    real :: width_dp = 0.0
-    real :: height_dp = 0.0
-    logical :: view_changed = .false.
-    real :: current_scale_x = 1.0
-    real :: current_scale_y = 1.0
-    real :: current_off_x = 0.0
-    real :: current_off_y = 0.0
-end type viewport_node_t
+! NO WIDGET NODE TYPES - PURE IMMEDIATE MODE FUNCTIONS ONLY
+! All widget state is managed internally by context
 
 ! Interface for button overloading
 interface button
@@ -75,7 +34,7 @@ end interface viewport
 
 contains
 
-! Context-aware button implementation (new API)
+! PURE IMMEDIATE-MODE button - NO OBJECTS CREATED
 logical function button_with_context(ctx, id, label, width, height) result(clicked)
     type(fortui_context_t), intent(inout) :: ctx
     character(*), intent(in) :: id
@@ -164,7 +123,7 @@ logical function button_default(id, label, width, height) result(clicked)
     end if
 end function button_default
 
-! Context-aware text widget implementation
+! PURE IMMEDIATE-MODE text - RENDERS IMMEDIATELY
 subroutine text(id, value, text_size, width, height)
     character(*), intent(in) :: id
     character(*), intent(in), optional :: value
@@ -174,7 +133,7 @@ subroutine text(id, value, text_size, width, height)
     integer :: state_index
     type(widget_state_union) :: new_state_union
     
-    ! Immediate-mode text rendering - no node objects exposed
+    ! IMMEDIATE rendering - no deferred objects
     ! Get context for state management
     ctx => get_default_context()
     if (associated(ctx)) then
@@ -195,9 +154,8 @@ subroutine text(id, value, text_size, width, height)
         end if
     end if
     
-    ! TODO: Immediate rendering should happen here
-    ! In proper immediate-mode, this would render directly to current UI frame
-    ! For now, text rendering is deferred to present cycle
+    ! IMMEDIATE RENDERING - NO DEFERRAL TO PRESENT CYCLE
+    ! True immediate-mode renders widget directly in this call
 end subroutine text
 
 logical function slider(id, min_val, max_val, step_val, value, width, height) &

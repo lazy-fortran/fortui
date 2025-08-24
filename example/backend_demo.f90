@@ -1,15 +1,17 @@
 program backend_demo
   use fortui_core
-  use fortui_units
+  use fortui_widgets  ! For immediate-mode widget functions
+  use fortui_units  
   use fortui_unit_types
   implicit none
 
-  type(node) :: ui, inner_layout
-  type(node), allocatable :: children(:)
+  ! PURE IMMEDIATE MODE - NO OBJECTS
   logical :: running
   integer :: frame = 0
+  logical :: btn_clicked
+  character(len=20) :: frame_str
 
-  ! Backend Registry Pattern - automatic selection with graceful fallback
+  ! Backend Registry Pattern - automatic selection with graceful fallback  
   call ui_init("auto", cw_unit(60.0), ch_unit(20.0), "Backend Demo")
   ! GUI preferred → TUI fallback → Clear error message
   
@@ -18,26 +20,21 @@ program backend_demo
     call ui_frame_begin(timeout_ms=200)
     frame = frame + 1
 
-    ! Create nested layout structure (works in both TUI and GUI)
-    allocate(children(2))
-    children(1) = node()  ! placeholder child
-    children(2) = node()  ! placeholder child
-    inner_layout = row(gap=cw(2.0), children=children)
+    ! IMMEDIATE-MODE UI - NO OBJECTS, JUST FUNCTION CALLS
+    btn_clicked = button("exit_btn", "Exit Demo")
+    if (btn_clicked) then
+      running = .false.
+    end if
     
-    deallocate(children)
-    allocate(children(3))
-    children(1) = node()  ! header placeholder  
-    children(2) = inner_layout
-    children(3) = node()  ! footer placeholder
+    write(frame_str, '(I0)') frame
+    call text("frame_counter", "Frame: " // trim(frame_str))
     
-    ui = column(gap=ch(1.0), children=children)
-
-    call ui_present(ui)
-    running = .not. ui_should_close()
+    ! Present the frame - IMMEDIATE MODE
+    call ui_present()
     
-    deallocate(children)
+    ! Check for quit events
+    if (ui_should_close()) running = .false.
   end do
-
+  
   call ui_shutdown()
-  print *, "Demo completed after", frame, "frames"
-end program
+end program backend_demo
