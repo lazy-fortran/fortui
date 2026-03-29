@@ -1,6 +1,5 @@
 program widget_examples_test
-  use fortui_core
-use fortui_widgets
+  use fortui
   implicit none
 
   logical :: save_clicked, big_clicked, volume_changed, temp_changed

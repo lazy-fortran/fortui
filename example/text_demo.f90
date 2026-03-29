@@ -1,7 +1,6 @@
 program text_demo
   ! Demonstrate text widget functionality
-  use fortui_core
-use fortui_widgets
+  use fortui
   implicit none
 
   ! Text widget type removed - using immediate-mode

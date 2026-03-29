@@ -1,6 +1,5 @@
 program slider_demo
-use fortui_core
-use fortui_widgets
+use fortui
 implicit none
 
 real :: volume = 50.0
