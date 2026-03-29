@@ -37,6 +37,7 @@ subroutine test_dp_creation()
         print *, "  ✓ DP creation working"
     else
         print *, "  ✗ DP creation failed"
+        stop 1
     end if
 end subroutine test_dp_creation
 
@@ -49,6 +50,7 @@ subroutine test_em_creation()
         print *, "  ✓ EM creation working"
     else
         print *, "  ✗ EM creation failed"
+        stop 1
     end if
 end subroutine test_em_creation
 
@@ -61,6 +63,7 @@ subroutine test_sp_creation()
         print *, "  ✓ SP creation working"
     else
         print *, "  ✗ SP creation failed"
+        stop 1
     end if
 end subroutine test_sp_creation
 
@@ -73,6 +76,7 @@ subroutine test_px_creation()
         print *, "  ✓ PX creation working"
     else
         print *, "  ✗ PX creation failed"
+        stop 1
     end if
 end subroutine test_px_creation
 
@@ -85,6 +89,7 @@ subroutine test_cw_creation()
         print *, "  ✓ CW creation working"
     else
         print *, "  ✗ CW creation failed"
+        stop 1
     end if
 end subroutine test_cw_creation
 
@@ -97,6 +102,7 @@ subroutine test_ch_creation()
         print *, "  ✓ CH creation working"
     else
         print *, "  ✗ CH creation failed"
+        stop 1
     end if
 end subroutine test_ch_creation
 
@@ -122,6 +128,7 @@ subroutine test_dp_conversion()
         print *, "  ✓ DP conversion identity working"
     else
         print *, "  ✗ DP conversion failed"
+        stop 1
     end if
 end subroutine test_dp_conversion
 
@@ -134,6 +141,7 @@ subroutine test_context_access()
         print *, "  ✓ Context access working"
     else
         print *, "  ✗ Context access failed"
+        stop 1
     end if
 end subroutine test_context_access
 

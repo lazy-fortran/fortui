@@ -40,6 +40,7 @@ subroutine test_dp_operator()
         print *, "  ✓ dp operator: integer and real conversion working"
     else
         print *, "  ✗ dp operator test failed"
+        stop 1
     end if
 end subroutine test_dp_operator
 
@@ -54,6 +55,7 @@ subroutine test_em_operator()
         print *, "  ✓ em operator: small and large values working"
     else
         print *, "  ✗ em operator test failed"
+        stop 1
     end if
 end subroutine test_em_operator
 
@@ -66,6 +68,7 @@ subroutine test_sp_operator()
         print *, "  ✓ sp operator: text size units working"
     else
         print *, "  ✗ sp operator test failed"
+        stop 1
     end if
 end subroutine test_sp_operator
 
@@ -78,6 +81,7 @@ subroutine test_px_operator()
         print *, "  ✓ px operator: screen pixel units working"
     else
         print *, "  ✗ px operator test failed"
+        stop 1
     end if
 end subroutine test_px_operator
 
@@ -90,6 +94,7 @@ subroutine test_cw_operator()
         print *, "  ✓ cw operator: character width units working"
     else
         print *, "  ✗ cw operator test failed"
+        stop 1
     end if
 end subroutine test_cw_operator
 
@@ -102,6 +107,7 @@ subroutine test_ch_operator()
         print *, "  ✓ ch operator: character height units working"
     else
         print *, "  ✗ ch operator test failed"
+        stop 1
     end if
 end subroutine test_ch_operator
 
@@ -118,6 +124,7 @@ subroutine test_operator_edge_cases()
         print *, "  ✓ Operator edge cases: zero, negative, large values working"
     else
         print *, "  ✗ Operator edge case test failed"
+        stop 1
     end if
 end subroutine test_operator_edge_cases
 
@@ -137,6 +144,7 @@ subroutine test_operator_return_types()
         print *, "  ✓ Operator return types: all unit types correct"
     else
         print *, "  ✗ Operator return type test failed"
+        stop 1
     end if
 end subroutine test_operator_return_types
 
