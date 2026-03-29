@@ -24,23 +24,6 @@ public :: is_gui_available, is_tui_available, is_headless_environment, resolve_b
 public :: set_environment_variable_simulation, clear_environment_variable_simulation
 ! Context management (internal only - not user-visible)
 
-! Internal state management
-type :: ui_state_t
-    logical :: initialized = .false.
-    character(len=32) :: active_backend = ""
-    class(backend_interface), pointer :: backend => null()
-    integer :: window_width = 0
-    integer :: window_height = 0
-    character(len=256) :: window_title = ""
-    integer :: target_fps = 60
-    logical :: vsync_enabled = .true.
-    character(len=32) :: idle_mode = "adaptive"
-    integer :: idle_fps = 12
-    logical :: should_quit = .false.
-    real :: dpi_scale = 1.0
-end type ui_state_t
-
-
 ! Interface for ui_init to support both integer and abstract unit parameters
 interface ui_init
     module procedure ui_init_integer
@@ -81,7 +64,7 @@ contains
 ! Lifecycle & pacing procedures
 ! Context-aware initialization (new API)
 subroutine ui_init_with_context(ctx, backend, width, height, title, target_fps, vsync)
-    use fortui_backend_init, only: ensure_backends_registered_with_context, initialize_renderer
+    use fortui_backend_init, only: ensure_backends_registered_with_context
     type(fortui_context_t), intent(inout) :: ctx
     character(*), intent(in) :: backend        ! "tui" | "gui" | "auto"
     integer,      intent(in) :: width, height  ! grid units (gu)
@@ -136,8 +119,6 @@ subroutine ui_init_with_context(ctx, backend, width, height, title, target_fps, 
         end if
     end if
     
-    ! Initialize the appropriate renderer
-    call initialize_renderer(ctx, trim(resolved_backend))
 end subroutine ui_init_with_context
 
 subroutine ui_init_integer(backend, width, height, title, target_fps, vsync)
@@ -180,13 +161,10 @@ subroutine ui_init_integer(backend, width, height, title, target_fps, vsync)
 end subroutine ui_init_integer
 
 subroutine ui_init_abstract(backend, width, height, title, target_fps, vsync)
-    ! UI initialization with abstract unit type support
-    use fortui_unit_types, only: unit_type
-    use fortui_units, only: ui_context, ui_get_context
-    use fortui_platform_measurement, only: validate_context
+    use fortui_units, only: unit_value, convert_to_dp
     
     character(*), intent(in) :: backend
-    class(unit_type), intent(in) :: width, height  ! Abstract unit types
+    type(unit_value), intent(in) :: width, height
     character(*), intent(in) :: title
     integer, intent(in), optional :: target_fps
     logical, intent(in), optional :: vsync
@@ -202,9 +180,8 @@ subroutine ui_init_abstract(backend, width, height, title, target_fps, vsync)
         call set_default_context(ctx)
     end if
     
-    ! Convert abstract units to dp using polymorphic interface
-    width_dp = width%to_dp(ctx%units)
-    height_dp = height%to_dp(ctx%units)
+    width_dp = convert_to_dp(width, ctx%units)
+    height_dp = convert_to_dp(height, ctx%units)
     
     ! Convert dp to integer grid units for backend initialization
     width_int = nint(width_dp / ctx%units%cell_w_dp)
@@ -217,10 +194,7 @@ subroutine ui_init_abstract(backend, width, height, title, target_fps, vsync)
     ! Call context-aware initialization
     call ui_init_with_context(ctx, backend, width_int, height_int, title, target_fps, vsync)
     
-    ! Update context with enhanced measurement if backend supports it
     call setup_enhanced_context(backend, ctx%units)
-    
-    ! Context-aware initialization complete - no legacy state to maintain
 end subroutine ui_init_abstract
 
 subroutine ui_get_context(ctx)

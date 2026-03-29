@@ -115,7 +115,6 @@ DISABLE_GUI=1 fpm build
 program backend_demo
   use fortui_core
   use fortui_units
-  use fortui_unit_types
   implicit none
 
   type(node) :: ui, inner_layout
@@ -124,7 +123,7 @@ program backend_demo
   integer :: frame = 0
 
   ! Backend Registry Pattern - automatic selection with graceful fallback
-  call ui_init("auto", cw_unit(60.0), ch_unit(20.0), "Backend Demo")
+  call ui_init("auto", cw(60.0), ch(20.0), "Backend Demo")
   ! GUI preferred → TUI fallback → Clear error message
   
   running = .true.
@@ -437,44 +436,21 @@ layout = column(gap=16.0)       ! bare real (treated as dp)
 
 ## Widget System
 
-fortui implements a **Widget-Renderer Collaboration Pattern** that provides clean separation between widget behavior and rendering implementation. This architecture resolves Issue #61 by eliminating tight coupling between widgets and backends.
+fortui currently exposes a small immediate-mode widget API backed by internal state maps.
 
-### Widget-Renderer Architecture
+### Widget Architecture
 
-The new architecture features:
-- **Abstract Widget Interface**: Widgets implement `renderable_widget_t` with encapsulated behavior
-- **Renderer Abstraction**: Backend-agnostic `widget_renderer_t` provides drawing primitives
-- **Double Dispatch Pattern**: Widgets collaborate with renderers through visitor-style rendering
-- **Perfect Encapsulation**: Backends never access widget internals directly
+The current architecture focuses on:
+- **Immediate-mode calls**: widgets are declared and updated in a single call
+- **Internal state only**: widget state stays inside the library
+- **Small public surface**: `fortui_core`, `fortui_units`, and `fortui_widgets`
 
 ```fortran
-use fortui_widget_renderer
-use fortui_renderable
-use fortui_button_widget
+use fortui
 
-! Widget-Renderer Collaboration Example
-type(button_widget_t) :: my_button
-type(tui_renderer_t), target :: tui_renderer
-type(button_state_t) :: button_state
-type(render_context_t) :: context
+logical :: save_clicked
 
-! Setup widget with position and appearance
-my_button%x = 50.0
-my_button%y = 100.0
-my_button%width = 120.0
-my_button%height = 35.0
-my_button%label = "Click Me"
-
-! Widget renders itself using renderer's drawing primitives
-call my_button%render(tui_renderer, context, button_state)
-
-! Widget handles its own interaction logic
-call my_button%update_state(mouse_x, mouse_y, mouse_pressed, button_state)
-
-! Widget provides its own hit testing
-if (my_button%hit_test(cursor_x, cursor_y)) then
-    print *, "Mouse over button!"
-end if
+save_clicked = button("save_btn", label="Click Me", width=120.0, height=35.0)
 ```
 
 ### Legacy Widget API (Maintained for Compatibility)
@@ -671,33 +647,21 @@ The Widget-Renderer Collaboration Pattern provides:
 
 ### Units System
 
-fortui provides abstract unit types with polymorphic dispatch for precise cross-backend sizing:
+fortui provides simple unit values for precise cross-backend sizing:
 
 ```fortran
 use fortui_core
-use fortui_unit_types
+use fortui_units
 
-! Abstract unit types - polymorphic dispatch
-call ui_init("auto", dp_unit(800.0), em_unit(30.0), "My App")
-call ui_init("gui", inches_unit(8.5), cm_unit(21.0), "Mixed Units")
+call ui_init("auto", dp(800.0), em(30.0), "My App")
 
 ! All unit types supported
-width = dp_unit(40.0)      ! density-independent pixels
-gap = em_unit(2.5)         ! relative to font size  
-text_size = sp_unit(14.0)  ! scaled pixels (accessibility)
-border = px_unit(2.0)      ! physical pixels
-cols = cw_unit(10.0)       ! cell widths (TUI-friendly)
-rows = ch_unit(3.0)        ! cell heights (TUI-friendly)
-
-! Physical units with DPI awareness
-paper_width = inches_unit(8.5)     ! physical inches
-paper_height = cm_unit(21.0)       ! physical centimeters
-border_size = mm_unit(5.0)         ! millimeters
-font_size = points_unit(12.0)      ! typography points
-
-! Legacy constructor functions still supported
-width = dp(40.0)           ! equivalent to dp_unit(40.0)
-gap = em(2.5)              ! equivalent to em_unit(2.5)
+width = dp(40.0)      ! density-independent pixels
+gap = em(2.5)         ! relative to font size
+text_size = sp(14.0)  ! scaled pixels
+border = px(2.0)      ! physical pixels
+cols = cw(10.0)       ! cell widths
+rows = ch(3.0)        ! cell heights
 ```
 
 **Abstract Type Integration:**
@@ -774,97 +738,27 @@ fpm build widget_demo.f90
 ### Widget-Renderer Collaboration Demo
 
 ```fortran
-program widget_collaboration_demo
-  use fortui_core
-  use fortui_widget_renderer
-  use fortui_renderable
-  use fortui_button_widget
-  use fortui_tui_renderer
+program widget_demo
+  use fortui
   implicit none
 
-  ! Widget-Renderer Collaboration Architecture Demo
-  type(button_widget_t) :: save_button, cancel_button
-  type(button_state_t) :: save_state, cancel_state  
-  type(tui_renderer_t), target :: renderer
-  type(render_context_t) :: context
   logical :: running
-  integer :: frame_count = 0
+  logical :: save_clicked
 
-  print *, "fortui - Widget-Renderer Collaboration Demo"
-  print *, "Demonstrating new widget abstraction architecture"
-
-  ! Initialize TUI backend
-  call ui_init("tui", 100, 30, "Widget Collaboration Demo")
-  
-  ! Initialize renderer
-  call renderer%initialize(100, 30)
-  
-  ! Setup render context
-  context%viewport_w = 800.0
-  context%viewport_h = 480.0
-  context%scale_x = 1.0
-  context%scale_y = 1.0
-
-  ! Configure Save button with widget-renderer architecture
-  save_button%x = 20.0
-  save_button%y = 100.0 
-  save_button%width = 120.0
-  save_button%height = 35.0
-  save_button%label = "Save File"
-  
-  save_state%id = "save_button"
-  save_state%label = "Save File"
-  save_state%visual_state = WIDGET_NORMAL
-
-  ! Configure Cancel button
-  cancel_button%x = 160.0
-  cancel_button%y = 100.0
-  cancel_button%width = 120.0
-  cancel_button%height = 35.0
-  cancel_button%label = "Cancel"
-  
-  cancel_state%id = "cancel_button"
-  cancel_state%label = "Cancel"
-  cancel_state%visual_state = WIDGET_NORMAL
+  call ui_init("tui", 100, 30, "Widget Demo")
 
   running = .true.
   do while (running)
     call ui_frame_begin(timeout_ms=200)
-    frame_count = frame_count + 1
 
-    ! Widget-Renderer Collaboration Pattern in action
-    
-    ! Each widget renders itself through collaboration with renderer
-    call save_button%render(renderer, context, save_state)
-    call cancel_button%render(renderer, context, cancel_state)
-    
-    ! Each widget handles its own state updates and interactions  
-    call save_button%update_state(50.0, 117.0, .false., save_state)
-    call cancel_button%update_state(220.0, 117.0, .false., cancel_state)
-    
-    ! Check for button clicks
-    if (save_state%clicked_this_frame) then
-      print *, "Frame ", frame_count, ": Save button clicked!"
-      print *, "  Widget encapsulation: Save logic handled internally"
-    end if
-    
-    if (cancel_state%clicked_this_frame) then
-      print *, "Frame ", frame_count, ": Cancel button clicked!"
-      print *, "  Clean separation: Widget-renderer collaboration maintained"
-    end if
+    save_clicked = button("save", label="Save File")
+    call text("title", "fortui")
 
-    call ui_present(node())  ! Placeholder for layout integration
+    call ui_present(node())
     running = .not. ui_should_close()
-    
-    if (frame_count > 200) running = .false.
   end do
 
   call ui_shutdown()
-
-  print *, "✓ Widget-Renderer Collaboration Pattern implemented"
-  print *, "✓ Perfect encapsulation: Widgets manage their own behavior"
-  print *, "✓ Clean separation: Renderers only handle drawing primitives"
-  print *, "✓ Backend flexibility: Same widgets work with TUI/GUI renderers"
 end program
 ```
 
@@ -874,15 +768,14 @@ end program
 program legacy_api_demo
   use fortui_core
   use fortui_widgets
-  use fortui_unit_types
+  use fortui_units
   implicit none
 
   type(view) :: plot_view
   logical :: running
   integer :: frame_count = 0
 
-  ! Automatic backend selection with mixed abstract units
-  call ui_init("auto", cw_unit(80.0), ch_unit(25.0), "Legacy API Demo")
+  call ui_init("auto", cw(80.0), ch(25.0), "Legacy API Demo")
 
   running = .true.
   do while (running)
@@ -970,16 +863,13 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Power-saving mode
 
 🔄 **Context Object Pattern**: Basic context-aware API working, advanced thread safety and multiple contexts in development  
 ✅ **Backend Registry Pattern**: Complete circular dependency resolution with runtime backend selection  
-✅ **Widget-Renderer Collaboration Pattern**: Issue #61 resolved - Complete widget abstraction with proper encapsulation
 ✅ **fortui_core module**: Complete with `node` and `view` types, lifecycle management, layout constructors  
 🔄 **fortui_context module**: Basic context objects working, advanced state encapsulation and thread-local features in development
 ✅ **fortui_backend**: Abstract interface with dynamic registry and capability system
-✅ **fortui_tui/fortui_gui**: Backend implementations with conditional compilation
+✅ **fortui_tui**: Terminal backend implementation with runtime registration
 ✅ **fortui_units module**: Complete with comprehensive cross-backend units system
 ✅ **Layout system**: `column()` and `row()` functions with gap parameters and children arrays - **PRODUCTION READY**
 ✅ **fortui_widgets module**: Button, text, slider, and checkbox widgets with context-aware and legacy APIs
-✅ **fortui_widget_renderer module**: Abstract renderer interface with drawing primitives and composite operations
-✅ **fortui_renderable module**: Widget behavior contract with render/update/bounds/hit-test interfaces
 ✅ **Build system**: Automatic dependency detection and configuration
 
 **Backend Architecture Status:**
@@ -987,7 +877,6 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Power-saving mode
 - ✅ **Dynamic Registry**: Runtime backend registration with automatic array resizing
 - ✅ **Capability System**: Feature flags (`graphics`, `colors`, `mouse`, `unicode`, `async_events`)
 - ✅ **Runtime Selection**: Backend selection by name or auto-detection with graceful fallback
-- ✅ **Conditional Compilation**: GUI backend only compiled with `#ifdef ENABLE_GUI`
 - ✅ **Dependency Resolution**: Core imports only abstraction layer, eliminating circular dependencies
 
 **Layout System Status:**
@@ -1004,7 +893,7 @@ call ui_set_idle_policy("adaptive", idle_fps=12)  ! Power-saving mode
 - **fortui_backend_init**: ✅ Automatic registration system avoiding circular dependencies  
 - **fortui_core**: ✅ Lifecycle management, core types, frame handling with context-aware and legacy APIs
 - **fortui_tui**: ✅ Terminal backend with termbox2 integration (always available)
-- **fortui_gui**: ✅ GUI backend with raylib integration (conditional compilation)
+- **fortui_gui**: planned follow-up work tracked separately
 - **fortui_units**: ✅ Cross-backend units system with dp, em, sp, px, cw, ch support
 - **fortui_widgets**: ✅ Button, text, slider, and checkbox widgets with context-aware and legacy APIs
 - **Monospace baseline**: ✅ Ensures pixel-perfect TUI/GUI consistency
