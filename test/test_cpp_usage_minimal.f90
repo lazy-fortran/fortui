@@ -38,15 +38,17 @@ end function test_cpp_directories
 logical function test_platform_elif_scope() result(passed)
     passed = file_contains("src/fortui_platform_measurement.f90", "#elif") .and. &
         command_fails( &
-        "rg -q '#elif' src app example -g '*.[fF]90' -g '!src/fortui_platform_measurement.f90'")
+        "sh -c ""rg -l '#elif' src app example -g '*.[fF]90' | " // &
+        "rg -q -v '^src/fortui_platform_measurement\\.f90$'""")
 end function test_platform_elif_scope
 
 logical function command_fails(command) result(passed)
     character(*), intent(in) :: command
-    integer :: status
+    character(len=512) :: cmdmsg
+    integer :: cmdstat, status
 
-    call execute_command_line(command, exitstat=status)
-    passed = status /= 0
+    call execute_command_line(command, exitstat=status, cmdstat=cmdstat, cmdmsg=cmdmsg)
+    passed = cmdstat == 0 .and. status /= 0
 end function command_fails
 
 logical function file_contains(path, needle) result(found)
