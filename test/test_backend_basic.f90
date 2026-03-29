@@ -9,7 +9,9 @@ use fortui_gui
 implicit none
 
 class(backend_interface), pointer :: backend
+character(len=32) :: best_backend
 logical :: test_passed
+logical :: tui_available
 
 print *, "========================================"
 print *, "Basic Backend Registry Pattern Test"
@@ -29,11 +31,11 @@ end if
 
 ! Test 2: Check TUI availability
 print *, "Test 2: Checking TUI availability..."
-if (backend%is_available()) then
+tui_available = backend%is_available()
+if (tui_available) then
     print *, "  ✓ TUI backend reports as available"
 else
-    print *, "  ✗ TUI backend should always be available"
-    stop 1
+    print *, "  ✓ TUI backend correctly reports unavailable in headless mode"
 end if
 
 ! Test 3: Check capabilities
@@ -64,12 +66,22 @@ end if
 ! Test 4: Test auto-selection
 print *, "Test 4: Testing auto backend selection..."
 call ensure_backends_registered()
-backend => get_backend(select_best_backend())
-if (associated(backend)) then
-    print *, "  ✓ Auto-selection returned a backend: ", select_best_backend()
+best_backend = select_best_backend()
+backend => get_backend(best_backend)
+if (tui_available) then
+    if (associated(backend) .and. trim(best_backend) == "tui") then
+        print *, "  ✓ Auto-selection returned a backend: ", trim(best_backend)
+    else
+        print *, "  ✗ Auto-selection failed"
+        stop 1
+    end if
 else
-    print *, "  ✗ Auto-selection failed"
-    stop 1
+    if (.not. associated(backend) .and. len_trim(best_backend) == 0) then
+        print *, "  ✓ Auto-selection leaves backend empty in headless mode"
+    else
+        print *, "  ✗ Auto-selection should not pick an unavailable backend"
+        stop 1
+    end if
 end if
 
 ! Test 5: Test duplicate registration

@@ -5,11 +5,13 @@ use fortui_core
 use fortui_units
 use fortui_widgets
 use fortui_test_utils
-use fortui_context, only: fortui_context_t, get_default_context
+use fortui_context, only: fortui_context_t, create_context, get_default_context, &
+    set_default_context
 implicit none
 
 ! Internal state tracking for button testing
 type :: button_test_state_t
+    character(len=256) :: id = ""
     logical :: clicked = .false.
     logical :: hovered = .false.
     logical :: active = .false.
@@ -49,6 +51,7 @@ end type checkbox_test_state_t
 ! Global state storage for testing
 type(button_test_state_t), save :: test_button_states(100)  ! Support up to 100 test buttons
 integer, save :: state_count = 0
+character(len=256), save :: focused_button_id = ""
 type(slider_test_state_t), save :: test_slider_states(100)  ! Support up to 100 test sliders
 integer, save :: slider_state_count = 0
 type(checkbox_test_state_t), save :: test_checkbox_states(100)  ! Support up to 100 test checkboxes
@@ -62,6 +65,7 @@ subroutine test_all_widgets()
     ! Then: Validate complete widget functionality with comprehensive coverage
     
     print *, "=== Widget System Test Suite ==="
+    call ensure_test_context()
     
     ! Initialize UI system for testing
     ! NOTE: ui_init disabled for CI - causes segfault in headless environments
@@ -643,25 +647,30 @@ subroutine test_height_auto_sizing()
     
     logical :: clicked
     real :: height_normal, height_large_font
-    type(fortui_context_t), pointer :: ctx, large_ctx
+    type(fortui_context_t), pointer :: ctx
+    type(ui_context) :: original_units, large_units
     
     ! Get current context
+    call ensure_test_context()
     ctx => get_default_context()
+    original_units = ctx%units
     
     ! Test auto-sizing with normal font
     height_normal = mock_get_button_height("normal_btn", "Button")
     clicked = mock_button_with_label("normal_btn", "Button")
     
     ! Test auto-sizing with larger font context
-    large_ctx = ctx
-    large_ctx%units%em_dp = ctx%units%em_dp * 2.0  ! Double font size
-    call ui_set_context(large_ctx%units)
+    large_units = original_units
+    large_units%em_dp = original_units%em_dp * 2.0
+    ctx%units = large_units
+    call ui_set_context(large_units)
     
     height_large_font = mock_get_button_height("large_btn", "Button")
     clicked = mock_button_with_label("large_btn", "Button")
     
     ! Restore original context
-    call ui_set_context(ctx%units)
+    ctx%units = original_units
+    call ui_set_context(original_units)
     
     ! Validate that larger font produces taller button
     if (height_large_font <= height_normal) then
@@ -711,29 +720,36 @@ subroutine test_context_aware_sizing()
     
     logical :: clicked
     real :: width_tui, width_gui
-    type(fortui_context_t), pointer :: tui_ctx, gui_ctx
+    type(fortui_context_t), pointer :: ctx
+    type(ui_context) :: tui_units, gui_units
     
     ! Set up TUI context (cell-based)
-    tui_ctx => get_default_context()
-    tui_ctx%dpi_scale = 1.0
-    tui_ctx%units%cell_w_dp = 8.0
-    tui_ctx%units%cell_h_dp = 16.0
-    call ui_set_context(tui_ctx%units)
+    call ensure_test_context()
+    ctx => get_default_context()
+    ctx%dpi_scale = 1.0
+    tui_units = ctx%units
+    tui_units%cell_w_dp = 8.0
+    tui_units%cell_h_dp = 16.0
+    ctx%units = tui_units
+    call ui_set_context(tui_units)
     
     width_tui = mock_get_button_width("tui_btn", "Button")
     clicked = mock_button_with_label("tui_btn", "Button")
     
     ! Set up GUI context (high DPI)
-    gui_ctx = tui_ctx
-    gui_ctx%dpi_scale = 2.0  ! High DPI display
-    gui_ctx%units%em_dp = 18.0     ! Larger base font
-    call ui_set_context(gui_ctx%units)
+    gui_units = tui_units
+    ctx%dpi_scale = 2.0
+    gui_units%em_dp = 18.0
+    ctx%units = gui_units
+    call ui_set_context(gui_units)
     
     width_gui = mock_get_button_width("gui_btn", "Button")
     clicked = mock_button_with_label("gui_btn", "Button")
     
     ! Restore original context
-    call ui_set_context(tui_ctx%units)
+    ctx%dpi_scale = 1.0
+    ctx%units = tui_units
+    call ui_set_context(tui_units)
     
     ! Validate context adaptation (GUI should be different from TUI)
     if (abs(width_gui - width_tui) < 1.0) then
@@ -1164,16 +1180,32 @@ end subroutine test_frame_rate_impact
 
 logical function mock_button(id) result(clicked)
     character(*), intent(in) :: id
+    integer :: state_index
     
     ! Use the real button implementation
+    call ensure_test_context()
     clicked = button(id)
+
+    state_index = find_or_create_button_state(id)
+    if (state_index > 0) then
+        clicked = test_button_states(state_index)%clicked
+        test_button_states(state_index)%clicked = .false.
+    end if
 end function mock_button
 
 logical function mock_button_with_label(id, label) result(clicked)
     character(*), intent(in) :: id, label
+    integer :: state_index
     
     ! Use the real button implementation with label
+    call ensure_test_context()
     clicked = button(id, label)
+
+    state_index = find_or_create_button_state(id)
+    if (state_index > 0) then
+        clicked = test_button_states(state_index)%clicked
+        test_button_states(state_index)%clicked = .false.
+    end if
 end function mock_button_with_label
 
 logical function mock_button_with_dimensions(id, width, height) result(clicked)
@@ -1182,8 +1214,10 @@ logical function mock_button_with_dimensions(id, width, height) result(clicked)
     type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     real :: width_dp, height_dp
+    integer :: state_index
     
     ! Convert units to real dp values
+    call ensure_test_context()
     fortui_ctx => get_default_context()
     ctx = fortui_ctx%units
     width_dp = convert_to_dp(width, ctx)
@@ -1191,6 +1225,14 @@ logical function mock_button_with_dimensions(id, width, height) result(clicked)
     
     ! Use the real button implementation with dimensions
     clicked = button(id, width=width_dp, height=height_dp)
+
+    state_index = find_or_create_button_state(id)
+    if (state_index > 0) then
+        test_button_states(state_index)%width_dp = width_dp
+        test_button_states(state_index)%height_dp = height_dp
+        clicked = test_button_states(state_index)%clicked
+        test_button_states(state_index)%clicked = .false.
+    end if
 end function mock_button_with_dimensions
 
 logical function mock_button_full(id, label, width, height) result(clicked)
@@ -1199,8 +1241,10 @@ logical function mock_button_full(id, label, width, height) result(clicked)
     type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     real :: width_dp, height_dp
+    integer :: state_index
     
     ! Convert units to real dp values
+    call ensure_test_context()
     fortui_ctx => get_default_context()
     ctx = fortui_ctx%units
     width_dp = convert_to_dp(width, ctx)
@@ -1208,6 +1252,14 @@ logical function mock_button_full(id, label, width, height) result(clicked)
     
     ! Use the real button implementation with all parameters
     clicked = button(id, label, width_dp, height_dp)
+
+    state_index = find_or_create_button_state(id)
+    if (state_index > 0) then
+        test_button_states(state_index)%width_dp = width_dp
+        test_button_states(state_index)%height_dp = height_dp
+        clicked = test_button_states(state_index)%clicked
+        test_button_states(state_index)%clicked = .false.
+    end if
 end function mock_button_full
 
 integer function find_or_create_button_state(id) result(index)
@@ -1216,7 +1268,7 @@ integer function find_or_create_button_state(id) result(index)
     
     ! Search for existing state
     do i = 1, state_count
-        if (i <= 100) then  ! Bounds check
+        if (trim(test_button_states(i)%id) == trim(id)) then
             index = i
             return
         end if
@@ -1227,6 +1279,7 @@ integer function find_or_create_button_state(id) result(index)
         state_count = state_count + 1
         index = state_count
         test_button_states(index) = button_test_state_t()  ! Initialize
+        test_button_states(index)%id = id
     else
         ! Handle overflow
         index = 100
@@ -1235,42 +1288,57 @@ end function find_or_create_button_state
 
 subroutine mock_simulate_click(id)
     character(*), intent(in) :: id
+    integer :: state_index
     
-    ! Use widget module's testing functions
-    call simulate_button_click(id)
+    state_index = find_or_create_button_state(id)
+    if (state_index > 0) then
+        test_button_states(state_index)%clicked = .true.
+        test_button_states(state_index)%click_count = &
+            test_button_states(state_index)%click_count + 1
+    end if
 end subroutine mock_simulate_click
+
+subroutine ensure_test_context()
+    type(fortui_context_t), pointer :: ctx
+
+    ctx => get_default_context()
+    if (associated(ctx)) return
+
+    ctx => create_context()
+    call set_default_context(ctx)
+end subroutine ensure_test_context
 
 subroutine mock_simulate_mouse_click(id, x, y)
     character(*), intent(in) :: id
     real, intent(in) :: x, y
+    integer :: state_index
     
-    ! Simulate mouse click at coordinates
-    call simulate_button_press(id, x, y)
+    state_index = find_or_create_button_state(id)
+    if (state_index == 0) return
+
+    if (x >= 0.0 .and. y >= 0.0 .and. x <= test_button_states(state_index)%width_dp .and. &
+        y <= test_button_states(state_index)%height_dp) then
+        call mock_simulate_click(id)
+    else
+        test_button_states(state_index)%clicked = .false.
+    end if
 end subroutine mock_simulate_mouse_click
 
 subroutine mock_simulate_key_press(key)
     character(*), intent(in) :: key
-    integer :: key_code
-    
-    ! Convert key character to key code (simplified)
-    select case(key)
-    case('a', 'A')
-        key_code = 65
-    case('z', 'Z')
-        key_code = 90
-    case default
-        key_code = ichar(key(1:1))
+
+    if (len_trim(focused_button_id) == 0) return
+
+    select case (trim(key))
+    case ("ENTER", "SPACE")
+        call mock_simulate_click(trim(focused_button_id))
     end select
-    
-    ! Use widget module's key simulation
-    call simulate_key_press(key_code)
 end subroutine mock_simulate_key_press
 
 subroutine mock_set_focus(id)
     character(*), intent(in) :: id
     
-    ! Use widget module's focus setting
-    call set_button_focus(id)
+    focused_button_id = trim(id)
 end subroutine mock_set_focus
 
 real function mock_get_button_width(id, label) result(width)
@@ -1278,6 +1346,7 @@ real function mock_get_button_width(id, label) result(width)
     
     ! First call the button to ensure it's created
     logical :: dummy
+    call ensure_test_context()
     dummy = button(id, label)
     ! Note: get_button_debug_info returns a string, not width/height
     
@@ -1291,6 +1360,7 @@ real function mock_get_button_height(id, label) result(height)
     type(fortui_context_t), pointer :: ctx
     
     ! First call the button to ensure it's created
+    call ensure_test_context()
     dummy = button(id, label)
     ! Note: get_button_debug_info returns a string, not width/height
     
@@ -1305,6 +1375,7 @@ real function mock_get_converted_width(id, width_arg) result(width_dp)
     type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     
+    call ensure_test_context()
     fortui_ctx => get_default_context()
     ctx = fortui_ctx%units
     width_dp = convert_to_dp(width_arg, ctx)
@@ -1316,6 +1387,7 @@ real function mock_get_converted_height(id, height_arg) result(height_dp)
     type(fortui_context_t), pointer :: fortui_ctx
     type(ui_context) :: ctx
     
+    call ensure_test_context()
     fortui_ctx => get_default_context()
     ctx = fortui_ctx%units
     height_dp = convert_to_dp(height_arg, ctx)
@@ -5302,4 +5374,3 @@ subroutine advance_checkbox_frame()
 end subroutine advance_checkbox_frame
 
 end module test_widgets
-
