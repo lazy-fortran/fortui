@@ -1,16 +1,21 @@
 module fortui_widgets
 ! Immediate-mode widgets with internal state management
+! Widgets render themselves directly via tui_set_cell during their call
 use iso_c_binding
 use fortui_context, only: fortui_context_t, get_default_context
 use fortui_core, only: view
 use fortui_layout, only: layout_get_cursor, layout_advance
+use fortui_tui, only: tui_is_active, tui_set_cell, &
+    TB_DEFAULT, TB_WHITE, TB_BLACK, TB_CYAN, TB_YELLOW, &
+    TB_GREEN, TB_RED, TB_BLUE, TB_BOLD, TB_REVERSE
+use fortui_input, only: input_get_mouse_x, input_get_mouse_y, &
+    input_get_mouse_left, input_get_scroll_y
 implicit none
 private
 
-! Widget functions (immediate-mode only)
 public :: button, text, slider, checkbox, viewport
 
-! Button widget state for context storage
+! Widget state types for context storage
 type :: button_state
     logical :: pressed = .false.
     logical :: hover = .false.
@@ -22,7 +27,6 @@ type :: button_state
     real :: size_h = 0.0
 end type button_state
 
-! Widget state types for context storage
 type :: text_state
     character(len=1024) :: value = ""
     logical :: focused = .false.
@@ -80,6 +84,8 @@ logical function button(id, label, width, height) result(clicked)
     integer :: state_index
     type(button_state) :: new_state
     real :: w_cells, h_cells, cx, cy
+    integer :: ix, iy, iw, i, mx, my, fg, bg
+    logical :: hover
 
     ctx => get_default_context()
     if (.not. associated(ctx)) then
@@ -123,27 +129,55 @@ logical function button(id, label, width, height) result(clicked)
         state_index = ctx%widget_states%get(id, "button")
     end if
 
-    if (state_index == 0) then
-        clicked = .false.
-        return
+    ! Hit test
+    ix = int(cx)
+    iy = int(cy)
+    iw = int(w_cells)
+    clicked = .false.
+    hover = .false.
+
+    mx = input_get_mouse_x()
+    my = input_get_mouse_y()
+    if (mx >= ix .and. mx < ix + iw .and. my == iy) then
+        hover = .true.
+        if (input_get_mouse_left()) clicked = .true.
     end if
 
-    select type(state_obj => ctx%widget_states%entries(state_index)%state)
-    type is (button_state)
-        state_obj%pos_x = cx
-        state_obj%pos_y = cy
-        state_obj%size_w = w_cells
-        state_obj%size_h = h_cells
-        if (state_obj%last_frame_clicked == ctx%frame_count) then
-            clicked = state_obj%clicked_this_frame
+    if (state_index > 0) then
+        select type(s => ctx%widget_states%entries(state_index)%state)
+        type is (button_state)
+            s%pos_x = cx
+            s%pos_y = cy
+            s%size_w = w_cells
+            s%size_h = h_cells
+            s%hover = hover
+            s%clicked_this_frame = clicked
+            s%last_frame_clicked = ctx%frame_count
+        end select
+    end if
+
+    ! Render: [ Label ]
+    if (tui_is_active()) then
+        if (clicked) then
+            fg = TB_BLACK
+            bg = TB_WHITE
+        else if (hover) then
+            fg = TB_BLACK + TB_BOLD
+            bg = TB_CYAN
         else
-            clicked = .false.
-            state_obj%clicked_this_frame = clicked
-            state_obj%last_frame_clicked = ctx%frame_count
+            fg = TB_WHITE
+            bg = TB_BLUE
         end if
-    class default
-        clicked = .false.
-    end select
+
+        call tui_set_cell(ix, iy, iachar('['), fg, bg)
+        call tui_set_cell(ix + 1, iy, iachar(' '), fg, bg)
+        do i = 1, min(len_trim(display_label), iw - 4)
+            call tui_set_cell(ix + 1 + i, iy, &
+                iachar(display_label(i:i)), fg, bg)
+        end do
+        call tui_set_cell(ix + iw - 2, iy, iachar(' '), fg, bg)
+        call tui_set_cell(ix + iw - 1, iy, iachar(']'), fg, bg)
+    end if
 
     call layout_advance(w_cells, h_cells)
 end function button
@@ -158,6 +192,7 @@ subroutine text(id, value, text_size, width, height)
     type(text_state) :: new_state
     real :: w_cells, h_cells, cx, cy
     character(len=1024) :: display_value
+    integer :: ix, iy, iw, i, fg, bg
 
     display_value = ""
     if (present(value)) display_value = value
@@ -188,22 +223,40 @@ subroutine text(id, value, text_size, width, height)
             new_state%size_h = h_cells
             call ctx%widget_states%set(id, "text", new_state)
         else
-            select type(state_obj => ctx%widget_states%entries(state_index)%state)
+            select type(s => &
+                ctx%widget_states%entries(state_index)%state)
             type is (text_state)
-                if (present(value)) state_obj%value = value
-                state_obj%pos_x = cx
-                state_obj%pos_y = cy
-                state_obj%size_w = w_cells
-                state_obj%size_h = h_cells
+                if (present(value)) s%value = value
+                s%pos_x = cx
+                s%pos_y = cy
+                s%size_w = w_cells
+                s%size_h = h_cells
             end select
         end if
+    end if
+
+    ! Render plain text
+    if (tui_is_active()) then
+        ix = int(cx)
+        iy = int(cy)
+        iw = int(w_cells)
+        fg = TB_DEFAULT
+        bg = TB_DEFAULT
+        if (present(text_size)) then
+            if (text_size > 1.5) fg = TB_DEFAULT + TB_BOLD
+        end if
+
+        do i = 1, min(len_trim(display_value), iw)
+            call tui_set_cell(ix + i - 1, iy, &
+                iachar(display_value(i:i)), fg, bg)
+        end do
     end if
 
     call layout_advance(w_cells, h_cells)
 end subroutine text
 
-logical function slider(id, min_val, max_val, step_val, value, width, height) &
-    result(value_changed)
+logical function slider(id, min_val, max_val, step_val, value, &
+    width, height) result(value_changed)
     character(*), intent(in) :: id
     real, intent(in), optional :: min_val, max_val, step_val
     real, intent(inout), optional :: value
@@ -212,15 +265,19 @@ logical function slider(id, min_val, max_val, step_val, value, width, height) &
     type(fortui_context_t), pointer :: ctx
     integer :: state_index
     type(slider_state) :: new_state
-    real :: min_v, max_v
+    real :: min_v, max_v, step_v, cur_val, frac
     real :: w_cells, h_cells, cx, cy
+    integer :: ix, iy, iw, i, knob_pos, track_w, mx, my
+    integer :: fg, bg
 
     value_changed = .false.
 
     min_v = 0.0
     max_v = 100.0
+    step_v = 1.0
     if (present(min_val)) min_v = min_val
     if (present(max_val)) max_v = max_val
+    if (present(step_val)) step_v = step_val
 
     if (present(width)) then
         w_cells = width
@@ -237,48 +294,106 @@ logical function slider(id, min_val, max_val, step_val, value, width, height) &
     call layout_get_cursor(cx, cy)
 
     ctx => get_default_context()
+    cur_val = min_v
+    if (present(value)) cur_val = max(min_v, min(max_v, value))
+
     if (associated(ctx)) then
         state_index = ctx%widget_states%get(id, "slider")
         if (state_index == 0) then
             new_state = slider_state()
-            if (present(value)) then
-                new_state%current_value = max(min_v, min(max_v, value))
-                value = new_state%current_value
-            else
-                new_state%current_value = min_v
-            end if
+            new_state%current_value = cur_val
             new_state%pos_x = cx
             new_state%pos_y = cy
             new_state%size_w = w_cells
             new_state%size_h = h_cells
             call ctx%widget_states%set(id, "slider", new_state)
         else
-            select type(state_obj => ctx%widget_states%entries(state_index)%state)
+            select type(s => &
+                ctx%widget_states%entries(state_index)%state)
             type is (slider_state)
-                if (present(value)) then
-                    if (abs(state_obj%current_value - value) > 1e-6) then
-                        state_obj%current_value = &
-                            max(min_v, min(max_v, value))
-                        value_changed = .true.
-                    end if
-                    value = state_obj%current_value
-                end if
-                state_obj%pos_x = cx
-                state_obj%pos_y = cy
-                state_obj%size_w = w_cells
-                state_obj%size_h = h_cells
+                s%pos_x = cx
+                s%pos_y = cy
+                s%size_w = w_cells
+                s%size_h = h_cells
+                cur_val = s%current_value
             end select
         end if
-    else
-        if (present(value)) then
-            value = max(min_v, min(max_v, value))
+
+        ! Input: click on track sets value
+        ix = int(cx)
+        iy = int(cy)
+        iw = int(w_cells)
+        track_w = iw - 2
+        mx = input_get_mouse_x()
+        my = input_get_mouse_y()
+
+        if (input_get_mouse_left() .and. my == iy .and. &
+            mx > ix .and. mx < ix + iw - 1 .and. &
+            track_w > 0) then
+            frac = real(mx - ix - 1) / real(track_w - 1)
+            frac = max(0.0, min(1.0, frac))
+            cur_val = min_v + frac * (max_v - min_v)
+            if (step_v > 0.0) then
+                cur_val = min_v + &
+                    nint((cur_val - min_v) / step_v) * step_v
+            end if
+            cur_val = max(min_v, min(max_v, cur_val))
+
+            state_index = ctx%widget_states%get(id, "slider")
+            if (state_index > 0) then
+                select type(s => &
+                    ctx%widget_states%entries(state_index)%state)
+                type is (slider_state)
+                    s%current_value = cur_val
+                end select
+            end if
+            value_changed = .true.
         end if
+    end if
+
+    if (present(value)) then
+        if (abs(cur_val - value) > 1e-6) value_changed = .true.
+        value = cur_val
+    end if
+
+    ! Render: [====|-----]
+    if (tui_is_active()) then
+        ix = int(cx)
+        iy = int(cy)
+        iw = int(w_cells)
+        track_w = iw - 2
+        fg = TB_DEFAULT
+        bg = TB_DEFAULT
+
+        if (max_v > min_v) then
+            frac = (cur_val - min_v) / (max_v - min_v)
+        else
+            frac = 0.0
+        end if
+        knob_pos = max(0, min(track_w - 1, &
+            int(frac * real(track_w - 1))))
+
+        call tui_set_cell(ix, iy, iachar('['), fg, bg)
+        do i = 0, track_w - 1
+            if (i < knob_pos) then
+                call tui_set_cell(ix + 1 + i, iy, &
+                    iachar('='), TB_CYAN, bg)
+            else if (i == knob_pos) then
+                call tui_set_cell(ix + 1 + i, iy, &
+                    iachar('|'), TB_WHITE + TB_BOLD, bg)
+            else
+                call tui_set_cell(ix + 1 + i, iy, &
+                    iachar('-'), TB_DEFAULT, bg)
+            end if
+        end do
+        call tui_set_cell(ix + iw - 1, iy, iachar(']'), fg, bg)
     end if
 
     call layout_advance(w_cells, h_cells)
 end function slider
 
-logical function checkbox(id, checked, label, width, height) result(toggled)
+logical function checkbox(id, checked, label, width, height) &
+    result(toggled)
     character(*), intent(in) :: id
     logical, intent(inout), optional :: checked
     character(*), intent(in), optional :: label
@@ -289,6 +404,8 @@ logical function checkbox(id, checked, label, width, height) result(toggled)
     type(checkbox_state) :: new_state
     real :: w_cells, h_cells, cx, cy
     character(len=256) :: display_label
+    integer :: ix, iy, iw, i, mx, my, fg, bg
+    logical :: is_checked, hover
 
     toggled = .false.
 
@@ -308,40 +425,85 @@ logical function checkbox(id, checked, label, width, height) result(toggled)
     end if
 
     call layout_get_cursor(cx, cy)
+    is_checked = .false.
+    if (present(checked)) is_checked = checked
 
     ctx => get_default_context()
     if (associated(ctx)) then
         state_index = ctx%widget_states%get(id, "checkbox")
         if (state_index == 0) then
             new_state = checkbox_state()
-            if (present(checked)) new_state%checked = checked
+            new_state%checked = is_checked
             new_state%pos_x = cx
             new_state%pos_y = cy
             new_state%size_w = w_cells
             new_state%size_h = h_cells
             call ctx%widget_states%set(id, "checkbox", new_state)
         else
-            select type(state_obj => ctx%widget_states%entries(state_index)%state)
+            select type(s => &
+                ctx%widget_states%entries(state_index)%state)
             type is (checkbox_state)
-                if (present(checked)) then
-                    if (state_obj%checked .neqv. checked) then
-                        state_obj%checked = checked
-                        toggled = .true.
-                    end if
-                    checked = state_obj%checked
-                end if
-                state_obj%pos_x = cx
-                state_obj%pos_y = cy
-                state_obj%size_w = w_cells
-                state_obj%size_h = h_cells
+                s%pos_x = cx
+                s%pos_y = cy
+                s%size_w = w_cells
+                s%size_h = h_cells
+                is_checked = s%checked
             end select
         end if
+
+        ! Input: click toggles
+        ix = int(cx)
+        iy = int(cy)
+        iw = int(w_cells)
+        mx = input_get_mouse_x()
+        my = input_get_mouse_y()
+        hover = (mx >= ix .and. mx < ix + iw .and. my == iy)
+
+        if (hover .and. input_get_mouse_left()) then
+            is_checked = .not. is_checked
+            toggled = .true.
+            state_index = ctx%widget_states%get(id, "checkbox")
+            if (state_index > 0) then
+                select type(s => &
+                    ctx%widget_states%entries(state_index)%state)
+                type is (checkbox_state)
+                    s%checked = is_checked
+                end select
+            end if
+        end if
+    end if
+
+    if (present(checked)) checked = is_checked
+
+    ! Render: [x] Label or [ ] Label
+    if (tui_is_active()) then
+        ix = int(cx)
+        iy = int(cy)
+        iw = int(w_cells)
+        fg = TB_DEFAULT
+        bg = TB_DEFAULT
+
+        call tui_set_cell(ix, iy, iachar('['), fg, bg)
+        if (is_checked) then
+            call tui_set_cell(ix + 1, iy, iachar('x'), &
+                TB_GREEN + TB_BOLD, bg)
+        else
+            call tui_set_cell(ix + 1, iy, iachar(' '), fg, bg)
+        end if
+        call tui_set_cell(ix + 2, iy, iachar(']'), fg, bg)
+        call tui_set_cell(ix + 3, iy, iachar(' '), fg, bg)
+
+        do i = 1, min(len_trim(display_label), iw - 4)
+            call tui_set_cell(ix + 3 + i, iy, &
+                iachar(display_label(i:i)), fg, bg)
+        end do
     end if
 
     call layout_advance(w_cells, h_cells)
 end function checkbox
 
-logical function viewport(id, width, height, view_state) result(view_changed)
+logical function viewport(id, width, height, view_state) &
+    result(view_changed)
     character(*), intent(in) :: id
     real, intent(in) :: width, height
     type(view), intent(inout) :: view_state
@@ -349,13 +511,12 @@ logical function viewport(id, width, height, view_state) result(view_changed)
     type(fortui_context_t), pointer :: ctx
     integer :: state_index
     type(viewport_state) :: new_state
-    real :: width_cells, height_cells
-    real :: mouse_x, mouse_y, scroll_x, scroll_y
-    logical :: mouse_left, mouse_right, mouse_middle
-    real :: cx, cy
+    real :: width_cells, height_cells, cx, cy
+    integer :: ix, iy, iw, ih, i, mx, my, scroll
+    integer :: fg, bg
+    character(len=64) :: info_str
 
     view_changed = .false.
-
     width_cells = max(width, 4.0)
     height_cells = max(height, 3.0)
 
@@ -381,145 +542,116 @@ logical function viewport(id, width, height, view_state) result(view_changed)
 
     if (state_index == 0) return
 
-    select type(state_obj => ctx%widget_states%entries(state_index)%state)
+    ix = int(cx)
+    iy = int(cy)
+    iw = int(width_cells)
+    ih = int(height_cells)
+
+    select type(s => ctx%widget_states%entries(state_index)%state)
     type is (viewport_state)
-        state_obj%pos_x = cx
-        state_obj%pos_y = cy
+        s%pos_x = cx
+        s%pos_y = cy
+        s%viewport_w = width_cells
+        s%viewport_h = height_cells
 
-        view_changed = &
-            (abs(view_state%scale_x - state_obj%prev_scale_x) > 1e-6) &
-            .or. (abs(view_state%scale_y - state_obj%prev_scale_y) &
-                > 1e-6) &
-            .or. (abs(view_state%off_x - state_obj%prev_off_x) > 1e-6) &
-            .or. (abs(view_state%off_y - state_obj%prev_off_y) > 1e-6)
+        mx = input_get_mouse_x()
+        my = input_get_mouse_y()
 
-        state_obj%viewport_w = width_cells
-        state_obj%viewport_h = height_cells
-
-        call get_input_state(mouse_x, mouse_y, mouse_left, &
-                             mouse_right, mouse_middle, &
-                             scroll_x, scroll_y)
-
-        if (abs(scroll_y) > 1e-6) then
-            call update_zoom(view_state, 1.0 + scroll_y * 0.1, &
-                            mouse_x - state_obj%viewport_x, &
-                            mouse_y - state_obj%viewport_y, &
-                            state_obj%viewport_w, &
-                            state_obj%viewport_h)
-            view_changed = .true.
-        end if
-
-        if (mouse_left) then
-            if (.not. state_obj%dragging) then
-                state_obj%dragging = .true.
-                state_obj%last_mouse_x = mouse_x
-                state_obj%last_mouse_y = mouse_y
-            else
-                call update_pan(view_state, &
-                               mouse_x - state_obj%last_mouse_x, &
-                               mouse_y - state_obj%last_mouse_y, &
-                               state_obj%viewport_w, &
-                               state_obj%viewport_h)
-                state_obj%last_mouse_x = mouse_x
-                state_obj%last_mouse_y = mouse_y
+        ! Scroll to zoom
+        if (mx >= ix .and. mx < ix + iw .and. &
+            my >= iy .and. my < iy + ih) then
+            scroll = input_get_scroll_y()
+            if (scroll /= 0) then
+                view_state%scale_x = view_state%scale_x * &
+                    (1.0 + real(scroll) * 0.1)
+                view_state%scale_y = view_state%scale_y * &
+                    (1.0 + real(scroll) * 0.1)
+                view_state%scale_x = max(0.01, &
+                    min(100.0, view_state%scale_x))
+                view_state%scale_y = max(0.01, &
+                    min(100.0, view_state%scale_y))
                 view_changed = .true.
             end if
+
+            ! Drag to pan
+            if (input_get_mouse_left()) then
+                if (.not. s%dragging) then
+                    s%dragging = .true.
+                    s%last_mouse_x = real(mx)
+                    s%last_mouse_y = real(my)
+                else
+                    view_state%off_x = view_state%off_x - &
+                        (real(mx) - s%last_mouse_x) / &
+                        (width_cells * view_state%scale_x)
+                    view_state%off_y = view_state%off_y - &
+                        (real(my) - s%last_mouse_y) / &
+                        (height_cells * view_state%scale_y)
+                    s%last_mouse_x = real(mx)
+                    s%last_mouse_y = real(my)
+                    view_changed = .true.
+                end if
+            else
+                s%dragging = .false.
+            end if
         else
-            state_obj%dragging = .false.
+            s%dragging = .false.
         end if
 
-        state_obj%prev_scale_x = view_state%scale_x
-        state_obj%prev_scale_y = view_state%scale_y
-        state_obj%prev_off_x = view_state%off_x
-        state_obj%prev_off_y = view_state%off_y
+        view_changed = view_changed .or. &
+            (abs(view_state%scale_x - s%prev_scale_x) > 1e-6) &
+            .or. (abs(view_state%scale_y - s%prev_scale_y) &
+                > 1e-6) &
+            .or. (abs(view_state%off_x - s%prev_off_x) > 1e-6) &
+            .or. (abs(view_state%off_y - s%prev_off_y) > 1e-6)
+
+        s%prev_scale_x = view_state%scale_x
+        s%prev_scale_y = view_state%scale_y
+        s%prev_off_x = view_state%off_x
+        s%prev_off_y = view_state%off_y
     end select
 
+    ! Render: border box with info
+    if (tui_is_active()) then
+        fg = TB_DEFAULT
+        bg = TB_DEFAULT
+
+        ! Top border
+        call tui_set_cell(ix, iy, iachar('+'), fg, bg)
+        do i = 1, iw - 2
+            call tui_set_cell(ix + i, iy, iachar('-'), fg, bg)
+        end do
+        call tui_set_cell(ix + iw - 1, iy, iachar('+'), fg, bg)
+
+        ! Side borders
+        do i = 1, ih - 2
+            call tui_set_cell(ix, iy + i, iachar('|'), fg, bg)
+            call tui_set_cell(ix + iw - 1, iy + i, &
+                iachar('|'), fg, bg)
+        end do
+
+        ! Info line inside viewport
+        if (ih > 2 .and. iw > 4) then
+            write(info_str, '(A,F5.1,A,F5.1,A,F5.1)') &
+                'z=', view_state%scale_x, &
+                ' x=', view_state%off_x, &
+                ' y=', view_state%off_y
+            do i = 1, min(len_trim(info_str), iw - 4)
+                call tui_set_cell(ix + 1 + i, iy + 1, &
+                    iachar(info_str(i:i)), TB_YELLOW, bg)
+            end do
+        end if
+
+        ! Bottom border
+        call tui_set_cell(ix, iy + ih - 1, iachar('+'), fg, bg)
+        do i = 1, iw - 2
+            call tui_set_cell(ix + i, iy + ih - 1, &
+                iachar('-'), fg, bg)
+        end do
+        call tui_set_cell(ix + iw - 1, iy + ih - 1, &
+            iachar('+'), fg, bg)
+    end if
+
     call layout_advance(width_cells, height_cells)
-
-contains
-
-    subroutine update_pan(view_state, mouse_delta_x, mouse_delta_y, &
-                          viewport_width, viewport_height)
-        type(view), intent(inout) :: view_state
-        real, intent(in) :: mouse_delta_x, mouse_delta_y
-        real, intent(in) :: viewport_width, viewport_height
-
-        if (viewport_width > 0.0 .and. viewport_height > 0.0) then
-            view_state%off_x = view_state%off_x - &
-                mouse_delta_x / (viewport_width * view_state%scale_x)
-            view_state%off_y = view_state%off_y - &
-                mouse_delta_y / (viewport_height * view_state%scale_y)
-        end if
-    end subroutine update_pan
-
-    subroutine update_zoom(view_state, zoom_factor, mouse_x, mouse_y, &
-                           viewport_width, viewport_height)
-        type(view), intent(inout) :: view_state
-        real, intent(in) :: zoom_factor, mouse_x, mouse_y
-        real, intent(in) :: viewport_width, viewport_height
-
-        real :: old_scale_x, old_scale_y
-        real :: view_x, view_y
-        real :: new_scale_x, new_scale_y
-
-        old_scale_x = view_state%scale_x
-        old_scale_y = view_state%scale_y
-
-        new_scale_x = old_scale_x * zoom_factor
-        new_scale_y = old_scale_y * zoom_factor
-
-        new_scale_x = max(0.01, min(100.0, new_scale_x))
-        new_scale_y = max(0.01, min(100.0, new_scale_y))
-
-        if (abs(new_scale_x - old_scale_x) > 1e-6 .or. &
-            abs(new_scale_y - old_scale_y) > 1e-6) then
-            view_state%scale_x = new_scale_x
-            view_state%scale_y = new_scale_y
-
-            if (viewport_width > 0.0 .and. &
-                viewport_height > 0.0) then
-                view_x = mouse_x / viewport_width
-                view_y = mouse_y / viewport_height
-
-                view_x = max(0.0, min(1.0, view_x))
-                view_y = max(0.0, min(1.0, view_y))
-
-                if (old_scale_x > 0.0 .and. &
-                    old_scale_y > 0.0) then
-                    if (abs(old_scale_x) > epsilon(1.0) .and. &
-                        abs(view_state%scale_x) > &
-                            epsilon(1.0)) then
-                        view_state%off_x = view_state%off_x + &
-                            view_x * (1.0/old_scale_x - &
-                                1.0/view_state%scale_x)
-                    end if
-                    if (abs(old_scale_y) > epsilon(1.0) .and. &
-                        abs(view_state%scale_y) > &
-                            epsilon(1.0)) then
-                        view_state%off_y = view_state%off_y + &
-                            view_y * (1.0/old_scale_y - &
-                                1.0/view_state%scale_y)
-                    end if
-                end if
-            end if
-        end if
-    end subroutine update_zoom
-
-    subroutine get_input_state(mouse_x, mouse_y, mouse_left, &
-                              mouse_right, mouse_middle, &
-                              scroll_x, scroll_y)
-        real, intent(out) :: mouse_x, mouse_y, scroll_x, scroll_y
-        logical, intent(out) :: mouse_left, mouse_right, mouse_middle
-
-        mouse_x = 0.0
-        mouse_y = 0.0
-        scroll_x = 0.0
-        scroll_y = 0.0
-        mouse_left = .false.
-        mouse_right = .false.
-        mouse_middle = .false.
-    end subroutine get_input_state
-
 end function viewport
 
 end module fortui_widgets
