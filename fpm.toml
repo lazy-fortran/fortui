@@ -26,6 +26,11 @@ name = "tui_rendering_demo"
 source-dir = "example"
 main = "tui_rendering_demo.f90"
 
+[[example]]
+name = "tui_demo"
+source-dir = "example"
+main = "tui_demo.f90"
+
 
 [build]
 auto-executables = true
