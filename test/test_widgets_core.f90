@@ -52,6 +52,7 @@ subroutine test_button_minimal()
         print *, "  ✓ Minimal button creation successful"
     else
         print *, "  ✗ Minimal button test failed"
+        stop 1
     end if
 end subroutine test_button_minimal
 
@@ -63,6 +64,7 @@ subroutine test_button_with_label()
         print *, "  ✓ Button with label creation successful"
     else
         print *, "  ✗ Button with label test failed"
+        stop 1
     end if
 end subroutine test_button_with_label
 
@@ -76,6 +78,7 @@ subroutine test_button_return_values()
         print *, "  ✓ Button return values valid"
     else
         print *, "  ✗ Button return value test failed"
+        stop 1
     end if
 end subroutine test_button_return_values
 
@@ -123,6 +126,7 @@ subroutine test_slider_minimal()
         print *, "  ✓ Minimal slider creation successful"
     else
         print *, "  ✗ Minimal slider test failed"
+        stop 1
     end if
 end subroutine test_slider_minimal
 
@@ -136,6 +140,7 @@ subroutine test_slider_value_handling()
         print *, "  ✓ Slider value handling correct"
     else
         print *, "  ✗ Slider value handling failed"
+        stop 1
     end if
 end subroutine test_slider_value_handling
 
@@ -149,6 +154,7 @@ subroutine test_slider_range_validation()
         print *, "  ✓ Slider range validation working"
     else
         print *, "  ✗ Slider range validation failed"
+        stop 1
     end if
 end subroutine test_slider_range_validation
 
@@ -171,6 +177,7 @@ subroutine test_checkbox_minimal()
         print *, "  ✓ Minimal checkbox creation successful"
     else
         print *, "  ✗ Minimal checkbox test failed"
+        stop 1
     end if
 end subroutine test_checkbox_minimal
 
@@ -183,6 +190,7 @@ subroutine test_checkbox_with_label()
         print *, "  ✓ Checkbox with label creation successful"
     else
         print *, "  ✗ Checkbox with label test failed"
+        stop 1
     end if
 end subroutine test_checkbox_with_label
 
@@ -197,6 +205,7 @@ subroutine test_checkbox_state_handling()
         print *, "  ✓ Checkbox state handling working"
     else
         print *, "  ✗ Checkbox state handling failed"
+        stop 1
     end if
 end subroutine test_checkbox_state_handling
 

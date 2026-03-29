@@ -258,6 +258,7 @@ logical function slider(id, min_val, max_val, step_val, value, width, height) &
             new_state = slider_state()
             if (present(value)) then
                 new_state%current_value = max(min_v, min(max_v, value))
+                value = new_state%current_value
             else
                 new_state%current_value = min_v
             end if
