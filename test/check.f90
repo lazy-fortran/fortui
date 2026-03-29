@@ -4,6 +4,7 @@ use test_lifecycle_functions
 use test_units_operators
 use test_units_simple
 use test_widgets_core
+use test_layout
 implicit none
 
 call run_fortran_tests()
@@ -20,6 +21,7 @@ subroutine run_fortran_tests()
     call test_all_unit_operators()
     call test_all_units_simple()
     call test_core_widgets()
+    call test_all_layout()
 
     print *, "✓ All Fortran unit tests completed"
     print *, ""
