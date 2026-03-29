@@ -262,8 +262,6 @@ subroutine context_begin_frame(self)
     end if
     
     if (self%in_frame) then
-        call report_warning("fortui_context", "context_begin_frame", "Already in frame")
-        ! Auto-end previous frame to allow new frame to begin
         call self%end_frame()
     end if
     
