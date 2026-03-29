@@ -72,7 +72,7 @@ subroutine test_button_return_values()
     result1 = button("return_test_1")
     result2 = button("return_test_2", "Test Button")
     
-    if (result1 .eqv. .false. .and. result2 .eqv. .false.) then
+    if (.not. result1 .and. .not. result2) then
         print *, "  ✓ Button return values valid"
     else
         print *, "  ✗ Button return value test failed"

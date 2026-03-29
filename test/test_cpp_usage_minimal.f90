@@ -10,7 +10,9 @@ call test_case("Only the TUI macro is configured", test_cpp_macros_minimal())
 call test_case("CPP directories match the active source roots", test_cpp_directories())
 call test_case("Platform #elif use stays isolated", test_platform_elif_scope())
 call test_case("No #include directives appear in library Fortran sources", &
-    command_fails("rg -q '#include' src app example -g '*.[fF]90'"))
+    command_fails( &
+    "sh -c ""find src app example -type f \\( -name '*.f90' -o -name '*.F90' \\) " // &
+    "-exec grep -q '#include' {} +"""))
 
 write(*, "(A)") ""
 write(*, "(A,I0,A,I0)") "Minimal CPP usage tests: ", tests_passed, " / ", tests_run
@@ -38,8 +40,9 @@ end function test_cpp_directories
 logical function test_platform_elif_scope() result(passed)
     passed = file_contains("src/fortui_platform_measurement.f90", "#elif") .and. &
         command_fails( &
-        "sh -c ""rg -l '#elif' src app example -g '*.[fF]90' | " // &
-        "rg -q -v '^src/fortui_platform_measurement\\.f90$'""")
+        "sh -c ""find src app example -type f \\( -name '*.f90' -o -name '*.F90' \\) " // &
+        "! -path 'src/fortui_platform_measurement.f90' " // &
+        "-exec grep -q '#elif' {} +""")
 end function test_platform_elif_scope
 
 logical function command_fails(command) result(passed)

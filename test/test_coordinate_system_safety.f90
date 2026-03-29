@@ -336,7 +336,8 @@ subroutine test_zero_viewport_dimensions()
     type(viewport_space_t) :: viewport_coord
     type(coordinate_error_t) :: error
     
-    transformer = create_transformer(1.0_real32, 0.0_real32, 600.0_real32)
+    transformer = create_transformer(1.0_real32, 800.0_real32, 600.0_real32)
+    transformer%viewport_width = 0.0_real32
     
     screen_coord%x = 100.0
     screen_coord%y = 100.0
@@ -374,7 +375,8 @@ subroutine test_maximum_scale_values()
     call transformer%validate(error)
     call assert_error_success(error, "Maximum reasonable scale values")
     
-    transformer = create_transformer(11.0_real32, 8000.0_real32, 6000.0_real32)
+    transformer = create_transformer(1.0_real32, 8000.0_real32, 6000.0_real32)
+    transformer%dpi_scale = 11.0_real32
     call transformer%validate(error)
     call assert_error_code(error, COORD_ERROR_INVALID_INPUT, "Excessive scale value rejected")
 end subroutine test_maximum_scale_values
@@ -440,6 +442,7 @@ subroutine print_test_summary()
     else
         print *, "❌ Some tests FAILED"
         print *, "Issue #62 requires additional fixes"
+        stop 1
     end if
     print *, "================================"
 end subroutine print_test_summary
