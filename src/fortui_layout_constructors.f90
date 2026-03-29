@@ -1,14 +1,18 @@
 module fortui_layout_constructors
 ! Layout constructor functions (column, row) and node type
-! Provides immediate-mode layout construction with gap and children parameters
+! Provides both tree-based (column/row) and immediate-mode (begin/end) layout
+use fortui_layout, only: layout_push_column, layout_push_row, layout_pop
 implicit none
 private
 
 ! Public types
 public :: node
 
-! Public constructors
+! Tree-based constructors (for backend render tree)
 public :: column, row
+
+! Immediate-mode layout (cursor-based positioning)
+public :: column_begin, column_end, row_begin, row_end
 
 ! Core UI tree building block
 type :: node
@@ -54,5 +58,25 @@ function row(gap, children) result(n)
         allocate(n%children(size(children)), source=children)
     end if
 end function row
+
+subroutine column_begin(gap)
+    real, intent(in), optional :: gap
+
+    call layout_push_column(gap)
+end subroutine column_begin
+
+subroutine column_end()
+    call layout_pop()
+end subroutine column_end
+
+subroutine row_begin(gap)
+    real, intent(in), optional :: gap
+
+    call layout_push_row(gap)
+end subroutine row_begin
+
+subroutine row_end()
+    call layout_pop()
+end subroutine row_end
 
 end module fortui_layout_constructors

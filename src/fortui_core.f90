@@ -20,6 +20,8 @@ public :: ui_set_idle_policy
 public :: ui_is_initialized, ui_get_backend
 ! Layout constructors (re-exported from layout constructors)
 public :: column, row
+! Immediate-mode layout (cursor-based positioning)
+public :: column_begin, column_end, row_begin, row_end
 
 interface ui_init
     module procedure ui_init_integer
@@ -164,6 +166,7 @@ subroutine ui_set_idle_policy(mode, idle_fps)
 end subroutine ui_set_idle_policy
 
 subroutine ui_frame_begin_with_context(ctx, timeout_ms)
+    use fortui_layout, only: layout_reset
     type(fortui_context_t), intent(inout) :: ctx
     integer, intent(in), optional :: timeout_ms
 
@@ -179,6 +182,7 @@ subroutine ui_frame_begin_with_context(ctx, timeout_ms)
     if (present(timeout_ms)) timeout_val = timeout_ms
 
     call ctx%begin_frame()
+    call layout_reset()
 
     if (associated(ctx%backend)) then
         call ctx%backend%begin_frame()
