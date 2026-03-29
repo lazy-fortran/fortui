@@ -179,7 +179,9 @@ subroutine test_constructor_signatures()
     ! Test both parameters together
     layout_node = column(gap=em(0.5), children=test_children)
     
-    print *, "  ✓ Constructor signatures: validated", unit_test_count, "unit types and", children_test_count, "children array patterns"
+    print *, "  ✓ Constructor signatures: validated", unit_test_count, &
+             "unit types and", children_test_count, &
+             "children array patterns"
 end subroutine test_constructor_signatures
 
 subroutine test_return_type_validation()
