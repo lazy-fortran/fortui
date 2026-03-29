@@ -121,19 +121,11 @@ subroutine ui_init_integer(backend, width, height, title, target_fps, vsync)
     call ui_init_with_context(ctx, backend, width, height, title, &
                               target_fps, vsync)
 
-    if (backend == "tui" .or. backend == "TUI") then
-        unit_ctx%dpi_scale = 1.0
-        unit_ctx%em_dp = 16.0
-        unit_ctx%text_scale = 1.0
-        unit_ctx%cell_w_dp = 8.0
-        unit_ctx%cell_h_dp = 16.0
-    else
-        unit_ctx%dpi_scale = 1.0
-        unit_ctx%em_dp = 16.0
-        unit_ctx%text_scale = 1.0
-        unit_ctx%cell_w_dp = 8.0
-        unit_ctx%cell_h_dp = 16.0
-    end if
+    unit_ctx%dpi_scale = 1.0
+    unit_ctx%em_dp = 16.0
+    unit_ctx%text_scale = 1.0
+    unit_ctx%cell_w_dp = 8.0
+    unit_ctx%cell_h_dp = 16.0
     call ui_set_context(unit_ctx)
 end subroutine ui_init_integer
 
@@ -163,16 +155,12 @@ subroutine ui_set_idle_policy(mode, idle_fps)
         ctx%idle_fps = max(1, idle_fps)
     end if
 
-#ifdef ENABLE_GUI
     if (trim(ctx%active_backend) == "gui") then
-        ! GUI idle policy applied
-    end if
-#else
-    if (trim(ctx%active_backend) == "gui") then
+#ifndef ENABLE_GUI
         call report_error("fortui_core", "ui_set_idle_policy", &
             "GUI backend not available (disabled at compile time)")
-    end if
 #endif
+    end if
 end subroutine ui_set_idle_policy
 
 subroutine ui_frame_begin_with_context(ctx, timeout_ms)
