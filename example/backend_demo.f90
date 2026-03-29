@@ -1,7 +1,6 @@
 program backend_demo
   use fortui_core
   use fortui_units
-  use fortui_unit_types
   implicit none
 
   type(node) :: ui, inner_layout
@@ -10,7 +9,7 @@ program backend_demo
   integer :: frame = 0
 
   ! Backend Registry Pattern - automatic selection with graceful fallback
-  call ui_init("auto", cw_unit(60.0), ch_unit(20.0), "Backend Demo")
+  call ui_init("auto", cw(60.0), ch(20.0), "Backend Demo")
   ! GUI preferred → TUI fallback → Clear error message
   
   running = .true.

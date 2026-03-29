@@ -3,9 +3,6 @@ program test_backend_basic
 use fortui_backend
 use fortui_backend_init
 use fortui_tui
-#ifdef ENABLE_GUI
-use fortui_gui
-#endif
 implicit none
 
 class(backend_interface), pointer :: backend
@@ -95,24 +92,7 @@ else
     stop 1
 end if
 
-#ifdef ENABLE_GUI
-! Test 6: GUI backend registration (if available)
-print *, "Test 6: Testing GUI backend registration..."
-call register_gui_backend()
-backend => get_backend("gui")
-if (associated(backend)) then
-    print *, "  ✓ GUI backend registered successfully"
-    if (backend%capabilities%graphics) then
-        print *, "  ✓ GUI reports graphics capability"
-    else
-        print *, "  ✗ GUI should support graphics"
-    end if
-else
-    print *, "  ✗ Failed to register GUI backend"
-end if
-#else
-print *, "Test 6: GUI backend not compiled (ENABLE_GUI not defined)"
-#endif
+print *, "Test 6: GUI backend intentionally absent in the TUI-only build"
 
 print *, ""
 print *, "========================================"

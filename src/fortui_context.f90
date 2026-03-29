@@ -8,7 +8,6 @@ module fortui_context
 use fortui_error, only: report_error, report_warning
 use fortui_backend, only: backend_interface, backend_registry
 use fortui_units, only: ui_context
-use fortui_widget_renderer, only: widget_renderer_t
 implicit none
 private
 
@@ -50,9 +49,6 @@ type :: fortui_context_t
     character(len=32) :: active_backend = ""
     class(backend_interface), pointer :: backend => null()
     
-    ! Widget renderer (collaboration pattern)
-    class(widget_renderer_t), pointer :: renderer => null()
-    
     ! Window/display state
     integer :: window_width = 80
     integer :: window_height = 24
@@ -89,8 +85,6 @@ contains
     procedure :: end_frame => context_end_frame
     procedure :: is_valid => context_is_valid
     procedure :: validate => context_validate
-    procedure :: get_renderer => context_get_renderer
-    procedure :: set_renderer => context_set_renderer
 end type fortui_context_t
 
 ! Widget state map implementation (types defined above)
@@ -437,20 +431,5 @@ subroutine map_resize(self)
     call move_alloc(new_entries, self%entries)
     self%capacity = new_capacity
 end subroutine map_resize
-
-! Renderer management methods
-function context_get_renderer(self) result(renderer)
-    class(fortui_context_t), intent(in) :: self
-    class(widget_renderer_t), pointer :: renderer
-    
-    renderer => self%renderer
-end function context_get_renderer
-
-subroutine context_set_renderer(self, renderer)
-    class(fortui_context_t), intent(inout) :: self
-    class(widget_renderer_t), intent(in), target :: renderer
-    
-    self%renderer => renderer
-end subroutine context_set_renderer
 
 end module fortui_context

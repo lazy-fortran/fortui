@@ -122,12 +122,9 @@ end function make_ch
 ! Unit conversion engine with runtime type checking
 
 real function convert_to_dp(unit_arg, ctx) result(dp_val)
-    ! Convert any unit type or bare real to density-independent pixels
-    ! Uses runtime type checking for class(*) polymorphism
-    use fortui_coordinates, only: safe_px_to_dp, coordinate_error_t, COORD_SUCCESS
+    ! Convert any unit type or bare real to density-independent pixels.
     class(*), intent(in) :: unit_arg
     type(ui_context), intent(in) :: ctx
-    type(coordinate_error_t) :: error
     
     select type(unit_arg)
         type is (unit_value)
@@ -146,9 +143,13 @@ real function convert_to_dp(unit_arg, ctx) result(dp_val)
                     dp_val = unit_arg%value * ctx%text_scale
                     
                 case ("px")
-                    ! Convert px to dp using safe coordinate conversion (Issue #62 fix)
-                    dp_val = safe_px_to_dp(unit_arg%value, ctx%dpi_scale, error)
-                    ! Error handling is internal to safe_px_to_dp
+                    if (ctx%dpi_scale > 0.0) then
+                        dp_val = unit_arg%value / ctx%dpi_scale
+                    else
+                        call report_error("fortui_units", "convert_to_dp", &
+                            "dpi_scale must be positive for px conversion")
+                        dp_val = unit_arg%value
+                    end if
                     
                 case ("cw")
                     ! Convert cw to dp: value * cell_w_dp (TUI cell width)
