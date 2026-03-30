@@ -1,97 +1,88 @@
 program gui_demo
-! Comprehensive GUI backend demonstration
-! Shows automatic backend selection, GUI features, and cross-platform compatibility
+! GUI backend demonstration
+! Uses automatic backend selection: GUI if available, TUI otherwise
+! Same code works with both backends via the render dispatch layer
+!
+! Controls:
+!   Mouse click   - interact with widgets
+!   Tab           - cycle keyboard focus
+!   Enter / Space - activate focused button or toggle checkbox
+!   Left / Right  - adjust focused slider
+!   ESC           - quit
 use fortui
 implicit none
 
 logical :: running, save_clicked, load_clicked, auto_save
-real :: volume = 50.0, brightness = 75.0
-integer :: frame_count = 0
+real :: volume, brightness
+integer :: frame_count
 character(len=64) :: status_text
 type(view) :: plot_view
-! Text node types removed - text widgets work immediate-mode
-type(node) :: root_node  ! Root node for UI tree
+type(node) :: root_node
 
-print *, "=== fortui GUI Backend Demo ==="
-print *, ""
+volume = 50.0
+brightness = 75.0
+auto_save = .false.
+frame_count = 0
+plot_view = view()
 
-! Automatic backend selection - uses GUI if available, TUI otherwise
-call ui_init("auto", 640, 480, "fortui GUI Demo", target_fps=60, vsync=.true.)
-
-! Configure power-efficient settings for GUI mode
-#ifdef ENABLE_GUI
-    print *, "GUI backend compiled in - using raylib for pixel-perfect rendering"
-    call ui_set_idle_policy("adaptive", idle_fps=12)
-#else
-    print *, "TUI-only mode - using terminal with cell-based rendering"  
-#endif
-print *, ""
+call ui_init("auto", 640, 480, "fortui GUI Demo", &
+    target_fps=60, vsync=.true.)
+call ui_set_idle_policy("adaptive", idle_fps=12)
 
 running = .true.
-do while (running)
-    call ui_frame_begin(timeout_ms=50)  ! Fast updates for smooth demo
+root_node = column()
+
+do while (running .and. .not. ui_should_close())
+    call ui_frame_begin()
     frame_count = frame_count + 1
-    
-    ! Create status text
-    write(status_text, '("Frame: ",I6," | Volume: ",F4.1,"% | Brightness: ",F4.1,"%")') &
-        frame_count, volume, brightness
-    
-    ! Demo UI with various widgets  
-    call text("title", "fortui GUI Backend Demo", text_size=20.0)
-    call text("subtitle", "Cross-platform GUI with raylib integration")
-    call text("status", status_text)
-    
-    ! Interactive controls
-    save_clicked = button("save", "Save Settings", width=120.0, height=35.0)
-    load_clicked = button("load", "Load Settings", width=120.0, height=35.0)
-    
-    ! Sliders for numeric input
-    if (slider("volume", 0.0, 100.0, 1.0, volume, width=200.0)) then
-        ! Volume changed - could trigger audio update
+
+    write(status_text, '(A,I6,A,F5.1,A,F5.1,A)') &
+        "Frame:", frame_count, " Vol:", volume, &
+        " Brt:", brightness, "%"
+
+    call text("title", "fortui GUI Demo", text_size=2.0)
+    call text("status", trim(status_text))
+    call text("sep1", value=repeat('-', 50), width=50.0)
+
+    call row_begin(2.0)
+    save_clicked = button("save", "Save")
+    load_clicked = button("load", "Load")
+    call row_end()
+
+    call text("sep2", value=repeat('-', 50), width=50.0)
+
+    call row_begin(1.0)
+    call text("vol_lbl", value="Volume: ", width=8.0)
+    if (slider("volume", 0.0, 100.0, 1.0, volume, &
+        width=30.0)) then
     end if
-    
-    if (slider("brightness", 0.0, 100.0, 1.0, brightness, width=200.0)) then  
-        ! Brightness changed - could trigger display update
+    call row_end()
+
+    call row_begin(1.0)
+    call text("brt_lbl", value="Bright: ", width=8.0)
+    if (slider("brightness", 0.0, 100.0, 1.0, brightness, &
+        width=30.0)) then
     end if
-    
-    ! Checkbox for toggles
-    auto_save = checkbox("autosave", auto_save, "Enable Auto-Save")
-    
-    ! Viewport for interactive content
-    if (viewport("demo_plot", 400.0, 200.0, plot_view)) then
-        ! View changed - could trigger plot redraw
+    call row_end()
+
+    auto_save = checkbox("autosave", auto_save, "Auto-Save")
+
+    call text("sep3", value=repeat('-', 50), width=50.0)
+    if (viewport("demo_vp", 40.0, 8.0, plot_view)) then
     end if
-    
-    ! Handle button clicks
+
     if (save_clicked) then
-        print *, "Saving settings: Volume=", volume, "Brightness=", brightness, &
-                 "Auto-save=", auto_save
+        status_text = "Saved!"
     end if
-    
     if (load_clicked) then
-        ! Reset to defaults
         volume = 50.0
         brightness = 75.0
         auto_save = .false.
-        print *, "Settings loaded (reset to defaults)"
     end if
-    
-    ! End the frame properly to avoid warning spam
-    ! Create a minimal tree structure with just a root node
-    root_node%layout_type = "none"
+
     call ui_present(root_node)
-    running = .not. ui_should_close()
 end do
 
 call ui_shutdown()
-
-print *, ""
-print *, "Demo completed after", frame_count, "frames"
-print *, "Final settings: Volume=", volume, "Brightness=", brightness
-#ifdef ENABLE_GUI
-    print *, "GUI backend demonstration successful!"
-#else
-    print *, "TUI backend demonstration successful!"
-#endif
 
 end program gui_demo

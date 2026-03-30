@@ -4,31 +4,46 @@
 FPM := fpm
 SHELL := /bin/bash
 
+# TUI-only build flags (default)
+TUI_FLAGS := -cpp -DTUI_ONLY -DENABLE_TUI=1
+
+# GUI build flags (requires: sudo pacman -S raylib)
+GUI_FLAGS := -cpp -DENABLE_TUI=1 -DENABLE_GUI=1
+GUI_LDFLAGS := -lraylib
+
 # Default target
 .PHONY: all
 all: build
 
-# Build project
+# Build project (TUI-only)
 .PHONY: build
 build:
-	@echo "Building fortui with FPM..."
-	@export FPM_FFLAGS="$${FPM_FFLAGS:-} -cpp -DTUI_ONLY -DENABLE_TUI=1" && \
-	echo "FPM flags: $$FPM_FFLAGS" && \
+	@echo "Building fortui (TUI)..."
+	@export FPM_FFLAGS="$${FPM_FFLAGS:-} $(TUI_FLAGS)" && \
 	$(FPM) build
 
-# Run tests
+# Build project with GUI backend
+.PHONY: build-gui
+build-gui:
+	@echo "Building fortui (TUI + GUI)..."
+	@export FPM_FFLAGS="$${FPM_FFLAGS:-} $(GUI_FLAGS)" && \
+	export FPM_LDFLAGS="$${FPM_LDFLAGS:-} $(GUI_LDFLAGS)" && \
+	$(FPM) build
+
+# Run tests (TUI-only)
 .PHONY: test
 test:
-	@echo "Running tests with FPM..."
-	@export FPM_FFLAGS="$${FPM_FFLAGS:-} -cpp -DTUI_ONLY -DENABLE_TUI=1" && \
+	@echo "Running tests (TUI)..."
+	@export FPM_FFLAGS="$${FPM_FFLAGS:-} $(TUI_FLAGS)" && \
 	$(FPM) test
 
-# Run specific example
-.PHONY: run
-run:
-	@echo "Running fortui with FPM..."
-	@export FPM_FFLAGS="$${FPM_FFLAGS:-} -cpp -DTUI_ONLY -DENABLE_TUI=1" && \
-	$(FPM) run
+# Run tests with GUI backend compiled
+.PHONY: test-gui
+test-gui:
+	@echo "Running tests (TUI + GUI)..."
+	@export FPM_FFLAGS="$${FPM_FFLAGS:-} $(GUI_FLAGS)" && \
+	export FPM_LDFLAGS="$${FPM_LDFLAGS:-} $(GUI_LDFLAGS)" && \
+	$(FPM) test
 
 # Clean build artifacts
 .PHONY: clean
@@ -45,12 +60,12 @@ help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
-	@echo "  all       - Build the project (default)"
-	@echo "  build     - Build project"
-	@echo "  test      - Run tests"
-	@echo "  run       - Run the application"
-	@echo "  clean     - Clean build artifacts"
-	@echo "  help      - Show this help message"
+	@echo "  all        - Build the project (default, TUI-only)"
+	@echo "  build      - Build project (TUI-only)"
+	@echo "  build-gui  - Build project with GUI backend (requires raylib)"
+	@echo "  test       - Run tests (TUI-only)"
+	@echo "  test-gui   - Run tests with GUI backend compiled"
+	@echo "  clean      - Clean build artifacts"
+	@echo "  help       - Show this help message"
 	@echo ""
-	@echo "Note: This project uses embedded termbox2 backend (TUI-only)."
-	@echo "All dependencies are self-contained within the FPM build."
+	@echo "GUI backend requires: sudo pacman -S raylib"

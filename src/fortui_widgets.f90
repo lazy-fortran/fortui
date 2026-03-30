@@ -5,9 +5,9 @@ use iso_c_binding
 use fortui_context, only: fortui_context_t, get_default_context
 use fortui_core, only: view
 use fortui_layout, only: layout_get_cursor, layout_advance
-use fortui_tui, only: tui_is_active, tui_set_cell, &
-    TB_DEFAULT, TB_WHITE, TB_BLACK, TB_CYAN, TB_YELLOW, &
-    TB_GREEN, TB_RED, TB_BLUE, TB_BOLD, TB_REVERSE
+use fortui_render, only: render_is_active, render_set_cell, &
+    RC_DEFAULT, RC_WHITE, RC_BLACK, RC_CYAN, RC_YELLOW, &
+    RC_GREEN, RC_RED, RC_BLUE, RC_BOLD, RC_REVERSE
 use fortui_input, only: input_get_mouse_x, input_get_mouse_y, &
     input_get_mouse_left, input_get_scroll_y, input_get_key, &
     input_register_focusable, input_has_focus, input_set_focus, &
@@ -173,29 +173,29 @@ logical function button(id, label, width, height) result(clicked)
     end if
 
     ! Render: [ Label ]
-    if (tui_is_active()) then
+    if (render_is_active()) then
         if (clicked) then
-            fg = TB_BLACK
-            bg = TB_WHITE
+            fg = RC_BLACK
+            bg = RC_WHITE
         else if (focused) then
-            fg = TB_BLACK + TB_BOLD
-            bg = TB_YELLOW
+            fg = RC_BLACK + RC_BOLD
+            bg = RC_YELLOW
         else if (hover) then
-            fg = TB_BLACK + TB_BOLD
-            bg = TB_CYAN
+            fg = RC_BLACK + RC_BOLD
+            bg = RC_CYAN
         else
-            fg = TB_WHITE
-            bg = TB_BLUE
+            fg = RC_WHITE
+            bg = RC_BLUE
         end if
 
-        call tui_set_cell(ix, iy, iachar('['), fg, bg)
-        call tui_set_cell(ix + 1, iy, iachar(' '), fg, bg)
+        call render_set_cell(ix, iy, iachar('['), fg, bg)
+        call render_set_cell(ix + 1, iy, iachar(' '), fg, bg)
         do i = 1, min(len_trim(display_label), iw - 4)
-            call tui_set_cell(ix + 1 + i, iy, &
+            call render_set_cell(ix + 1 + i, iy, &
                 iachar(display_label(i:i)), fg, bg)
         end do
-        call tui_set_cell(ix + iw - 2, iy, iachar(' '), fg, bg)
-        call tui_set_cell(ix + iw - 1, iy, iachar(']'), fg, bg)
+        call render_set_cell(ix + iw - 2, iy, iachar(' '), fg, bg)
+        call render_set_cell(ix + iw - 1, iy, iachar(']'), fg, bg)
     end if
 
     call layout_advance(w_cells, h_cells)
@@ -255,18 +255,18 @@ subroutine text(id, value, text_size, width, height)
     end if
 
     ! Render plain text
-    if (tui_is_active()) then
+    if (render_is_active()) then
         ix = int(cx)
         iy = int(cy)
         iw = int(w_cells)
-        fg = TB_DEFAULT
-        bg = TB_DEFAULT
+        fg = RC_DEFAULT
+        bg = RC_DEFAULT
         if (present(text_size)) then
-            if (text_size > 1.5) fg = TB_DEFAULT + TB_BOLD
+            if (text_size > 1.5) fg = RC_DEFAULT + RC_BOLD
         end if
 
         do i = 1, min(len_trim(display_value), iw)
-            call tui_set_cell(ix + i - 1, iy, &
+            call render_set_cell(ix + i - 1, iy, &
                 iachar(display_value(i:i)), fg, bg)
         end do
     end if
@@ -404,13 +404,13 @@ logical function slider(id, min_val, max_val, step_val, value, &
     end if
 
     ! Render: [====|-----]
-    if (tui_is_active()) then
+    if (render_is_active()) then
         ix = int(cx)
         iy = int(cy)
         iw = int(w_cells)
         track_w = iw - 2
-        fg = TB_DEFAULT
-        bg = TB_DEFAULT
+        fg = RC_DEFAULT
+        bg = RC_DEFAULT
 
         if (max_v > min_v) then
             frac = (cur_val - min_v) / (max_v - min_v)
@@ -421,35 +421,35 @@ logical function slider(id, min_val, max_val, step_val, value, &
             int(frac * real(track_w - 1))))
 
         if (focused) then
-            call tui_set_cell(ix, iy, iachar('['), &
-                TB_YELLOW + TB_BOLD, bg)
+            call render_set_cell(ix, iy, iachar('['), &
+                RC_YELLOW + RC_BOLD, bg)
         else
-            call tui_set_cell(ix, iy, iachar('['), fg, bg)
+            call render_set_cell(ix, iy, iachar('['), fg, bg)
         end if
 
         do i = 0, track_w - 1
             if (i < knob_pos) then
-                call tui_set_cell(ix + 1 + i, iy, &
-                    iachar('='), TB_CYAN, bg)
+                call render_set_cell(ix + 1 + i, iy, &
+                    iachar('='), RC_CYAN, bg)
             else if (i == knob_pos) then
                 if (focused) then
-                    call tui_set_cell(ix + 1 + i, iy, &
-                        iachar('|'), TB_YELLOW + TB_BOLD, bg)
+                    call render_set_cell(ix + 1 + i, iy, &
+                        iachar('|'), RC_YELLOW + RC_BOLD, bg)
                 else
-                    call tui_set_cell(ix + 1 + i, iy, &
-                        iachar('|'), TB_WHITE + TB_BOLD, bg)
+                    call render_set_cell(ix + 1 + i, iy, &
+                        iachar('|'), RC_WHITE + RC_BOLD, bg)
                 end if
             else
-                call tui_set_cell(ix + 1 + i, iy, &
-                    iachar('-'), TB_DEFAULT, bg)
+                call render_set_cell(ix + 1 + i, iy, &
+                    iachar('-'), RC_DEFAULT, bg)
             end if
         end do
 
         if (focused) then
-            call tui_set_cell(ix + iw - 1, iy, iachar(']'), &
-                TB_YELLOW + TB_BOLD, bg)
+            call render_set_cell(ix + iw - 1, iy, iachar(']'), &
+                RC_YELLOW + RC_BOLD, bg)
         else
-            call tui_set_cell(ix + iw - 1, iy, iachar(']'), &
+            call render_set_cell(ix + iw - 1, iy, iachar(']'), &
                 fg, bg)
         end if
     end if
@@ -558,30 +558,30 @@ logical function checkbox(id, checked, label, width, height) &
     if (present(checked)) checked = is_checked
 
     ! Render: [x] Label or [ ] Label
-    if (tui_is_active()) then
+    if (render_is_active()) then
         ix = int(cx)
         iy = int(cy)
         iw = int(w_cells)
 
         if (focused) then
-            fg = TB_YELLOW + TB_BOLD
+            fg = RC_YELLOW + RC_BOLD
         else
-            fg = TB_DEFAULT
+            fg = RC_DEFAULT
         end if
-        bg = TB_DEFAULT
+        bg = RC_DEFAULT
 
-        call tui_set_cell(ix, iy, iachar('['), fg, bg)
+        call render_set_cell(ix, iy, iachar('['), fg, bg)
         if (is_checked) then
-            call tui_set_cell(ix + 1, iy, iachar('x'), &
-                TB_GREEN + TB_BOLD, bg)
+            call render_set_cell(ix + 1, iy, iachar('x'), &
+                RC_GREEN + RC_BOLD, bg)
         else
-            call tui_set_cell(ix + 1, iy, iachar(' '), fg, bg)
+            call render_set_cell(ix + 1, iy, iachar(' '), fg, bg)
         end if
-        call tui_set_cell(ix + 2, iy, iachar(']'), fg, bg)
-        call tui_set_cell(ix + 3, iy, iachar(' '), fg, bg)
+        call render_set_cell(ix + 2, iy, iachar(']'), fg, bg)
+        call render_set_cell(ix + 3, iy, iachar(' '), fg, bg)
 
         do i = 1, min(len_trim(display_label), iw - 4)
-            call tui_set_cell(ix + 3 + i, iy, &
+            call render_set_cell(ix + 3 + i, iy, &
                 iachar(display_label(i:i)), fg, bg)
         end do
     end if
@@ -698,21 +698,21 @@ logical function viewport(id, width, height, view_state) &
     end select
 
     ! Render: border box with info
-    if (tui_is_active()) then
-        fg = TB_DEFAULT
-        bg = TB_DEFAULT
+    if (render_is_active()) then
+        fg = RC_DEFAULT
+        bg = RC_DEFAULT
 
         ! Top border
-        call tui_set_cell(ix, iy, iachar('+'), fg, bg)
+        call render_set_cell(ix, iy, iachar('+'), fg, bg)
         do i = 1, iw - 2
-            call tui_set_cell(ix + i, iy, iachar('-'), fg, bg)
+            call render_set_cell(ix + i, iy, iachar('-'), fg, bg)
         end do
-        call tui_set_cell(ix + iw - 1, iy, iachar('+'), fg, bg)
+        call render_set_cell(ix + iw - 1, iy, iachar('+'), fg, bg)
 
         ! Side borders
         do i = 1, ih - 2
-            call tui_set_cell(ix, iy + i, iachar('|'), fg, bg)
-            call tui_set_cell(ix + iw - 1, iy + i, &
+            call render_set_cell(ix, iy + i, iachar('|'), fg, bg)
+            call render_set_cell(ix + iw - 1, iy + i, &
                 iachar('|'), fg, bg)
         end do
 
@@ -723,18 +723,18 @@ logical function viewport(id, width, height, view_state) &
                 ' x=', view_state%off_x, &
                 ' y=', view_state%off_y
             do i = 1, min(len_trim(info_str), iw - 4)
-                call tui_set_cell(ix + 1 + i, iy + 1, &
-                    iachar(info_str(i:i)), TB_YELLOW, bg)
+                call render_set_cell(ix + 1 + i, iy + 1, &
+                    iachar(info_str(i:i)), RC_YELLOW, bg)
             end do
         end if
 
         ! Bottom border
-        call tui_set_cell(ix, iy + ih - 1, iachar('+'), fg, bg)
+        call render_set_cell(ix, iy + ih - 1, iachar('+'), fg, bg)
         do i = 1, iw - 2
-            call tui_set_cell(ix + i, iy + ih - 1, &
+            call render_set_cell(ix + i, iy + ih - 1, &
                 iachar('-'), fg, bg)
         end do
-        call tui_set_cell(ix + iw - 1, iy + ih - 1, &
+        call render_set_cell(ix + iw - 1, iy + ih - 1, &
             iachar('+'), fg, bg)
     end if
 

@@ -3,6 +3,7 @@ module fortui_tui
 ! Always compiled, provides terminal user interface capabilities
 use fortui_backend
 use fortui_input, only: input_reset, input_set_mouse, input_set_key
+use fortui_render, only: render_register_backend, render_clear_backend
 use fortui_error, only: report_error
 use iso_c_binding
 use iso_fortran_env, only: int64
@@ -215,12 +216,16 @@ subroutine tui_init(self, width, height, title, target_fps, vsync)
     self%mouse_enabled = .true.
     tui_active = .true.
     quit_requested = .false.
+
+    call render_register_backend(tui_set_cell, tui_is_active, &
+        tui_get_width, tui_get_height)
 end subroutine tui_init
 
 subroutine tui_shutdown(self)
     class(tui_backend_t), intent(inout) :: self
 
     if (self%initialized) then
+        call render_clear_backend()
         call tb_shutdown()
         self%initialized = .false.
         tui_active = .false.

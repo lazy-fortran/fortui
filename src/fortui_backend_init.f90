@@ -3,6 +3,7 @@ module fortui_backend_init
 ! Separates registration from core to avoid circular dependencies
 use fortui_backend
 use fortui_tui, only: register_tui_backend
+use fortui_gui, only: register_gui_backend
 use fortui_context, only: fortui_context_t, get_default_context
 implicit none
 private
@@ -32,7 +33,8 @@ subroutine ensure_backends_registered_with_context(ctx)
         
         ! Always register TUI backend
         call register_tui_backend()
-        
+        call register_gui_backend()
+
         state_obj%backends_registered = .true.
     end select
 end subroutine ensure_backends_registered_with_context
@@ -47,9 +49,9 @@ subroutine ensure_backends_registered()
         call ensure_backends_registered_with_context(ctx)
     else
         ! Fallback to direct registration without context
-        ! (for cases where context is not yet available)
         call register_tui_backend()
-        
+        call register_gui_backend()
+
     end if
 end subroutine ensure_backends_registered
 
