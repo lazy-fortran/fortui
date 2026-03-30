@@ -1,14 +1,15 @@
 module fortui_render
 ! Backend-agnostic render dispatch via procedure pointers.
-! Backends register their rendering functions during init.
-! Widgets call render_set_cell etc. without knowing which
-! backend is active.
+! Provides both cell-level (TUI) and primitive-level (GUI) rendering.
+! Backends register their functions during init.
 implicit none
 private
 
-public :: render_set_cell, render_is_active
+public :: render_set_cell, render_is_active, render_is_gui
 public :: render_get_width, render_get_height
-public :: render_register_backend, render_clear_backend
+public :: render_fill_rect, render_draw_text, render_draw_border
+public :: render_register_backend, render_register_gui_prims
+public :: render_clear_backend
 
 ! Backend-agnostic color constants (same values as termbox2)
 integer, parameter, public :: RC_DEFAULT = 0
@@ -34,8 +35,22 @@ abstract interface
 
     integer function get_dim_iface()
     end function
+
+    subroutine fill_rect_iface(x, y, w, h, color)
+        integer, intent(in) :: x, y, w, h, color
+    end subroutine
+
+    subroutine draw_text_iface(x, y, str, fg, bg)
+        integer, intent(in) :: x, y, fg, bg
+        character(*), intent(in) :: str
+    end subroutine
+
+    subroutine draw_border_iface(x, y, w, h, fg, bg)
+        integer, intent(in) :: x, y, w, h, fg, bg
+    end subroutine
 end interface
 
+! Core dispatch pointers (both backends)
 procedure(set_cell_iface), pointer, save :: &
     set_cell_ptr => null()
 procedure(is_active_iface), pointer, save :: &
@@ -44,6 +59,16 @@ procedure(get_dim_iface), pointer, save :: &
     get_width_ptr => null()
 procedure(get_dim_iface), pointer, save :: &
     get_height_ptr => null()
+
+! GUI primitive dispatch pointers
+procedure(fill_rect_iface), pointer, save :: &
+    fill_rect_ptr => null()
+procedure(draw_text_iface), pointer, save :: &
+    draw_text_ptr => null()
+procedure(draw_border_iface), pointer, save :: &
+    draw_border_ptr => null()
+
+logical, save :: gui_mode = .false.
 
 contains
 
@@ -60,11 +85,27 @@ subroutine render_register_backend(set_cell_fn, is_active_fn, &
     get_height_ptr => get_height_fn
 end subroutine render_register_backend
 
+subroutine render_register_gui_prims(fill_rect_fn, &
+    draw_text_fn, draw_border_fn)
+    procedure(fill_rect_iface) :: fill_rect_fn
+    procedure(draw_text_iface) :: draw_text_fn
+    procedure(draw_border_iface) :: draw_border_fn
+
+    fill_rect_ptr => fill_rect_fn
+    draw_text_ptr => draw_text_fn
+    draw_border_ptr => draw_border_fn
+    gui_mode = .true.
+end subroutine render_register_gui_prims
+
 subroutine render_clear_backend()
     set_cell_ptr => null()
     is_active_ptr => null()
     get_width_ptr => null()
     get_height_ptr => null()
+    fill_rect_ptr => null()
+    draw_text_ptr => null()
+    draw_border_ptr => null()
+    gui_mode = .false.
 end subroutine render_clear_backend
 
 subroutine render_set_cell(x, y, ch, fg, bg)
@@ -82,6 +123,10 @@ logical function render_is_active()
     end if
 end function render_is_active
 
+logical function render_is_gui()
+    render_is_gui = gui_mode
+end function render_is_gui
+
 integer function render_get_width()
     if (associated(get_width_ptr)) then
         render_get_width = get_width_ptr()
@@ -97,5 +142,27 @@ integer function render_get_height()
         render_get_height = 24
     end if
 end function render_get_height
+
+subroutine render_fill_rect(x, y, w, h, color)
+    integer, intent(in) :: x, y, w, h, color
+
+    if (associated(fill_rect_ptr)) &
+        call fill_rect_ptr(x, y, w, h, color)
+end subroutine render_fill_rect
+
+subroutine render_draw_text(x, y, str, fg, bg)
+    integer, intent(in) :: x, y, fg, bg
+    character(*), intent(in) :: str
+
+    if (associated(draw_text_ptr)) &
+        call draw_text_ptr(x, y, str, fg, bg)
+end subroutine render_draw_text
+
+subroutine render_draw_border(x, y, w, h, fg, bg)
+    integer, intent(in) :: x, y, w, h, fg, bg
+
+    if (associated(draw_border_ptr)) &
+        call draw_border_ptr(x, y, w, h, fg, bg)
+end subroutine render_draw_border
 
 end module fortui_render

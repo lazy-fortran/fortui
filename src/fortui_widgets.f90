@@ -5,7 +5,9 @@ use iso_c_binding
 use fortui_context, only: fortui_context_t, get_default_context
 use fortui_core, only: view
 use fortui_layout, only: layout_get_cursor, layout_advance
-use fortui_render, only: render_is_active, render_set_cell, &
+use fortui_render, only: render_is_active, render_is_gui, &
+    render_set_cell, render_fill_rect, render_draw_text, &
+    render_draw_border, &
     RC_DEFAULT, RC_WHITE, RC_BLACK, RC_CYAN, RC_YELLOW, &
     RC_GREEN, RC_RED, RC_BLUE, RC_BOLD, RC_REVERSE
 use fortui_input, only: input_get_mouse_x, input_get_mouse_y, &
@@ -172,7 +174,7 @@ logical function button(id, label, width, height) result(clicked)
         end select
     end if
 
-    ! Render: [ Label ]
+    ! Render button
     if (render_is_active()) then
         if (clicked) then
             fg = RC_BLACK
@@ -188,14 +190,23 @@ logical function button(id, label, width, height) result(clicked)
             bg = RC_BLUE
         end if
 
-        call render_set_cell(ix, iy, iachar('['), fg, bg)
-        call render_set_cell(ix + 1, iy, iachar(' '), fg, bg)
-        do i = 1, min(len_trim(display_label), iw - 4)
-            call render_set_cell(ix + 1 + i, iy, &
-                iachar(display_label(i:i)), fg, bg)
-        end do
-        call render_set_cell(ix + iw - 2, iy, iachar(' '), fg, bg)
-        call render_set_cell(ix + iw - 1, iy, iachar(']'), fg, bg)
+        if (render_is_gui()) then
+            call render_fill_rect(ix, iy, iw, 1, bg)
+            call render_draw_text(ix + 1, iy, &
+                trim(display_label), fg, bg)
+        else
+            call render_set_cell(ix, iy, iachar('['), fg, bg)
+            call render_set_cell(ix + 1, iy, &
+                iachar(' '), fg, bg)
+            do i = 1, min(len_trim(display_label), iw - 4)
+                call render_set_cell(ix + 1 + i, iy, &
+                    iachar(display_label(i:i)), fg, bg)
+            end do
+            call render_set_cell(ix + iw - 2, iy, &
+                iachar(' '), fg, bg)
+            call render_set_cell(ix + iw - 1, iy, &
+                iachar(']'), fg, bg)
+        end if
     end if
 
     call layout_advance(w_cells, h_cells)
@@ -265,10 +276,16 @@ subroutine text(id, value, text_size, width, height)
             if (text_size > 1.5) fg = RC_DEFAULT + RC_BOLD
         end if
 
-        do i = 1, min(len_trim(display_value), iw)
-            call render_set_cell(ix + i - 1, iy, &
-                iachar(display_value(i:i)), fg, bg)
-        end do
+        if (render_is_gui()) then
+            call render_draw_text(ix, iy, &
+                display_value(1:min(len_trim(display_value), &
+                iw)), fg, bg)
+        else
+            do i = 1, min(len_trim(display_value), iw)
+                call render_set_cell(ix + i - 1, iy, &
+                    iachar(display_value(i:i)), fg, bg)
+            end do
+        end if
     end if
 
     call layout_advance(w_cells, h_cells)
@@ -403,7 +420,7 @@ logical function slider(id, min_val, max_val, step_val, value, &
         value = cur_val
     end if
 
-    ! Render: [====|-----]
+    ! Render slider
     if (render_is_active()) then
         ix = int(cx)
         iy = int(cy)
@@ -420,37 +437,58 @@ logical function slider(id, min_val, max_val, step_val, value, &
         knob_pos = max(0, min(track_w - 1, &
             int(frac * real(track_w - 1))))
 
-        if (focused) then
-            call render_set_cell(ix, iy, iachar('['), &
-                RC_YELLOW + RC_BOLD, bg)
+        if (render_is_gui()) then
+            ! Track background
+            call render_fill_rect(ix, iy, iw, 1, RC_BLACK)
+            ! Filled portion
+            if (knob_pos > 0) then
+                call render_fill_rect(ix, iy, &
+                    knob_pos + 1, 1, RC_CYAN)
+            end if
+            ! Knob
+            if (focused) then
+                call render_fill_rect(ix + knob_pos, iy, &
+                    2, 1, RC_YELLOW)
+            else
+                call render_fill_rect(ix + knob_pos, iy, &
+                    2, 1, RC_WHITE)
+            end if
         else
-            call render_set_cell(ix, iy, iachar('['), fg, bg)
-        end if
+            if (focused) then
+                call render_set_cell(ix, iy, iachar('['), &
+                    RC_YELLOW + RC_BOLD, bg)
+            else
+                call render_set_cell(ix, iy, &
+                    iachar('['), fg, bg)
+            end if
 
-        do i = 0, track_w - 1
-            if (i < knob_pos) then
-                call render_set_cell(ix + 1 + i, iy, &
-                    iachar('='), RC_CYAN, bg)
-            else if (i == knob_pos) then
-                if (focused) then
+            do i = 0, track_w - 1
+                if (i < knob_pos) then
                     call render_set_cell(ix + 1 + i, iy, &
-                        iachar('|'), RC_YELLOW + RC_BOLD, bg)
+                        iachar('='), RC_CYAN, bg)
+                else if (i == knob_pos) then
+                    if (focused) then
+                        call render_set_cell(ix + 1 + i, &
+                            iy, iachar('|'), &
+                            RC_YELLOW + RC_BOLD, bg)
+                    else
+                        call render_set_cell(ix + 1 + i, &
+                            iy, iachar('|'), &
+                            RC_WHITE + RC_BOLD, bg)
+                    end if
                 else
                     call render_set_cell(ix + 1 + i, iy, &
-                        iachar('|'), RC_WHITE + RC_BOLD, bg)
+                        iachar('-'), RC_DEFAULT, bg)
                 end if
-            else
-                call render_set_cell(ix + 1 + i, iy, &
-                    iachar('-'), RC_DEFAULT, bg)
-            end if
-        end do
+            end do
 
-        if (focused) then
-            call render_set_cell(ix + iw - 1, iy, iachar(']'), &
-                RC_YELLOW + RC_BOLD, bg)
-        else
-            call render_set_cell(ix + iw - 1, iy, iachar(']'), &
-                fg, bg)
+            if (focused) then
+                call render_set_cell(ix + iw - 1, iy, &
+                    iachar(']'), RC_YELLOW + RC_BOLD, bg)
+            else
+                call render_set_cell(ix + iw - 1, iy, &
+                    iachar(']'), fg, bg)
+            end if
         end if
     end if
 
@@ -557,7 +595,7 @@ logical function checkbox(id, checked, label, width, height) &
 
     if (present(checked)) checked = is_checked
 
-    ! Render: [x] Label or [ ] Label
+    ! Render checkbox
     if (render_is_active()) then
         ix = int(cx)
         iy = int(cy)
@@ -570,20 +608,42 @@ logical function checkbox(id, checked, label, width, height) &
         end if
         bg = RC_DEFAULT
 
-        call render_set_cell(ix, iy, iachar('['), fg, bg)
-        if (is_checked) then
-            call render_set_cell(ix + 1, iy, iachar('x'), &
-                RC_GREEN + RC_BOLD, bg)
+        if (render_is_gui()) then
+            ! Checkbox box
+            if (is_checked) then
+                call render_fill_rect(ix, iy, 2, 1, RC_GREEN)
+                call render_draw_text(ix, iy, "x", &
+                    RC_WHITE, RC_GREEN)
+            else if (focused) then
+                call render_fill_rect(ix, iy, 2, 1, RC_YELLOW)
+            else
+                call render_fill_rect(ix, iy, 2, 1, RC_WHITE)
+            end if
+            ! Label
+            if (len_trim(display_label) > 0) then
+                call render_draw_text(ix + 3, iy, &
+                    trim(display_label), fg, bg)
+            end if
         else
-            call render_set_cell(ix + 1, iy, iachar(' '), fg, bg)
-        end if
-        call render_set_cell(ix + 2, iy, iachar(']'), fg, bg)
-        call render_set_cell(ix + 3, iy, iachar(' '), fg, bg)
+            call render_set_cell(ix, iy, &
+                iachar('['), fg, bg)
+            if (is_checked) then
+                call render_set_cell(ix + 1, iy, &
+                    iachar('x'), RC_GREEN + RC_BOLD, bg)
+            else
+                call render_set_cell(ix + 1, iy, &
+                    iachar(' '), fg, bg)
+            end if
+            call render_set_cell(ix + 2, iy, &
+                iachar(']'), fg, bg)
+            call render_set_cell(ix + 3, iy, &
+                iachar(' '), fg, bg)
 
-        do i = 1, min(len_trim(display_label), iw - 4)
-            call render_set_cell(ix + 3 + i, iy, &
-                iachar(display_label(i:i)), fg, bg)
-        end do
+            do i = 1, min(len_trim(display_label), iw - 4)
+                call render_set_cell(ix + 3 + i, iy, &
+                    iachar(display_label(i:i)), fg, bg)
+            end do
+        end if
     end if
 
     call layout_advance(w_cells, h_cells)
@@ -697,45 +757,65 @@ logical function viewport(id, width, height, view_state) &
         s%prev_off_y = view_state%off_y
     end select
 
-    ! Render: border box with info
+    ! Render viewport
     if (render_is_active()) then
         fg = RC_DEFAULT
         bg = RC_DEFAULT
 
-        ! Top border
-        call render_set_cell(ix, iy, iachar('+'), fg, bg)
-        do i = 1, iw - 2
-            call render_set_cell(ix + i, iy, iachar('-'), fg, bg)
-        end do
-        call render_set_cell(ix + iw - 1, iy, iachar('+'), fg, bg)
-
-        ! Side borders
-        do i = 1, ih - 2
-            call render_set_cell(ix, iy + i, iachar('|'), fg, bg)
-            call render_set_cell(ix + iw - 1, iy + i, &
-                iachar('|'), fg, bg)
-        end do
-
-        ! Info line inside viewport
-        if (ih > 2 .and. iw > 4) then
-            write(info_str, '(A,F5.1,A,F5.1,A,F5.1)') &
-                'z=', view_state%scale_x, &
-                ' x=', view_state%off_x, &
-                ' y=', view_state%off_y
-            do i = 1, min(len_trim(info_str), iw - 4)
-                call render_set_cell(ix + 1 + i, iy + 1, &
-                    iachar(info_str(i:i)), RC_YELLOW, bg)
+        if (render_is_gui()) then
+            call render_draw_border(ix, iy, iw, ih, &
+                RC_WHITE, RC_DEFAULT)
+            if (ih > 2 .and. iw > 4) then
+                write(info_str, '(A,F5.1,A,F5.1,A,F5.1)') &
+                    'z=', view_state%scale_x, &
+                    ' x=', view_state%off_x, &
+                    ' y=', view_state%off_y
+                call render_draw_text(ix + 1, iy + 1, &
+                    trim(info_str), RC_YELLOW, bg)
+            end if
+        else
+            ! Top border
+            call render_set_cell(ix, iy, &
+                iachar('+'), fg, bg)
+            do i = 1, iw - 2
+                call render_set_cell(ix + i, iy, &
+                    iachar('-'), fg, bg)
             end do
-        end if
+            call render_set_cell(ix + iw - 1, iy, &
+                iachar('+'), fg, bg)
 
-        ! Bottom border
-        call render_set_cell(ix, iy + ih - 1, iachar('+'), fg, bg)
-        do i = 1, iw - 2
-            call render_set_cell(ix + i, iy + ih - 1, &
-                iachar('-'), fg, bg)
-        end do
-        call render_set_cell(ix + iw - 1, iy + ih - 1, &
-            iachar('+'), fg, bg)
+            ! Side borders
+            do i = 1, ih - 2
+                call render_set_cell(ix, iy + i, &
+                    iachar('|'), fg, bg)
+                call render_set_cell(ix + iw - 1, iy + i, &
+                    iachar('|'), fg, bg)
+            end do
+
+            ! Info line
+            if (ih > 2 .and. iw > 4) then
+                write(info_str, &
+                    '(A,F5.1,A,F5.1,A,F5.1)') &
+                    'z=', view_state%scale_x, &
+                    ' x=', view_state%off_x, &
+                    ' y=', view_state%off_y
+                do i = 1, min(len_trim(info_str), iw - 4)
+                    call render_set_cell(ix + 1 + i, &
+                        iy + 1, iachar(info_str(i:i)), &
+                        RC_YELLOW, bg)
+                end do
+            end if
+
+            ! Bottom border
+            call render_set_cell(ix, iy + ih - 1, &
+                iachar('+'), fg, bg)
+            do i = 1, iw - 2
+                call render_set_cell(ix + i, iy + ih - 1, &
+                    iachar('-'), fg, bg)
+            end do
+            call render_set_cell(ix + iw - 1, &
+                iy + ih - 1, iachar('+'), fg, bg)
+        end if
     end if
 
     call layout_advance(width_cells, height_cells)

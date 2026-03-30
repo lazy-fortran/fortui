@@ -4,7 +4,8 @@ module fortui_gui
 #ifdef ENABLE_GUI
 use fortui_backend
 use fortui_input, only: input_reset, input_set_mouse, input_set_key
-use fortui_render, only: render_register_backend, render_clear_backend
+use fortui_render, only: render_register_backend, render_clear_backend, &
+    render_register_gui_prims
 use fortui_error, only: report_error
 use iso_c_binding
 #endif
@@ -16,6 +17,7 @@ public :: register_gui_backend
 public :: gui_backend_t
 public :: gui_set_cell, gui_is_active
 public :: gui_get_width, gui_get_height
+public :: gui_fill_rect, gui_draw_text, gui_draw_border
 
 type, extends(backend_interface) :: gui_backend_t
     logical :: initialized = .false.
@@ -366,6 +368,8 @@ subroutine gui_init(self, width, height, title, &
 
     call render_register_backend(gui_set_cell, &
         gui_is_active, gui_get_width, gui_get_height)
+    call render_register_gui_prims(gui_fill_rect, &
+        gui_draw_text, gui_draw_border)
 end subroutine gui_init
 
 subroutine gui_shutdown(self)
@@ -545,6 +549,93 @@ end function gui_get_width
 integer function gui_get_height()
     gui_get_height = grid_rows
 end function gui_get_height
+
+! GUI rendering primitives (proper graphical elements)
+
+subroutine gui_fill_rect(x, y, w, h, color)
+    integer, intent(in) :: x, y, w, h, color
+
+    type(rl_color) :: c
+
+    if (.not. gui_active) return
+    c = rc_to_bg(color)
+    if (c%a == 0) c = make_color(30, 30, 30, 255)
+    call rl_draw_rectangle(int(x * g_cell_w, c_int), &
+        int(y * g_cell_h, c_int), &
+        int(w * g_cell_w, c_int), &
+        int(h * g_cell_h, c_int), c)
+end subroutine gui_fill_rect
+
+subroutine gui_draw_text(x, y, str, fg, bg)
+    integer, intent(in) :: x, y, fg, bg
+    character(*), intent(in) :: str
+
+    integer :: px, py, tw, bw
+    type(rl_color) :: fg_c, bg_c
+    character(len=1024) :: c_str
+    integer :: slen
+
+    if (.not. gui_active) return
+    slen = len_trim(str)
+    if (slen == 0) return
+
+    px = x * g_cell_w
+    py = y * g_cell_h
+    bw = slen * g_cell_w
+
+    ! Draw background
+    bg_c = rc_to_bg(bg)
+    if (bg_c%a /= 0) then
+        call rl_draw_rectangle(int(px, c_int), &
+            int(py, c_int), int(bw, c_int), &
+            int(g_cell_h, c_int), bg_c)
+    end if
+
+    ! Draw text
+    c_str = str(1:slen) // char(0)
+    fg_c = rc_to_fg(fg)
+    tw = int(rl_measure_text(c_str, &
+        int(g_font_size, c_int)))
+    call rl_draw_text(c_str, int(px, c_int), &
+        int(py + 2, c_int), int(g_font_size, c_int), fg_c)
+end subroutine gui_draw_text
+
+subroutine gui_draw_border(x, y, w, h, fg, bg)
+    integer, intent(in) :: x, y, w, h, fg, bg
+
+    integer :: px, py, pw, ph
+    type(rl_color) :: fg_c, bg_c
+
+    if (.not. gui_active) return
+
+    px = x * g_cell_w
+    py = y * g_cell_h
+    pw = w * g_cell_w
+    ph = h * g_cell_h
+
+    ! Fill background
+    bg_c = rc_to_bg(bg)
+    if (bg_c%a /= 0) then
+        call rl_draw_rectangle(int(px, c_int), &
+            int(py, c_int), int(pw, c_int), &
+            int(ph, c_int), bg_c)
+    end if
+
+    ! Draw border lines
+    fg_c = rc_to_fg(fg)
+    call rl_draw_rectangle(int(px, c_int), &
+        int(py, c_int), int(pw, c_int), &
+        int(1, c_int), fg_c)
+    call rl_draw_rectangle(int(px, c_int), &
+        int(py + ph - 1, c_int), int(pw, c_int), &
+        int(1, c_int), fg_c)
+    call rl_draw_rectangle(int(px, c_int), &
+        int(py, c_int), int(1, c_int), &
+        int(ph, c_int), fg_c)
+    call rl_draw_rectangle(int(px + pw - 1, c_int), &
+        int(py, c_int), int(1, c_int), &
+        int(ph, c_int), fg_c)
+end subroutine gui_draw_border
 
 #else
 
