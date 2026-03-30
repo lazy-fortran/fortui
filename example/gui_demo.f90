@@ -12,7 +12,8 @@ program gui_demo
 use fortui
 implicit none
 
-logical :: running, save_clicked, load_clicked, auto_save
+logical :: running, save_clicked, load_clicked
+logical :: auto_save, chk_toggled
 real :: volume, brightness
 integer :: frame_count
 character(len=64) :: status_text
@@ -65,7 +66,7 @@ do while (running .and. .not. ui_should_close())
     end if
     call row_end()
 
-    auto_save = checkbox("autosave", auto_save, "Auto-Save")
+    chk_toggled = checkbox("autosave", auto_save, "Auto-Save")
 
     call text("sep3", value=repeat('-', 50), width=50.0)
     if (viewport("demo_vp", 40.0, 8.0, plot_view)) then
