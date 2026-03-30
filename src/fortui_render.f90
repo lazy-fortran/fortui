@@ -21,9 +21,9 @@ integer, parameter, public :: RC_BLUE = 5
 integer, parameter, public :: RC_MAGENTA = 6
 integer, parameter, public :: RC_CYAN = 7
 integer, parameter, public :: RC_WHITE = 8
-integer, parameter, public :: RC_BOLD = 16777216
-integer, parameter, public :: RC_UNDERLINE = 33554432
-integer, parameter, public :: RC_REVERSE = 67108864
+integer, parameter, public :: RC_BOLD = 256
+integer, parameter, public :: RC_UNDERLINE = 512
+integer, parameter, public :: RC_REVERSE = 1024
 
 abstract interface
     subroutine set_cell_iface(x, y, ch, fg, bg)

@@ -24,19 +24,19 @@ public :: tb_set_cell, tb_clear, tb_present, tb_set_cursor, tb_hide_cursor
 
 ! Event structure for C interoperability
 type, bind(C) :: tb_event
-    integer(c_int) :: type
-    integer(c_int) :: mod
-    integer(c_int) :: key
+    integer(c_int8_t) :: type
+    integer(c_int8_t) :: mod
+    integer(c_int16_t) :: key
     integer(c_int32_t) :: ch
-    integer(c_int) :: w, h
-    integer(c_int) :: x, y
+    integer(c_int32_t) :: w, h
+    integer(c_int32_t) :: x, y
 end type tb_event
 
 ! Cell structure for terminal rendering
 type, bind(C) :: tb_cell
     integer(c_int32_t) :: ch
-    integer(c_int) :: fg
-    integer(c_int) :: bg
+    integer(c_int16_t) :: fg
+    integer(c_int16_t) :: bg
 end type tb_cell
 
 ! Termbox2 constants
@@ -101,11 +101,12 @@ interface
         integer(c_int), intent(in), value :: timeout_ms
     end function tb_peek_event
     
-    subroutine tb_set_cell(x, y, ch, fg, bg) bind(C, name="tb_set_cell")
-        import :: c_int, c_int32_t
+    subroutine tb_set_cell(x, y, ch, fg, bg) &
+        bind(C, name="tb_set_cell")
+        import :: c_int, c_int16_t, c_int32_t
         integer(c_int), intent(in), value :: x, y
         integer(c_int32_t), intent(in), value :: ch
-        integer(c_int), intent(in), value :: fg, bg
+        integer(c_int16_t), intent(in), value :: fg, bg
     end subroutine tb_set_cell
     
     subroutine tb_clear() bind(C, name="tb_clear")
