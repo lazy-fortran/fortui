@@ -32,12 +32,12 @@ end type tui_backend_t
 
 ! Termbox2 C library interface types and constants
 type, bind(C) :: tb_event
-    integer(c_int) :: type
-    integer(c_int) :: mod
-    integer(c_int) :: key
+    integer(c_int8_t) :: type
+    integer(c_int8_t) :: mod
+    integer(c_int16_t) :: key
     integer(c_int32_t) :: ch
-    integer(c_int) :: w, h
-    integer(c_int) :: x, y
+    integer(c_int32_t) :: w, h
+    integer(c_int32_t) :: x, y
 end type tb_event
 
 ! Termbox2 constants
@@ -79,9 +79,9 @@ integer(c_int), parameter, public :: TB_BLUE = 5
 integer(c_int), parameter, public :: TB_MAGENTA = 6
 integer(c_int), parameter, public :: TB_CYAN = 7
 integer(c_int), parameter, public :: TB_WHITE = 8
-integer(c_int), parameter, public :: TB_BOLD = 16777216
-integer(c_int), parameter, public :: TB_UNDERLINE = 33554432
-integer(c_int), parameter, public :: TB_REVERSE = 67108864
+integer(c_int), parameter, public :: TB_BOLD = 256
+integer(c_int), parameter, public :: TB_UNDERLINE = 512
+integer(c_int), parameter, public :: TB_REVERSE = 1024
 
 ! Module state: whether TUI is the active initialized backend
 logical, save :: tui_active = .false.
@@ -107,11 +107,11 @@ interface
     subroutine tb_clear() bind(C, name="tb_clear")
     end subroutine tb_clear
 
-    subroutine tb_set_clear_attributes(fg, bg) &
-        bind(C, name="tb_set_clear_attributes")
-        import :: c_int
-        integer(c_int), intent(in), value :: fg, bg
-    end subroutine tb_set_clear_attributes
+    subroutine tb_set_clear_attrs(fg, bg) &
+        bind(C, name="tb_set_clear_attrs")
+        import :: c_int16_t
+        integer(c_int16_t), intent(in), value :: fg, bg
+    end subroutine tb_set_clear_attrs
 
     subroutine tb_present() bind(C, name="tb_present")
     end subroutine tb_present
@@ -126,16 +126,17 @@ interface
 
     subroutine tb_set_cell(x, y, ch, fg, bg) &
         bind(C, name="tb_set_cell")
-        import :: c_int, c_int32_t
+        import :: c_int, c_int16_t, c_int32_t
         integer(c_int), intent(in), value :: x, y
         integer(c_int32_t), intent(in), value :: ch
-        integer(c_int), intent(in), value :: fg, bg
+        integer(c_int16_t), intent(in), value :: fg, bg
     end subroutine tb_set_cell
 
     subroutine tb_print(x, y, fg, bg, str) &
         bind(C, name="tb_print")
-        import :: c_int, c_char
-        integer(c_int), intent(in), value :: x, y, fg, bg
+        import :: c_int, c_int16_t, c_char
+        integer(c_int), intent(in), value :: x, y
+        integer(c_int16_t), intent(in), value :: fg, bg
         character(c_char), intent(in) :: str(*)
     end subroutine tb_print
 
@@ -264,15 +265,20 @@ subroutine process_tb_event(self, event)
     class(tui_backend_t), intent(inout) :: self
     type(tb_event), intent(in) :: event
 
-    if (event%type == TB_EVENT_KEY) then
-        if (event%key == TB_KEY_ESC .or. &
-            event%key == TB_KEY_CTRL_C) then
+    integer :: key_unsigned
+
+    ! Convert uint16_t key to unsigned integer for comparison
+    key_unsigned = iand(int(event%key), 65535)
+
+    if (int(event%type) == TB_EVENT_KEY) then
+        if (key_unsigned == TB_KEY_ESC .or. &
+            key_unsigned == TB_KEY_CTRL_C) then
             quit_requested = .true.
         end if
-        call input_set_key(int(event%key), int(event%ch))
+        call input_set_key(key_unsigned, int(event%ch))
 
-    else if (event%type == TB_EVENT_MOUSE) then
-        select case (int(event%key))
+    else if (int(event%type) == TB_EVENT_MOUSE) then
+        select case (key_unsigned)
         case (TB_KEY_MOUSE_LEFT)
             call input_set_mouse(int(event%x), &
                 int(event%y), 1)
@@ -290,7 +296,7 @@ subroutine process_tb_event(self, event)
                 int(event%y), 5)
         end select
 
-    else if (event%type == TB_EVENT_RESIZE) then
+    else if (int(event%type) == TB_EVENT_RESIZE) then
         self%width = int(event%w)
         self%height = int(event%h)
     end if
@@ -356,7 +362,8 @@ subroutine tui_set_cell(x, y, ch, fg, bg)
 
     if (.not. tui_active) return
     call tb_set_cell(int(x, c_int), int(y, c_int), &
-        int(ch, c_int32_t), int(fg, c_int), int(bg, c_int))
+        int(ch, c_int32_t), &
+        int(fg, c_int16_t), int(bg, c_int16_t))
 end subroutine tui_set_cell
 
 subroutine tui_present_frame()
