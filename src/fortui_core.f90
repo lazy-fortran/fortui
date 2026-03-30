@@ -167,6 +167,7 @@ end subroutine ui_set_idle_policy
 
 subroutine ui_frame_begin_with_context(ctx, timeout_ms)
     use fortui_layout, only: layout_reset
+    use fortui_input, only: input_focus_begin_frame
     type(fortui_context_t), intent(inout) :: ctx
     integer, intent(in), optional :: timeout_ms
 
@@ -191,6 +192,9 @@ subroutine ui_frame_begin_with_context(ctx, timeout_ms)
             "ui_frame_begin_with_context: Error - No backend available"
         return
     end if
+
+    ! Process Tab focus navigation after events are drained
+    call input_focus_begin_frame()
 end subroutine ui_frame_begin_with_context
 
 subroutine ui_frame_begin_default(timeout_ms)

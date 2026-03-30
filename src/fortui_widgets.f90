@@ -9,7 +9,9 @@ use fortui_tui, only: tui_is_active, tui_set_cell, &
     TB_DEFAULT, TB_WHITE, TB_BLACK, TB_CYAN, TB_YELLOW, &
     TB_GREEN, TB_RED, TB_BLUE, TB_BOLD, TB_REVERSE
 use fortui_input, only: input_get_mouse_x, input_get_mouse_y, &
-    input_get_mouse_left, input_get_scroll_y
+    input_get_mouse_left, input_get_scroll_y, input_get_key, &
+    input_register_focusable, input_has_focus, input_set_focus, &
+    KEY_ENTER, KEY_SPACE, KEY_ARROW_LEFT, KEY_ARROW_RIGHT
 implicit none
 private
 
@@ -85,7 +87,7 @@ logical function button(id, label, width, height) result(clicked)
     type(button_state) :: new_state
     real :: w_cells, h_cells, cx, cy
     integer :: ix, iy, iw, i, mx, my, fg, bg
-    logical :: hover
+    logical :: hover, focused
 
     ctx => get_default_context()
     if (.not. associated(ctx)) then
@@ -97,6 +99,9 @@ logical function button(id, label, width, height) result(clicked)
         clicked = .false.
         return
     end if
+
+    call input_register_focusable(id)
+    focused = input_has_focus(id)
 
     if (present(label)) then
         display_label = label
@@ -129,7 +134,7 @@ logical function button(id, label, width, height) result(clicked)
         state_index = ctx%widget_states%get(id, "button")
     end if
 
-    ! Hit test
+    ! Hit test (mouse)
     ix = int(cx)
     iy = int(cy)
     iw = int(w_cells)
@@ -140,7 +145,18 @@ logical function button(id, label, width, height) result(clicked)
     my = input_get_mouse_y()
     if (mx >= ix .and. mx < ix + iw .and. my == iy) then
         hover = .true.
-        if (input_get_mouse_left()) clicked = .true.
+        if (input_get_mouse_left()) then
+            clicked = .true.
+            call input_set_focus(id)
+        end if
+    end if
+
+    ! Keyboard activation
+    if (focused) then
+        if (input_get_key() == KEY_ENTER .or. &
+            input_get_key() == KEY_SPACE) then
+            clicked = .true.
+        end if
     end if
 
     if (state_index > 0) then
@@ -161,6 +177,9 @@ logical function button(id, label, width, height) result(clicked)
         if (clicked) then
             fg = TB_BLACK
             bg = TB_WHITE
+        else if (focused) then
+            fg = TB_BLACK + TB_BOLD
+            bg = TB_YELLOW
         else if (hover) then
             fg = TB_BLACK + TB_BOLD
             bg = TB_CYAN
@@ -268,7 +287,8 @@ logical function slider(id, min_val, max_val, step_val, value, &
     real :: min_v, max_v, step_v, cur_val, frac
     real :: w_cells, h_cells, cx, cy
     integer :: ix, iy, iw, i, knob_pos, track_w, mx, my
-    integer :: fg, bg
+    integer :: fg, bg, key
+    logical :: focused
 
     value_changed = .false.
 
@@ -292,6 +312,9 @@ logical function slider(id, min_val, max_val, step_val, value, &
     end if
 
     call layout_get_cursor(cx, cy)
+
+    call input_register_focusable(id)
+    focused = input_has_focus(id)
 
     ctx => get_default_context()
     cur_val = min_v
@@ -348,6 +371,30 @@ logical function slider(id, min_val, max_val, step_val, value, &
                 end select
             end if
             value_changed = .true.
+            call input_set_focus(id)
+        end if
+
+        ! Keyboard: arrow keys adjust value when focused
+        if (focused) then
+            key = input_get_key()
+            if (key == KEY_ARROW_RIGHT) then
+                cur_val = min(max_v, cur_val + step_v)
+                value_changed = .true.
+            else if (key == KEY_ARROW_LEFT) then
+                cur_val = max(min_v, cur_val - step_v)
+                value_changed = .true.
+            end if
+
+            if (value_changed) then
+                state_index = ctx%widget_states%get(id, "slider")
+                if (state_index > 0) then
+                    select type(s => &
+                        ctx%widget_states%entries(state_index)%state)
+                    type is (slider_state)
+                        s%current_value = cur_val
+                    end select
+                end if
+            end if
         end if
     end if
 
@@ -373,20 +420,38 @@ logical function slider(id, min_val, max_val, step_val, value, &
         knob_pos = max(0, min(track_w - 1, &
             int(frac * real(track_w - 1))))
 
-        call tui_set_cell(ix, iy, iachar('['), fg, bg)
+        if (focused) then
+            call tui_set_cell(ix, iy, iachar('['), &
+                TB_YELLOW + TB_BOLD, bg)
+        else
+            call tui_set_cell(ix, iy, iachar('['), fg, bg)
+        end if
+
         do i = 0, track_w - 1
             if (i < knob_pos) then
                 call tui_set_cell(ix + 1 + i, iy, &
                     iachar('='), TB_CYAN, bg)
             else if (i == knob_pos) then
-                call tui_set_cell(ix + 1 + i, iy, &
-                    iachar('|'), TB_WHITE + TB_BOLD, bg)
+                if (focused) then
+                    call tui_set_cell(ix + 1 + i, iy, &
+                        iachar('|'), TB_YELLOW + TB_BOLD, bg)
+                else
+                    call tui_set_cell(ix + 1 + i, iy, &
+                        iachar('|'), TB_WHITE + TB_BOLD, bg)
+                end if
             else
                 call tui_set_cell(ix + 1 + i, iy, &
                     iachar('-'), TB_DEFAULT, bg)
             end if
         end do
-        call tui_set_cell(ix + iw - 1, iy, iachar(']'), fg, bg)
+
+        if (focused) then
+            call tui_set_cell(ix + iw - 1, iy, iachar(']'), &
+                TB_YELLOW + TB_BOLD, bg)
+        else
+            call tui_set_cell(ix + iw - 1, iy, iachar(']'), &
+                fg, bg)
+        end if
     end if
 
     call layout_advance(w_cells, h_cells)
@@ -405,7 +470,7 @@ logical function checkbox(id, checked, label, width, height) &
     real :: w_cells, h_cells, cx, cy
     character(len=256) :: display_label
     integer :: ix, iy, iw, i, mx, my, fg, bg
-    logical :: is_checked, hover
+    logical :: is_checked, hover, focused
 
     toggled = .false.
 
@@ -425,6 +490,10 @@ logical function checkbox(id, checked, label, width, height) &
     end if
 
     call layout_get_cursor(cx, cy)
+
+    call input_register_focusable(id)
+    focused = input_has_focus(id)
+
     is_checked = .false.
     if (present(checked)) is_checked = checked
 
@@ -462,6 +531,19 @@ logical function checkbox(id, checked, label, width, height) &
         if (hover .and. input_get_mouse_left()) then
             is_checked = .not. is_checked
             toggled = .true.
+            call input_set_focus(id)
+        end if
+
+        ! Keyboard: Enter/Space toggles when focused
+        if (focused) then
+            if (input_get_key() == KEY_ENTER .or. &
+                input_get_key() == KEY_SPACE) then
+                is_checked = .not. is_checked
+                toggled = .true.
+            end if
+        end if
+
+        if (toggled) then
             state_index = ctx%widget_states%get(id, "checkbox")
             if (state_index > 0) then
                 select type(s => &
@@ -480,7 +562,12 @@ logical function checkbox(id, checked, label, width, height) &
         ix = int(cx)
         iy = int(cy)
         iw = int(w_cells)
-        fg = TB_DEFAULT
+
+        if (focused) then
+            fg = TB_YELLOW + TB_BOLD
+        else
+            fg = TB_DEFAULT
+        end if
         bg = TB_DEFAULT
 
         call tui_set_cell(ix, iy, iachar('['), fg, bg)

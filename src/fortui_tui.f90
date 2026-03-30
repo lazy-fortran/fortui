@@ -240,43 +240,55 @@ subroutine tui_begin_frame(self)
     call tb_clear()
     call input_reset()
 
-    ! Drain all pending events
+    ! Wait for first event (16ms timeout avoids busy-spin)
+    ret = tb_peek_event(event, 16)
+    if (ret > 0) then
+        call process_tb_event(self, event)
+    end if
+
+    ! Drain remaining pending events
     do
         ret = tb_peek_event(event, 0)
         if (ret <= 0) exit
-
-        if (event%type == TB_EVENT_KEY) then
-            if (event%key == TB_KEY_ESC .or. &
-                event%key == TB_KEY_CTRL_C) then
-                quit_requested = .true.
-            end if
-            call input_set_key(int(event%key), int(event%ch))
-
-        else if (event%type == TB_EVENT_MOUSE) then
-            select case (int(event%key))
-            case (TB_KEY_MOUSE_LEFT)
-                call input_set_mouse(int(event%x), &
-                    int(event%y), 1)
-            case (TB_KEY_MOUSE_RIGHT)
-                call input_set_mouse(int(event%x), &
-                    int(event%y), 2)
-            case (TB_KEY_MOUSE_RELEASE)
-                call input_set_mouse(int(event%x), &
-                    int(event%y), 0)
-            case (TB_KEY_MOUSE_WHEEL_UP)
-                call input_set_mouse(int(event%x), &
-                    int(event%y), 4)
-            case (TB_KEY_MOUSE_WHEEL_DOWN)
-                call input_set_mouse(int(event%x), &
-                    int(event%y), 5)
-            end select
-
-        else if (event%type == TB_EVENT_RESIZE) then
-            self%width = int(event%w)
-            self%height = int(event%h)
-        end if
+        call process_tb_event(self, event)
     end do
 end subroutine tui_begin_frame
+
+subroutine process_tb_event(self, event)
+    class(tui_backend_t), intent(inout) :: self
+    type(tb_event), intent(in) :: event
+
+    if (event%type == TB_EVENT_KEY) then
+        if (event%key == TB_KEY_ESC .or. &
+            event%key == TB_KEY_CTRL_C) then
+            quit_requested = .true.
+        end if
+        call input_set_key(int(event%key), int(event%ch))
+
+    else if (event%type == TB_EVENT_MOUSE) then
+        select case (int(event%key))
+        case (TB_KEY_MOUSE_LEFT)
+            call input_set_mouse(int(event%x), &
+                int(event%y), 1)
+        case (TB_KEY_MOUSE_RIGHT)
+            call input_set_mouse(int(event%x), &
+                int(event%y), 2)
+        case (TB_KEY_MOUSE_RELEASE)
+            call input_set_mouse(int(event%x), &
+                int(event%y), 0)
+        case (TB_KEY_MOUSE_WHEEL_UP)
+            call input_set_mouse(int(event%x), &
+                int(event%y), 4)
+        case (TB_KEY_MOUSE_WHEEL_DOWN)
+            call input_set_mouse(int(event%x), &
+                int(event%y), 5)
+        end select
+
+    else if (event%type == TB_EVENT_RESIZE) then
+        self%width = int(event%w)
+        self%height = int(event%h)
+    end if
+end subroutine process_tb_event
 
 subroutine tui_render(self, tree)
     class(tui_backend_t), intent(inout) :: self

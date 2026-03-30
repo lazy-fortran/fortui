@@ -9,10 +9,13 @@ program tui_demo
 ! - Nested layout composition
 !
 ! Controls:
-!   Mouse click  - interact with widgets
-!   Mouse drag   - pan viewport
-!   Mouse scroll - zoom viewport
-!   ESC / Ctrl-C - quit
+!   Mouse click   - interact with widgets
+!   Mouse drag    - pan viewport
+!   Mouse scroll  - zoom viewport
+!   Tab           - cycle keyboard focus between widgets
+!   Enter / Space - activate focused button or toggle checkbox
+!   Left / Right  - adjust focused slider
+!   ESC / Ctrl-C  - quit
 use fortui
 use fortui_layout, only: layout_get_cursor
 implicit none
