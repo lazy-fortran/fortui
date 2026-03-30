@@ -44,10 +44,10 @@ integer, parameter :: TB_KEY_ESC = 27
 integer, parameter :: TB_KEY_CTRL_C = 3
 integer, parameter :: TB_KEY_CTRL_D = 4
 integer, parameter :: TB_KEY_CTRL_Z = 26
-integer, parameter :: TB_KEY_ARROW_UP = 65517
-integer, parameter :: TB_KEY_ARROW_DOWN = 65518
-integer, parameter :: TB_KEY_ARROW_LEFT = 65515
-integer, parameter :: TB_KEY_ARROW_RIGHT = 65516
+integer, parameter :: TB_KEY_ARROW_UP = 65517     ! 0xffff - 18
+integer, parameter :: TB_KEY_ARROW_DOWN = 65516   ! 0xffff - 19
+integer, parameter :: TB_KEY_ARROW_LEFT = 65515   ! 0xffff - 20
+integer, parameter :: TB_KEY_ARROW_RIGHT = 65514  ! 0xffff - 21
 integer, parameter :: TB_KEY_ENTER = 13
 integer, parameter :: TB_KEY_TAB = 9
 integer, parameter :: TB_KEY_SPACE = 32
@@ -57,12 +57,13 @@ integer, parameter :: TB_EVENT_KEY = 1
 integer, parameter :: TB_EVENT_RESIZE = 2
 integer, parameter :: TB_EVENT_MOUSE = 3
 
-! Mouse event types
-integer, parameter :: TB_KEY_MOUSE_LEFT = 65508
-integer, parameter :: TB_KEY_MOUSE_MIDDLE = 65509
-integer, parameter :: TB_KEY_MOUSE_RIGHT = 65510
-integer, parameter :: TB_KEY_MOUSE_WHEEL_UP = 65511
-integer, parameter :: TB_KEY_MOUSE_WHEEL_DOWN = 65512
+! Mouse event types (0xffff - offset)
+integer, parameter :: TB_KEY_MOUSE_LEFT = 65512        ! 0xffff - 23
+integer, parameter :: TB_KEY_MOUSE_RIGHT = 65511       ! 0xffff - 24
+integer, parameter :: TB_KEY_MOUSE_MIDDLE = 65510      ! 0xffff - 25
+integer, parameter :: TB_KEY_MOUSE_RELEASE = 65509     ! 0xffff - 26
+integer, parameter :: TB_KEY_MOUSE_WHEEL_UP = 65508    ! 0xffff - 27
+integer, parameter :: TB_KEY_MOUSE_WHEEL_DOWN = 65507  ! 0xffff - 28
 
 ! Color constants
 integer, parameter :: TB_COLOR_BLACK = 0

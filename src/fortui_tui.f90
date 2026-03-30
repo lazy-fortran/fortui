@@ -47,13 +47,13 @@ integer, parameter :: TB_EVENT_KEY = 1
 integer, parameter :: TB_EVENT_RESIZE = 2
 integer, parameter :: TB_EVENT_MOUSE = 3
 
-! Mouse button constants from termbox2
-integer, parameter :: TB_KEY_MOUSE_LEFT = 65509
-integer, parameter :: TB_KEY_MOUSE_RIGHT = 65510
-integer, parameter :: TB_KEY_MOUSE_MIDDLE = 65511
-integer, parameter :: TB_KEY_MOUSE_RELEASE = 65512
-integer, parameter :: TB_KEY_MOUSE_WHEEL_UP = 65513
-integer, parameter :: TB_KEY_MOUSE_WHEEL_DOWN = 65514
+! Mouse button constants from termbox2 (0xffff - offset)
+integer, parameter :: TB_KEY_MOUSE_LEFT = 65512
+integer, parameter :: TB_KEY_MOUSE_RIGHT = 65511
+integer, parameter :: TB_KEY_MOUSE_MIDDLE = 65510
+integer, parameter :: TB_KEY_MOUSE_RELEASE = 65509
+integer, parameter :: TB_KEY_MOUSE_WHEEL_UP = 65508
+integer, parameter :: TB_KEY_MOUSE_WHEEL_DOWN = 65507
 
 ! Input modes
 integer(c_int), parameter :: TB_INPUT_CURRENT = 0
@@ -245,8 +245,9 @@ subroutine tui_begin_frame(self)
     call tb_clear()
     call input_reset()
 
-    ! Wait for first event (16ms timeout avoids busy-spin)
-    ret = tb_peek_event(event, 16)
+    ! Wait for first event (50ms timeout: avoids busy-spin and
+    ! gives termbox2 enough time to resolve ESC sequences)
+    ret = tb_peek_event(event, 50)
     if (ret > 0) then
         call process_tb_event(self, event)
     end if

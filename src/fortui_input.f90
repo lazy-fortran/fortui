@@ -20,9 +20,9 @@ integer, parameter, public :: KEY_TAB = 9
 integer, parameter, public :: KEY_ENTER = 13
 integer, parameter, public :: KEY_SPACE = 32
 integer, parameter, public :: KEY_ARROW_UP = 65517
-integer, parameter, public :: KEY_ARROW_DOWN = 65518
+integer, parameter, public :: KEY_ARROW_DOWN = 65516
 integer, parameter, public :: KEY_ARROW_LEFT = 65515
-integer, parameter, public :: KEY_ARROW_RIGHT = 65516
+integer, parameter, public :: KEY_ARROW_RIGHT = 65514
 
 type :: input_state_t
     integer :: mouse_x = -1

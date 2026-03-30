@@ -293,11 +293,11 @@ pure function map_rl_key(rl_key) result(fortui_key)
     case (265)
         fortui_key = 65517
     case (264)
-        fortui_key = 65518
+        fortui_key = 65516
     case (263)
         fortui_key = 65515
     case (262)
-        fortui_key = 65516
+        fortui_key = 65514
     case default
         fortui_key = rl_key
     end select
