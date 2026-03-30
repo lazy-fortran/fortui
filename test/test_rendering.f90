@@ -5,7 +5,7 @@ module test_rendering_module
 ! - Input hit-testing logic
 ! - Layout positioning integrates with widget calls
 use fortui_context, only: fortui_context_t, create_context, &
-    set_default_context, get_default_context
+    set_default_context
 use fortui_layout, only: layout_reset, layout_get_cursor, &
     layout_push_column, layout_push_row, layout_pop
 use fortui_widgets, only: button, text, slider, checkbox

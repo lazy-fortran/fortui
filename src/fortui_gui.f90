@@ -1,41 +1,22 @@
 module fortui_gui
 ! GUI backend implementation using raylib
-! When ENABLE_GUI is not defined, provides a no-op stub
+! When ENABLE_GUI is not defined, provides no-op stubs
 #ifdef ENABLE_GUI
-use fortui_backend
 use fortui_input, only: input_reset, input_set_mouse, input_set_key
-use fortui_render, only: render_register_backend, render_clear_backend, &
-    render_register_gui_prims
 use fortui_error, only: report_error
 use iso_c_binding
 #endif
 implicit none
 private
 
-public :: register_gui_backend
 #ifdef ENABLE_GUI
-public :: gui_backend_t
+public :: gui_init, gui_shutdown, gui_begin_frame, gui_render
+public :: gui_is_available, gui_check_quit
 public :: gui_set_cell, gui_is_active
 public :: gui_get_width, gui_get_height
 public :: gui_fill_rect, gui_draw_text, gui_draw_border
 
-type, extends(backend_interface) :: gui_backend_t
-    logical :: initialized = .false.
-    integer :: width = 640
-    integer :: height = 480
-    integer :: cell_w = 10
-    integer :: cell_h = 20
-    integer :: font_size = 20
-contains
-    procedure :: init => gui_init
-    procedure :: shutdown => gui_shutdown
-    procedure :: begin_frame => gui_begin_frame
-    procedure :: render => gui_render
-    procedure :: is_available => gui_is_available
-    procedure :: check_quit => gui_check_quit
-end type gui_backend_t
-
-! Raylib Color type (unsigned char fields via c_int8_t)
+! Raylib Color type
 type, bind(C) :: rl_color
     integer(c_int8_t) :: r, g, b, a
 end type rl_color
@@ -194,7 +175,6 @@ contains
 
 #ifdef ENABLE_GUI
 
-! Convert 0-255 unsigned value to c_int8_t (signed byte)
 pure function ubyte(n) result(b)
     integer, intent(in) :: n
     integer(c_int8_t) :: b
@@ -216,7 +196,6 @@ pure function make_color(r, g, b, a) result(c)
     c%a = ubyte(a)
 end function make_color
 
-! Map RC color constants to raylib foreground colors
 pure function rc_to_fg(rc) result(c)
     integer, intent(in) :: rc
     type(rl_color) :: c
@@ -247,7 +226,6 @@ pure function rc_to_fg(rc) result(c)
     end select
 end function rc_to_fg
 
-! Map RC color constants to raylib background colors
 pure function rc_to_bg(rc) result(c)
     integer, intent(in) :: rc
     type(rl_color) :: c
@@ -278,7 +256,6 @@ pure function rc_to_bg(rc) result(c)
     end select
 end function rc_to_bg
 
-! Map raylib key codes to fortui key constants
 pure function map_rl_key(rl_key) result(fortui_key)
     integer, intent(in) :: rl_key
     integer :: fortui_key
@@ -305,21 +282,7 @@ pure function map_rl_key(rl_key) result(fortui_key)
     end select
 end function map_rl_key
 
-subroutine register_gui_backend()
-    type(gui_backend_t) :: gui
-
-    gui%capabilities%graphics = .true.
-    gui%capabilities%colors = .true.
-    gui%capabilities%mouse = .true.
-    gui%capabilities%unicode = .true.
-    gui%capabilities%async_events = .false.
-
-    call register_backend("gui", gui)
-end subroutine register_gui_backend
-
-subroutine gui_init(self, width, height, title, &
-    target_fps, vsync)
-    class(gui_backend_t), intent(inout) :: self
+subroutine gui_init(width, height, title, target_fps, vsync)
     integer, intent(in) :: width, height
     character(*), intent(in) :: title
     integer, intent(in) :: target_fps
@@ -343,58 +306,38 @@ subroutine gui_init(self, width, height, title, &
         int(height, c_int), c_title)
     call rl_set_target_fps(int(target_fps, c_int))
 
-    ! Calibrate cell width from default font
     text_w = int(rl_measure_text("M" // char(0), &
         int(20, c_int)))
     if (text_w > 0) then
-        self%cell_w = text_w
+        g_cell_w = text_w
     else
-        self%cell_w = 10
+        g_cell_w = 10
     end if
-    self%cell_h = 20
-    self%font_size = 20
+    g_cell_h = 20
+    g_font_size = 20
 
-    self%width = width
-    self%height = height
-    g_cell_w = self%cell_w
-    g_cell_h = self%cell_h
-    g_font_size = self%font_size
-    grid_cols = width / self%cell_w
-    grid_rows = height / self%cell_h
+    grid_cols = width / g_cell_w
+    grid_rows = height / g_cell_h
 
-    self%initialized = .true.
     gui_active = .true.
     cell_count = 0
-
-    call render_register_backend(gui_set_cell, &
-        gui_is_active, gui_get_width, gui_get_height)
-    call render_register_gui_prims(gui_fill_rect, &
-        gui_draw_text, gui_draw_border)
 end subroutine gui_init
 
-subroutine gui_shutdown(self)
-    class(gui_backend_t), intent(inout) :: self
-
-    if (self%initialized) then
-        call render_clear_backend()
+subroutine gui_shutdown()
+    if (gui_active) then
         call rl_close_window()
-        self%initialized = .false.
         gui_active = .false.
     end if
 end subroutine gui_shutdown
 
-subroutine gui_begin_frame(self)
-    class(gui_backend_t), intent(inout) :: self
-
+subroutine gui_begin_frame()
     integer :: rl_key, mx, my
     real(c_float) :: wheel
 
-    if (.not. self%initialized) return
+    if (.not. gui_active) return
 
-    self%width = int(rl_get_screen_width())
-    self%height = int(rl_get_screen_height())
-    grid_cols = self%width / g_cell_w
-    grid_rows = self%height / g_cell_h
+    grid_cols = int(rl_get_screen_width()) / g_cell_w
+    grid_rows = int(rl_get_screen_height()) / g_cell_h
 
     call rl_begin_drawing()
     call rl_clear_background(make_color(30, 30, 30, 255))
@@ -402,7 +345,7 @@ subroutine gui_begin_frame(self)
     cell_count = 0
     call input_reset()
 
-    ! Poll keyboard (drain all queued keys)
+    ! Poll keyboard
     do
         rl_key = int(rl_get_key_pressed())
         if (rl_key == 0) exit
@@ -433,22 +376,18 @@ subroutine gui_begin_frame(self)
     end if
 end subroutine gui_begin_frame
 
-subroutine gui_render(self, tree)
-    class(gui_backend_t), intent(inout) :: self
-    class(*), intent(in) :: tree
-
+subroutine gui_render()
     integer :: i, px, py
     character(len=2) :: ch_str
     type(rl_color) :: fg_c, bg_c
 
-    if (.not. self%initialized) return
+    if (.not. gui_active) return
 
     ! Flush cell buffer
     do i = 1, cell_count
         px = cell_buffer(i)%x * g_cell_w
         py = cell_buffer(i)%y * g_cell_h
 
-        ! Draw background
         bg_c = rc_to_bg(cell_buffer(i)%bg)
         if (bg_c%a /= 0) then
             call rl_draw_rectangle(int(px, c_int), &
@@ -456,7 +395,6 @@ subroutine gui_render(self, tree)
                 int(g_cell_h, c_int), bg_c)
         end if
 
-        ! Draw character
         if (cell_buffer(i)%ch > 31 .and. &
             cell_buffer(i)%ch < 127) then
             fg_c = rc_to_fg(cell_buffer(i)%fg)
@@ -471,8 +409,7 @@ subroutine gui_render(self, tree)
     call rl_end_drawing()
 end subroutine gui_render
 
-logical function gui_is_available(self)
-    class(gui_backend_t), intent(in) :: self
+logical function gui_is_available()
     character(len=256) :: env_var
     integer :: ios
 
@@ -513,17 +450,13 @@ logical function gui_is_available(self)
     gui_is_available = .false.
 end function gui_is_available
 
-logical function gui_check_quit(self)
-    class(gui_backend_t), intent(inout) :: self
-
-    if (self%initialized) then
+logical function gui_check_quit()
+    if (gui_active) then
         gui_check_quit = logical(rl_window_should_close())
     else
         gui_check_quit = .true.
     end if
 end function gui_check_quit
-
-! Public helpers registered with render dispatch
 
 subroutine gui_set_cell(x, y, ch, fg, bg)
     integer, intent(in) :: x, y, ch, fg, bg
@@ -550,8 +483,6 @@ integer function gui_get_height()
     gui_get_height = grid_rows
 end function gui_get_height
 
-! GUI rendering primitives (proper graphical elements)
-
 subroutine gui_fill_rect(x, y, w, h, color)
     integer, intent(in) :: x, y, w, h, color
 
@@ -570,7 +501,7 @@ subroutine gui_draw_text(x, y, str, fg, bg)
     integer, intent(in) :: x, y, fg, bg
     character(*), intent(in) :: str
 
-    integer :: px, py, tw, bw
+    integer :: px, py, bw
     type(rl_color) :: fg_c, bg_c
     character(len=1024) :: c_str
     integer :: slen
@@ -583,7 +514,6 @@ subroutine gui_draw_text(x, y, str, fg, bg)
     py = y * g_cell_h
     bw = slen * g_cell_w
 
-    ! Draw background
     bg_c = rc_to_bg(bg)
     if (bg_c%a /= 0) then
         call rl_draw_rectangle(int(px, c_int), &
@@ -591,11 +521,8 @@ subroutine gui_draw_text(x, y, str, fg, bg)
             int(g_cell_h, c_int), bg_c)
     end if
 
-    ! Draw text
     c_str = str(1:slen) // char(0)
     fg_c = rc_to_fg(fg)
-    tw = int(rl_measure_text(c_str, &
-        int(g_font_size, c_int)))
     call rl_draw_text(c_str, int(px, c_int), &
         int(py + 2, c_int), int(g_font_size, c_int), fg_c)
 end subroutine gui_draw_text
@@ -613,7 +540,6 @@ subroutine gui_draw_border(x, y, w, h, fg, bg)
     pw = w * g_cell_w
     ph = h * g_cell_h
 
-    ! Fill background
     bg_c = rc_to_bg(bg)
     if (bg_c%a /= 0) then
         call rl_draw_rectangle(int(px, c_int), &
@@ -621,7 +547,6 @@ subroutine gui_draw_border(x, y, w, h, fg, bg)
             int(ph, c_int), bg_c)
     end if
 
-    ! Draw border lines
     fg_c = rc_to_fg(fg)
     call rl_draw_rectangle(int(px, c_int), &
         int(py, c_int), int(pw, c_int), &
@@ -636,11 +561,6 @@ subroutine gui_draw_border(x, y, w, h, fg, bg)
         int(py, c_int), int(1, c_int), &
         int(ph, c_int), fg_c)
 end subroutine gui_draw_border
-
-#else
-
-subroutine register_gui_backend()
-end subroutine register_gui_backend
 
 #endif
 

@@ -8,6 +8,21 @@ private
 public :: layout_reset, layout_push_column, layout_push_row, layout_pop
 public :: layout_get_cursor, layout_advance, layout_get_depth
 
+! Node type: core UI tree building block
+public :: node
+
+! Tree-based constructors (for backend render tree)
+public :: column, row
+
+! Immediate-mode layout (cursor-based positioning)
+public :: column_begin, column_end, row_begin, row_end
+
+type :: node
+    character(len=32) :: layout_type = "none"
+    real :: gap_dp = 0.0
+    type(node), allocatable :: children(:)
+end type node
+
 integer, parameter :: MAX_LAYOUT_DEPTH = 32
 integer, parameter :: DIR_COLUMN = 1
 integer, parameter :: DIR_ROW = 2
@@ -141,5 +156,61 @@ end subroutine layout_advance
 integer function layout_get_depth()
     layout_get_depth = stack_depth
 end function layout_get_depth
+
+function column(gap, children) result(n)
+    real, intent(in), optional :: gap
+    type(node), intent(in), optional :: children(:)
+    type(node) :: n
+
+    n%layout_type = "column"
+
+    if (present(gap)) then
+        n%gap_dp = gap
+    else
+        n%gap_dp = 0.0
+    end if
+
+    if (present(children)) then
+        allocate(n%children(size(children)), source=children)
+    end if
+end function column
+
+function row(gap, children) result(n)
+    real, intent(in), optional :: gap
+    type(node), intent(in), optional :: children(:)
+    type(node) :: n
+
+    n%layout_type = "row"
+
+    if (present(gap)) then
+        n%gap_dp = gap
+    else
+        n%gap_dp = 0.0
+    end if
+
+    if (present(children)) then
+        allocate(n%children(size(children)), source=children)
+    end if
+end function row
+
+subroutine column_begin(gap)
+    real, intent(in), optional :: gap
+
+    call layout_push_column(gap)
+end subroutine column_begin
+
+subroutine column_end()
+    call layout_pop()
+end subroutine column_end
+
+subroutine row_begin(gap)
+    real, intent(in), optional :: gap
+
+    call layout_push_row(gap)
+end subroutine row_begin
+
+subroutine row_end()
+    call layout_pop()
+end subroutine row_end
 
 end module fortui_layout

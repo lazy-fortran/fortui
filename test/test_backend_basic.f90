@@ -1,98 +1,68 @@
 program test_backend_basic
-! Basic test to verify Backend Registry Pattern implementation
-use fortui_backend
-use fortui_backend_init
-use fortui_tui
+! Basic test to verify backend detection and render dispatch
+use fortui_render, only: render_backend, RENDER_NONE, &
+    RENDER_TUI, RENDER_GUI, render_is_active, render_is_gui
+use fortui_tui, only: tui_is_available
 implicit none
 
-class(backend_interface), pointer :: backend
-character(len=32) :: best_backend
-logical :: test_passed
-logical :: tui_available
+logical :: available
 
 print *, "========================================"
-print *, "Basic Backend Registry Pattern Test"
+print *, "Basic Backend Test"
 print *, "========================================"
 print *, ""
 
-! Test 1: Register TUI backend
-print *, "Test 1: Registering TUI backend..."
-call register_tui_backend()
-backend => get_backend("tui")
-if (associated(backend)) then
-    print *, "  ✓ TUI backend registered successfully"
+! Test 1: render_backend starts as RENDER_NONE
+print *, "Test 1: Initial render_backend state..."
+if (render_backend == RENDER_NONE) then
+    print *, "  pass: render_backend is RENDER_NONE"
 else
-    print *, "  ✗ Failed to register TUI backend"
+    print *, "  FAIL: render_backend should be RENDER_NONE"
     stop 1
 end if
 
-! Test 2: Check TUI availability
-print *, "Test 2: Checking TUI availability..."
-tui_available = backend%is_available()
-if (tui_available) then
-    print *, "  ✓ TUI backend reports as available"
+! Test 2: render_is_active returns false when no backend
+print *, "Test 2: render_is_active with no backend..."
+if (.not. render_is_active()) then
+    print *, "  pass: render_is_active is false"
 else
-    print *, "  ✓ TUI backend correctly reports unavailable in headless mode"
-end if
-
-! Test 3: Check capabilities
-print *, "Test 3: Checking TUI capabilities..."
-test_passed = .true.
-if (.not. backend%capabilities%colors) then
-    print *, "  ✗ TUI should support colors"
-    test_passed = .false.
-end if
-if (.not. backend%capabilities%mouse) then
-    print *, "  ✗ TUI should support mouse"
-    test_passed = .false.
-end if
-if (.not. backend%capabilities%unicode) then
-    print *, "  ✗ TUI should support unicode"
-    test_passed = .false.
-end if
-if (backend%capabilities%graphics) then
-    print *, "  ✗ TUI should not support graphics primitives"
-    test_passed = .false.
-end if
-if (test_passed) then
-    print *, "  ✓ TUI capabilities are correct"
-else
+    print *, "  FAIL: render_is_active should be false"
     stop 1
 end if
 
-! Test 4: Test auto-selection
-print *, "Test 4: Testing auto backend selection..."
-call ensure_backends_registered()
-best_backend = select_best_backend()
-backend => get_backend(best_backend)
-if (tui_available) then
-    if (associated(backend) .and. trim(best_backend) == "tui") then
-        print *, "  ✓ Auto-selection returned a backend: ", trim(best_backend)
-    else
-        print *, "  ✗ Auto-selection failed"
-        stop 1
-    end if
+! Test 3: render_is_gui returns false when no backend
+print *, "Test 3: render_is_gui with no backend..."
+if (.not. render_is_gui()) then
+    print *, "  pass: render_is_gui is false"
 else
-    if (.not. associated(backend) .and. len_trim(best_backend) == 0) then
-        print *, "  ✓ Auto-selection leaves backend empty in headless mode"
-    else
-        print *, "  ✗ Auto-selection should not pick an unavailable backend"
-        stop 1
-    end if
-end if
-
-! Test 5: Test duplicate registration
-print *, "Test 5: Testing duplicate registration handling..."
-call register_tui_backend()  ! Register again
-backend => get_backend("tui")
-if (associated(backend)) then
-    print *, "  ✓ Duplicate registration handled correctly"
-else
-    print *, "  ✗ Duplicate registration broke the registry"
+    print *, "  FAIL: render_is_gui should be false"
     stop 1
 end if
 
-print *, "Test 6: GUI backend intentionally absent in the TUI-only build"
+! Test 4: TUI availability detection
+print *, "Test 4: TUI availability detection..."
+available = tui_is_available()
+if (available) then
+    print *, "  pass: TUI backend reports as available"
+else
+    print *, "  pass: TUI backend correctly reports " &
+        // "unavailable in headless mode"
+end if
+
+! Test 5: Backend constants are distinct
+print *, "Test 5: Backend constants are distinct..."
+if (RENDER_NONE /= RENDER_TUI .and. &
+    RENDER_TUI /= RENDER_GUI .and. &
+    RENDER_NONE /= RENDER_GUI) then
+    print *, "  pass: All backend constants are distinct"
+else
+    print *, "  FAIL: Backend constants should be distinct"
+    stop 1
+end if
+
+! Test 6: GUI backend not present in TUI-only build
+print *, "Test 6: GUI backend intentionally absent " &
+    // "in the TUI-only build"
 
 print *, ""
 print *, "========================================"

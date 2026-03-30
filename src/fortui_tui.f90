@@ -1,34 +1,17 @@
 module fortui_tui
 ! TUI backend implementation using termbox2
-! Always compiled, provides terminal user interface capabilities
-use fortui_backend
+! Provides terminal user interface capabilities via plain module procedures
 use fortui_input, only: input_reset, input_set_mouse, input_set_key
-use fortui_render, only: render_register_backend, render_clear_backend
 use fortui_error, only: report_error
 use iso_c_binding
 use iso_fortran_env, only: int64
 implicit none
 private
 
-public :: tui_backend_t, register_tui_backend
-public :: tui_set_cell, tui_present_frame, tui_get_width, tui_get_height
-public :: tui_is_active
-
-! TUI backend implementation
-type, extends(backend_interface) :: tui_backend_t
-    logical :: initialized = .false.
-    integer :: width = 0
-    integer :: height = 0
-    logical :: mouse_enabled = .false.
-    logical :: bracketed_paste = .false.
-contains
-    procedure :: init => tui_init
-    procedure :: shutdown => tui_shutdown
-    procedure :: begin_frame => tui_begin_frame
-    procedure :: render => tui_render
-    procedure :: is_available => tui_is_available
-    procedure :: check_quit => tui_check_quit
-end type tui_backend_t
+public :: tui_init, tui_shutdown, tui_begin_frame, tui_render
+public :: tui_is_available, tui_check_quit
+public :: tui_set_cell, tui_present_frame
+public :: tui_get_width, tui_get_height, tui_is_active
 
 ! Termbox2 C library interface types and constants
 type, bind(C) :: tb_event
@@ -47,7 +30,7 @@ integer, parameter :: TB_EVENT_KEY = 1
 integer, parameter :: TB_EVENT_RESIZE = 2
 integer, parameter :: TB_EVENT_MOUSE = 3
 
-! Mouse button constants from termbox2 (0xffff - offset)
+! Mouse button constants from termbox2
 integer, parameter :: TB_KEY_MOUSE_LEFT = 65512
 integer, parameter :: TB_KEY_MOUSE_RIGHT = 65511
 integer, parameter :: TB_KEY_MOUSE_MIDDLE = 65510
@@ -56,18 +39,11 @@ integer, parameter :: TB_KEY_MOUSE_WHEEL_UP = 65508
 integer, parameter :: TB_KEY_MOUSE_WHEEL_DOWN = 65507
 
 ! Input modes
-integer(c_int), parameter :: TB_INPUT_CURRENT = 0
 integer(c_int), parameter :: TB_INPUT_ESC = 1
-integer(c_int), parameter :: TB_INPUT_ALT = 2
 integer(c_int), parameter :: TB_INPUT_MOUSE = 4
 
 ! Output modes
-integer(c_int), parameter :: TB_OUTPUT_CURRENT = 0
-integer(c_int), parameter :: TB_OUTPUT_NORMAL = 1
 integer(c_int), parameter :: TB_OUTPUT_256 = 2
-integer(c_int), parameter :: TB_OUTPUT_216 = 3
-integer(c_int), parameter :: TB_OUTPUT_GRAYSCALE = 4
-integer(c_int), parameter :: TB_OUTPUT_TRUECOLOR = 5
 
 ! Termbox2 color constants
 integer(c_int), parameter, public :: TB_DEFAULT = 0
@@ -83,9 +59,11 @@ integer(c_int), parameter, public :: TB_BOLD = 256
 integer(c_int), parameter, public :: TB_UNDERLINE = 512
 integer(c_int), parameter, public :: TB_REVERSE = 1024
 
-! Module state: whether TUI is the active initialized backend
+! Module state
 logical, save :: tui_active = .false.
 logical, save :: quit_requested = .false.
+integer, save :: stored_width = 0
+integer, save :: stored_height = 0
 
 ! Termbox2 C interface
 interface
@@ -100,26 +78,16 @@ interface
         import :: c_int
     end function tb_width
 
-    integer(c_int) function tb_height() bind(C, name="tb_height")
+    integer(c_int) function tb_height() &
+        bind(C, name="tb_height")
         import :: c_int
     end function tb_height
 
     subroutine tb_clear() bind(C, name="tb_clear")
     end subroutine tb_clear
 
-    subroutine tb_set_clear_attrs(fg, bg) &
-        bind(C, name="tb_set_clear_attrs")
-        import :: c_int16_t
-        integer(c_int16_t), intent(in), value :: fg, bg
-    end subroutine tb_set_clear_attrs
-
     subroutine tb_present() bind(C, name="tb_present")
     end subroutine tb_present
-
-    subroutine tb_set_cursor(cx, cy) bind(C, name="tb_set_cursor")
-        import :: c_int
-        integer(c_int), intent(in), value :: cx, cy
-    end subroutine tb_set_cursor
 
     subroutine tb_hide_cursor() bind(C, name="tb_hide_cursor")
     end subroutine tb_hide_cursor
@@ -139,12 +107,6 @@ interface
         integer(c_int16_t), intent(in), value :: fg, bg
         character(c_char), intent(in) :: str(*)
     end subroutine tb_print
-
-    integer(c_int) function tb_poll_event(event) &
-        bind(C, name="tb_poll_event")
-        import :: c_int, tb_event
-        type(tb_event), intent(out) :: event
-    end function tb_poll_event
 
     integer(c_int) function tb_peek_event(event, timeout) &
         bind(C, name="tb_peek_event")
@@ -168,20 +130,7 @@ end interface
 
 contains
 
-subroutine register_tui_backend()
-    type(tui_backend_t) :: tui
-
-    tui%capabilities%colors = .true.
-    tui%capabilities%mouse = .true.
-    tui%capabilities%unicode = .true.
-    tui%capabilities%async_events = .true.
-    tui%capabilities%graphics = .false.
-
-    call register_backend("tui", tui)
-end subroutine register_tui_backend
-
-subroutine tui_init(self, width, height, title, target_fps, vsync)
-    class(tui_backend_t), intent(inout) :: self
+subroutine tui_init(width, height, title, target_fps, vsync)
     integer, intent(in) :: width, height
     character(*), intent(in) :: title
     integer, intent(in) :: target_fps
@@ -194,11 +143,12 @@ subroutine tui_init(self, width, height, title, target_fps, vsync)
 
     ret = tb_init()
     if (ret /= 0) then
-        call get_environment_variable("TERM", term_var, status=ios)
+        call get_environment_variable("TERM", term_var, &
+            status=ios)
         if (ios == 0 .and. len_trim(term_var) > 0) then
             call report_error("fortui_tui", "tui_init", &
-                "Failed to initialize termbox2. TUI requires a " &
-                // "real terminal.")
+                "Failed to initialize termbox2. TUI " &
+                // "requires a real terminal.")
         end if
         return
     end if
@@ -207,67 +157,53 @@ subroutine tui_init(self, width, height, title, target_fps, vsync)
     input_mode = TB_INPUT_ESC + TB_INPUT_MOUSE
     ret = tb_set_input_mode(input_mode)
 
-    self%width = tb_width()
-    self%height = tb_height()
+    stored_width = int(tb_width())
+    stored_height = int(tb_height())
 
     call tb_clear()
     call tb_hide_cursor()
 
-    self%initialized = .true.
-    self%mouse_enabled = .true.
     tui_active = .true.
     quit_requested = .false.
-
-    call render_register_backend(tui_set_cell, tui_is_active, &
-        tui_get_width, tui_get_height)
 end subroutine tui_init
 
-subroutine tui_shutdown(self)
-    class(tui_backend_t), intent(inout) :: self
-
-    if (self%initialized) then
-        call render_clear_backend()
+subroutine tui_shutdown()
+    if (tui_active) then
         call tb_shutdown()
-        self%initialized = .false.
         tui_active = .false.
     end if
 end subroutine tui_shutdown
 
-subroutine tui_begin_frame(self)
-    class(tui_backend_t), intent(inout) :: self
-
+subroutine tui_begin_frame()
     type(tb_event) :: event
     integer :: ret
 
-    if (.not. self%initialized) return
+    if (.not. tui_active) return
 
-    self%width = tb_width()
-    self%height = tb_height()
+    stored_width = int(tb_width())
+    stored_height = int(tb_height())
     call tb_clear()
     call input_reset()
 
-    ! Wait for first event (50ms timeout: avoids busy-spin and
-    ! gives termbox2 enough time to resolve ESC sequences)
+    ! Wait for first event (50ms timeout)
     ret = tb_peek_event(event, 50)
     if (ret > 0) then
-        call process_tb_event(self, event)
+        call process_tb_event(event)
     end if
 
     ! Drain remaining pending events
     do
         ret = tb_peek_event(event, 0)
         if (ret <= 0) exit
-        call process_tb_event(self, event)
+        call process_tb_event(event)
     end do
 end subroutine tui_begin_frame
 
-subroutine process_tb_event(self, event)
-    class(tui_backend_t), intent(inout) :: self
+subroutine process_tb_event(event)
     type(tb_event), intent(in) :: event
 
     integer :: key_unsigned
 
-    ! Convert uint16_t key to unsigned integer for comparison
     key_unsigned = iand(int(event%key), 65535)
 
     if (int(event%type) == TB_EVENT_KEY) then
@@ -297,22 +233,18 @@ subroutine process_tb_event(self, event)
         end select
 
     else if (int(event%type) == TB_EVENT_RESIZE) then
-        self%width = int(event%w)
-        self%height = int(event%h)
+        stored_width = int(event%w)
+        stored_height = int(event%h)
     end if
 end subroutine process_tb_event
 
-subroutine tui_render(self, tree)
-    class(tui_backend_t), intent(inout) :: self
-    class(*), intent(in) :: tree
-
-    if (self%initialized) then
+subroutine tui_render()
+    if (tui_active) then
         call tb_present()
     end if
 end subroutine tui_render
 
-logical function tui_is_available(self)
-    class(tui_backend_t), intent(in) :: self
+logical function tui_is_available()
     character(len=256) :: env_var
     integer :: ios
 
@@ -345,13 +277,9 @@ logical function tui_is_available(self)
     tui_is_available = .true.
 end function tui_is_available
 
-logical function tui_check_quit(self)
-    class(tui_backend_t), intent(inout) :: self
-
+logical function tui_check_quit()
     tui_check_quit = quit_requested
 end function tui_check_quit
-
-! Public helpers for widgets to draw directly to termbox2
 
 logical function tui_is_active()
     tui_is_active = tui_active

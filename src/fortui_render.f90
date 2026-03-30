@@ -1,15 +1,15 @@
 module fortui_render
-! Backend-agnostic render dispatch via procedure pointers.
-! Provides both cell-level (TUI) and primitive-level (GUI) rendering.
-! Backends register their functions during init.
+! Backend-agnostic render constants and dispatch flag.
+! The render_backend integer selects the active backend.
+! Dispatch wrappers call into fortui_tui or fortui_gui based on flag.
 implicit none
 private
 
-public :: render_set_cell, render_is_active, render_is_gui
-public :: render_get_width, render_get_height
-public :: render_fill_rect, render_draw_text, render_draw_border
-public :: render_register_backend, render_register_gui_prims
-public :: render_clear_backend
+! Backend dispatch flag
+integer, parameter, public :: RENDER_NONE = 0
+integer, parameter, public :: RENDER_TUI = 1
+integer, parameter, public :: RENDER_GUI = 2
+integer, save, public :: render_backend = RENDER_NONE
 
 ! Backend-agnostic color constants (same values as termbox2)
 integer, parameter, public :: RC_DEFAULT = 0
@@ -25,144 +25,166 @@ integer, parameter, public :: RC_BOLD = 256
 integer, parameter, public :: RC_UNDERLINE = 512
 integer, parameter, public :: RC_REVERSE = 1024
 
-abstract interface
-    subroutine set_cell_iface(x, y, ch, fg, bg)
-        integer, intent(in) :: x, y, ch, fg, bg
-    end subroutine
-
-    logical function is_active_iface()
-    end function
-
-    integer function get_dim_iface()
-    end function
-
-    subroutine fill_rect_iface(x, y, w, h, color)
-        integer, intent(in) :: x, y, w, h, color
-    end subroutine
-
-    subroutine draw_text_iface(x, y, str, fg, bg)
-        integer, intent(in) :: x, y, fg, bg
-        character(*), intent(in) :: str
-    end subroutine
-
-    subroutine draw_border_iface(x, y, w, h, fg, bg)
-        integer, intent(in) :: x, y, w, h, fg, bg
-    end subroutine
-end interface
-
-! Core dispatch pointers (both backends)
-procedure(set_cell_iface), pointer, save :: &
-    set_cell_ptr => null()
-procedure(is_active_iface), pointer, save :: &
-    is_active_ptr => null()
-procedure(get_dim_iface), pointer, save :: &
-    get_width_ptr => null()
-procedure(get_dim_iface), pointer, save :: &
-    get_height_ptr => null()
-
-! GUI primitive dispatch pointers
-procedure(fill_rect_iface), pointer, save :: &
-    fill_rect_ptr => null()
-procedure(draw_text_iface), pointer, save :: &
-    draw_text_ptr => null()
-procedure(draw_border_iface), pointer, save :: &
-    draw_border_ptr => null()
-
-logical, save :: gui_mode = .false.
+public :: render_set_cell, render_is_active, render_is_gui
+public :: render_get_width, render_get_height
+public :: render_fill_rect, render_draw_text, render_draw_border
 
 contains
-
-subroutine render_register_backend(set_cell_fn, is_active_fn, &
-    get_width_fn, get_height_fn)
-    procedure(set_cell_iface) :: set_cell_fn
-    procedure(is_active_iface) :: is_active_fn
-    procedure(get_dim_iface) :: get_width_fn
-    procedure(get_dim_iface) :: get_height_fn
-
-    set_cell_ptr => set_cell_fn
-    is_active_ptr => is_active_fn
-    get_width_ptr => get_width_fn
-    get_height_ptr => get_height_fn
-end subroutine render_register_backend
-
-subroutine render_register_gui_prims(fill_rect_fn, &
-    draw_text_fn, draw_border_fn)
-    procedure(fill_rect_iface) :: fill_rect_fn
-    procedure(draw_text_iface) :: draw_text_fn
-    procedure(draw_border_iface) :: draw_border_fn
-
-    fill_rect_ptr => fill_rect_fn
-    draw_text_ptr => draw_text_fn
-    draw_border_ptr => draw_border_fn
-    gui_mode = .true.
-end subroutine render_register_gui_prims
-
-subroutine render_clear_backend()
-    set_cell_ptr => null()
-    is_active_ptr => null()
-    get_width_ptr => null()
-    get_height_ptr => null()
-    fill_rect_ptr => null()
-    draw_text_ptr => null()
-    draw_border_ptr => null()
-    gui_mode = .false.
-end subroutine render_clear_backend
 
 subroutine render_set_cell(x, y, ch, fg, bg)
     integer, intent(in) :: x, y, ch, fg, bg
 
-    if (associated(set_cell_ptr)) &
-        call set_cell_ptr(x, y, ch, fg, bg)
+    select case (render_backend)
+    case (RENDER_TUI)
+        call tui_set_cell_dispatch(x, y, ch, fg, bg)
+    case (RENDER_GUI)
+        call gui_set_cell_dispatch(x, y, ch, fg, bg)
+    end select
 end subroutine render_set_cell
 
 logical function render_is_active()
-    if (associated(is_active_ptr)) then
-        render_is_active = is_active_ptr()
-    else
-        render_is_active = .false.
-    end if
+    render_is_active = (render_backend /= RENDER_NONE)
 end function render_is_active
 
 logical function render_is_gui()
-    render_is_gui = gui_mode
+    render_is_gui = (render_backend == RENDER_GUI)
 end function render_is_gui
 
 integer function render_get_width()
-    if (associated(get_width_ptr)) then
-        render_get_width = get_width_ptr()
-    else
+    select case (render_backend)
+    case (RENDER_TUI)
+        call tui_get_width_dispatch(render_get_width)
+    case (RENDER_GUI)
+        call gui_get_width_dispatch(render_get_width)
+    case default
         render_get_width = 80
-    end if
+    end select
 end function render_get_width
 
 integer function render_get_height()
-    if (associated(get_height_ptr)) then
-        render_get_height = get_height_ptr()
-    else
+    select case (render_backend)
+    case (RENDER_TUI)
+        call tui_get_height_dispatch(render_get_height)
+    case (RENDER_GUI)
+        call gui_get_height_dispatch(render_get_height)
+    case default
         render_get_height = 24
-    end if
+    end select
 end function render_get_height
 
 subroutine render_fill_rect(x, y, w, h, color)
     integer, intent(in) :: x, y, w, h, color
 
-    if (associated(fill_rect_ptr)) &
-        call fill_rect_ptr(x, y, w, h, color)
+    if (render_backend == RENDER_GUI) then
+        call gui_fill_rect_dispatch(x, y, w, h, color)
+    end if
 end subroutine render_fill_rect
 
 subroutine render_draw_text(x, y, str, fg, bg)
     integer, intent(in) :: x, y, fg, bg
     character(*), intent(in) :: str
 
-    if (associated(draw_text_ptr)) &
-        call draw_text_ptr(x, y, str, fg, bg)
+    if (render_backend == RENDER_GUI) then
+        call gui_draw_text_dispatch(x, y, str, fg, bg)
+    end if
 end subroutine render_draw_text
 
 subroutine render_draw_border(x, y, w, h, fg, bg)
     integer, intent(in) :: x, y, w, h, fg, bg
 
-    if (associated(draw_border_ptr)) &
-        call draw_border_ptr(x, y, w, h, fg, bg)
+    if (render_backend == RENDER_GUI) then
+        call gui_draw_border_dispatch(x, y, w, h, fg, bg)
+    end if
 end subroutine render_draw_border
+
+! Dispatch trampolines that call into backend modules.
+! Using subroutine wrappers to avoid circular module dependencies.
+! The actual implementations are in fortui_tui and fortui_gui.
+
+subroutine tui_set_cell_dispatch(x, y, ch, fg, bg)
+    use fortui_tui, only: tui_set_cell
+    integer, intent(in) :: x, y, ch, fg, bg
+
+    call tui_set_cell(x, y, ch, fg, bg)
+end subroutine tui_set_cell_dispatch
+
+subroutine tui_get_width_dispatch(w)
+    use fortui_tui, only: tui_get_width
+    integer, intent(out) :: w
+
+    w = tui_get_width()
+end subroutine tui_get_width_dispatch
+
+subroutine tui_get_height_dispatch(h)
+    use fortui_tui, only: tui_get_height
+    integer, intent(out) :: h
+
+    h = tui_get_height()
+end subroutine tui_get_height_dispatch
+
+subroutine gui_set_cell_dispatch(x, y, ch, fg, bg)
+#ifdef ENABLE_GUI
+    use fortui_gui, only: gui_set_cell
+#endif
+    integer, intent(in) :: x, y, ch, fg, bg
+#ifdef ENABLE_GUI
+    call gui_set_cell(x, y, ch, fg, bg)
+#endif
+end subroutine gui_set_cell_dispatch
+
+subroutine gui_get_width_dispatch(w)
+#ifdef ENABLE_GUI
+    use fortui_gui, only: gui_get_width
+#endif
+    integer, intent(out) :: w
+#ifdef ENABLE_GUI
+    w = gui_get_width()
+#else
+    w = 80
+#endif
+end subroutine gui_get_width_dispatch
+
+subroutine gui_get_height_dispatch(h)
+#ifdef ENABLE_GUI
+    use fortui_gui, only: gui_get_height
+#endif
+    integer, intent(out) :: h
+#ifdef ENABLE_GUI
+    h = gui_get_height()
+#else
+    h = 24
+#endif
+end subroutine gui_get_height_dispatch
+
+subroutine gui_fill_rect_dispatch(x, y, w, h, color)
+#ifdef ENABLE_GUI
+    use fortui_gui, only: gui_fill_rect
+#endif
+    integer, intent(in) :: x, y, w, h, color
+#ifdef ENABLE_GUI
+    call gui_fill_rect(x, y, w, h, color)
+#endif
+end subroutine gui_fill_rect_dispatch
+
+subroutine gui_draw_text_dispatch(x, y, str, fg, bg)
+#ifdef ENABLE_GUI
+    use fortui_gui, only: gui_draw_text
+#endif
+    integer, intent(in) :: x, y, fg, bg
+    character(*), intent(in) :: str
+#ifdef ENABLE_GUI
+    call gui_draw_text(x, y, str, fg, bg)
+#endif
+end subroutine gui_draw_text_dispatch
+
+subroutine gui_draw_border_dispatch(x, y, w, h, fg, bg)
+#ifdef ENABLE_GUI
+    use fortui_gui, only: gui_draw_border
+#endif
+    integer, intent(in) :: x, y, w, h, fg, bg
+#ifdef ENABLE_GUI
+    call gui_draw_border(x, y, w, h, fg, bg)
+#endif
+end subroutine gui_draw_border_dispatch
 
 end module fortui_render
