@@ -2,8 +2,6 @@ module test_widgets_core
 ! Core widget functionality tests - focused on basic API and functionality
 ! Tests button, text, slider, and checkbox basic operations
 use fortui_core
-use fortui_units, only: unit_value, ui_context, dp, em, sp, px, cw, ch, &
-    convert_to_dp, ui_get_context_from_units => ui_get_context, ui_set_context
 use fortui_widgets
 implicit none
 

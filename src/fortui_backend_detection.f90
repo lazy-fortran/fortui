@@ -2,13 +2,12 @@ module fortui_backend_detection
 ! Backend availability detection and resolution logic
 ! Provides environment detection and backend selection functionality
 use fortui_backend, only: backend_interface, get_backend, select_best_backend
-use fortui_error, only: report_error, report_warning, report_info
+use fortui_error, only: report_error, report_warning
 implicit none
 private
 
 ! Public interface
 public :: resolve_backend, is_gui_available, is_tui_available, is_headless_environment
-public :: set_environment_variable_simulation, clear_environment_variable_simulation
 
 contains
 
@@ -134,19 +133,5 @@ logical function is_headless_environment()
     
     is_headless_environment = .false.
 end function is_headless_environment
-
-subroutine set_environment_variable_simulation(name, value)
-    character(*), intent(in) :: name, value
-    ! This is a stub for testing - real implementation would set env vars
-    call report_info("fortui_backend_detection", "set_environment_variable_simulation", &
-         "Setting " // trim(name) // "=" // trim(value))
-end subroutine set_environment_variable_simulation
-
-subroutine clear_environment_variable_simulation(name)
-    character(*), intent(in) :: name
-    ! This is a stub for testing - real implementation would clear env vars
-    call report_info("fortui_backend_detection", "clear_environment_variable_simulation", &
-         "Clearing " // trim(name))
-end subroutine clear_environment_variable_simulation
 
 end module fortui_backend_detection
