@@ -1,128 +1,79 @@
 # fortui Project Instructions
 
-## CRITICAL: This is a PURE IMMEDIATE-MODE UI Library
+## Core Philosophy
 
-**ABSOLUTE REQUIREMENTS - NO EXCEPTIONS:**
-1. **NO OBJECT LIFECYCLE** - No create/destroy. No widget objects. No cleanup.
-2. **NO EXPOSED STATE** - State is internal only. Users NEVER see state objects.
-3. **SIMPLE FUNCTION CALLS** - Just `if (button("id")) then` - nothing more complex.
-4. **STATELESS PUBLIC API** - Every call is self-contained and complete.
-5. **NO OO PATTERNS** - No classes, no inheritance, no polymorphism in public API.
+Pure immediate-mode UI library for modern Fortran. Dual backends: TUI (termbox2) and GUI (raylib).
 
-**VIOLATIONS TO REJECT IN ALL CODE REVIEWS:**
-- ❌ ANY exposed widget type (button_widget_t, etc.)
-- ❌ ANY create/destroy pattern
-- ❌ ANY context object in public API
-- ❌ ANY class(*) or extends() in public API
-- ❌ ANY multi-step initialization
-- ❌ ANY state management by users
+**Rules:**
+1. No object lifecycle - no create/destroy, no widget objects
+2. No exposed state - state is internal only, keyed by string ID
+3. Simple function calls - `if (button("id", "Label")) then`
+4. No OO patterns in public API - no classes, no inheritance, no polymorphism
+5. No procedure pointers - use integer dispatch (lfortran compatibility)
+6. No class(*) - use flat discriminated unions for internal state
 
-## Project Overview
-**fortui** is a PURE IMMEDIATE-MODE UI library for modern Fortran with dual backends:
-- **TUI**: termbox2-based terminal interface
-- **GUI**: raygui/raylib-based graphical interface
+## Architecture (10 modules, ~3200 lines)
 
-**Core Philosophy**: Simple, stateless, immediate-mode API with exact TUI/GUI parity.
-
-## Technical Approach
-
-### Architecture Principles (NON-NEGOTIABLE)
-- **Pure Immediate-mode**: NO exposed objects, NO lifecycle, just simple functions
-- **Internal state by ID**: State NEVER exposed, managed internally via string keys
-- **Stateless public API**: Every widget call is complete and self-contained
-- **Monospace baseline**: Grid units (gu) = terminal cell (TUI) = glyph size (GUI)
-- **Zero-setup usage**: Just ui_init() once, then use widgets directly
-
-### API Design Standards
-- **Small, stable public API**: Two modules only (`fortui_core`, `fortui_widgets`)
-- **Immediate-mode pattern**: Functions return interaction status, procedures update state in-place
-- **Optional parameters**: Sensible defaults, minimal required parameters
-- **Consistent naming**: `ui_` prefix for lifecycle, widget names directly
-
-### Code Quality Standards
-- **Fortran Best Practices**:
-  - Use `typename_t` convention for derived types
-  - Prefer allocatable arrays/objects, NEVER manually deallocate
-  - Use `move_alloc()` when no copy needed
-  - Avoid large stack allocations - use allocatable for large arrays/objects
-  - No transfer for allocatables, use subroutines with `intent(out)`
-  - Overload assignment operators where appropriate
-- **Git Hygiene**: 
-  - NEVER use `git add .` or `git add -A`
-  - Manually specify files with `git add <file>`
-  - NEVER commit binary files, build artifacts, or temporary files
-- **Code Style**:
-  - 88 character line limit
-  - 4-space indentation
-  - Self-documenting code, no commented-out code
-  - NO defensive programming - clean, straightforward implementation
-
-### Implementation Constraints
-- **MVP Focus**: Core functionality first (node types, basic widgets, TUI backend)
-- **No feature creep**: Resist unnecessary complexity, implement minimal viable features
-- **Performance requirements**:
-  - TUI: Event-driven with smart timeouts (idle 250-1000ms, coalesce 10-20ms, dragging 16-33ms)
-  - GUI: Respect target FPS (default 60), vsync by default, adaptive idle policy support
-- **Cross-platform**: Linux first, extensible to other platforms
-
-### Module Structure
-- **fortui_core**: Lifecycle management, types, frame/present cycle
-- **fortui_widgets**: Layout containers (column/row/viewport) and controls (button/slider/checkbox/text)
-- **Internal modules**: Backend-specific implementations, not exposed to users
-
-### Widget Implementation Pattern
-```fortran
-! Immediate-mode: function call includes declaration, rendering, and state management
-logical function button(id, label)
-  character(*), intent(in)           :: id     ! stable identifier for state
-  character(*), intent(in), optional :: label  ! display text (default: id)
-  ! Implementation stores state by id, renders widget, returns interaction status
-end function
+```
+fortui.f90           Public API re-export
+fortui_core.f90      Lifecycle, backend detection/dispatch
+fortui_context.f90   Widget state map (flat struct), context types
+fortui_render.f90    Color constants (RC_*), backend dispatch flag
+fortui_input.f90     Input state, focus tracking, key constants
+fortui_layout.f90    Layout stack, node type, column/row constructors
+fortui_tui.f90       TUI backend (termbox2 C bindings)
+fortui_gui.f90       GUI backend (raylib C bindings, conditional)
+fortui_widgets.f90   button, text, slider, checkbox, viewport
+fortui_error.f90     Error reporting utility
 ```
 
-### State Management
-- **ID-based keying**: Each widget maintains state using stable string identifier
-- **Immediate updates**: State changes applied directly during widget call
-- **View type**: Encapsulates pan/zoom state for viewport widgets
+## Build
 
-### Backend Considerations
-- **TUI (termbox2)**: 
-  - Cell-based rendering with front/back buffers
-  - Hash-based diff system to minimize terminal writes
-  - SGR1006 mouse support, bracketed paste
-- **GUI (raygui/raylib)**:
-  - Pixel-based rendering mapped from grid units
-  - VSync and FPS management
-  - Steady or adaptive idle policies
+```bash
+fpm build                    # TUI-only (default)
+make build-gui               # TUI + GUI (requires raylib)
+FORTUI_HEADLESS=1 fpm test   # Run tests in headless mode
+```
 
-### Testing Strategy
-- **Unit tests**: Individual widget functionality and state management
-- **Integration tests**: Backend switching, lifecycle management
-- **Example programs**: Demonstrate API usage patterns
-- **Cross-backend validation**: Ensure TUI/GUI parity
+## Widget State Pattern
 
-### Documentation Standards
-- **API documentation**: Clear function signatures with parameter descriptions
-- **Usage examples**: Minimal working examples for each widget
-- **Architecture docs**: Backend implementation details for contributors
-- **README**: Installation, basic usage, key examples
+Widgets use a flat discriminated union (no polymorphism):
+```fortran
+idx = ctx%widget_states%ensure(id, KIND_BUTTON)
+ctx%widget_states%entries(idx)%hover = hover
+```
 
-### Future Architecture Considerations
-- **Proportional text**: Optional GUI enhancement with measure_text support
-- **Canvas system**: 2D/3D drawing primitives built on core widget system
-- **Layout enrichment**: Alignment, padding, themes as additive features
-- **Text input**: Single-line editor and list selection widgets
+No `select type`, no `class(*)`, no `allocate(source=)`.
 
-## Development Workflow
-1. **TUI backend first**: Establish core patterns with simpler terminal backend
-2. **Widget-by-widget**: Implement and test each widget independently
-3. **GUI backend**: Port established patterns to graphical backend
-4. **Integration testing**: Validate cross-backend consistency
-5. **Performance optimization**: Profile and optimize hot paths
+## Backend Dispatch
 
-## Quality Gates
-- All examples compile and run correctly
-- TUI and GUI backends produce equivalent visual results
-- No memory leaks or stack overflows
-- Performance targets met (TUI responsiveness, GUI frame rate)
-- Clean public API with stable interface
+Integer flag in fortui_render.f90: `render_backend = RENDER_TUI` or `RENDER_GUI`.
+Dispatch via `select case` in trampolines. No procedure pointers.
+
+## C Interop (termbox2)
+
+The `tb_event` struct must match C exactly:
+- type: `c_int8_t` (1 byte, uint8_t)
+- mod: `c_int8_t` (1 byte, uint8_t)
+- key: `c_int16_t` (2 bytes, uint16_t)
+- ch: `c_int32_t` (4 bytes, uint32_t)
+- w,h,x,y: `c_int32_t` (4 bytes each)
+
+`uintattr_t` = `uint16_t` (TB_OPT_ATTR_W=16). Use `c_int16_t` for fg/bg in all tb_set_cell bindings.
+
+## lfortran Compatibility
+
+Target: all modules compile with lfortran for future WASM support. Current status: 9/10 modules compile. Blocker: lfortran/lfortran#10902.
+
+Avoid these Fortran features (lfortran unsupported):
+- Procedure pointers
+- Abstract interfaces with deferred procedures
+- class(*) unlimited polymorphism
+- Type extension with extends()
+
+These are OK (lfortran supports):
+- Type-bound procedures
+- Allocatable components in derived types
+- Optional arguments with present()
+- iso_c_binding with bind(C)
+- select case
