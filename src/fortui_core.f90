@@ -6,6 +6,10 @@ use fortui_frame, only: view
 use fortui_input, only: input_begin_frame, input_route, KEY_ESCAPE
 use fortui_layout, only: layout_reset, column_begin, column_end, row_begin, row_end
 use fortui_render, only: render_present, BACKEND_NONE, BACKEND_HEADLESS, BACKEND_TUI, BACKEND_GUI
+use fortui_tui, only: tui_init, tui_shutdown, tui_poll, tui_is_available, tui_should_close
+#ifdef ENABLE_GUI
+use fortui_gui, only: gui_init, gui_shutdown, gui_poll, gui_is_available, gui_should_close
+#endif
 use fortui_error, only: report_error
 implicit none
 private
@@ -225,15 +229,12 @@ logical function init_backend(ctx)
 end function init_backend
 
 logical function init_tui()
-    use fortui_tui, only: tui_init
     init_tui = tui_init()
 end function init_tui
 
 logical function init_gui(ctx)
-    use fortui_context, only: fortui_context_t
     type(fortui_context_t), intent(in) :: ctx
 #ifdef ENABLE_GUI
-    use fortui_gui, only: gui_init
     init_gui = gui_init(ctx%window_width, ctx%window_height, trim(ctx%window_title), &
         ctx%target_fps, ctx%vsync)
 #else
@@ -242,8 +243,6 @@ logical function init_gui(ctx)
 end function init_gui
 
 subroutine poll_tui(ctx, timeout_ms)
-    use fortui_context, only: fortui_context_t
-    use fortui_tui, only: tui_poll
     type(fortui_context_t), intent(inout) :: ctx
     integer, intent(in), optional :: timeout_ms
 
@@ -255,22 +254,18 @@ subroutine poll_tui(ctx, timeout_ms)
 end subroutine poll_tui
 
 subroutine poll_gui(ctx)
-    use fortui_context, only: fortui_context_t
     type(fortui_context_t), intent(inout) :: ctx
 #ifdef ENABLE_GUI
-    use fortui_gui, only: gui_poll
     call gui_poll(ctx%input)
 #endif
 end subroutine poll_gui
 
 logical function tui_available()
-    use fortui_tui, only: tui_is_available
     tui_available = tui_is_available()
 end function tui_available
 
 logical function gui_available()
 #ifdef ENABLE_GUI
-    use fortui_gui, only: gui_is_available
     gui_available = gui_is_available()
 #else
     gui_available = .false.
@@ -278,13 +273,11 @@ logical function gui_available()
 end function gui_available
 
 logical function tui_close_requested()
-    use fortui_tui, only: tui_should_close
     tui_close_requested = tui_should_close()
 end function tui_close_requested
 
 logical function gui_close_requested()
 #ifdef ENABLE_GUI
-    use fortui_gui, only: gui_should_close
     gui_close_requested = gui_should_close()
 #else
     gui_close_requested = .true.
@@ -292,13 +285,11 @@ logical function gui_close_requested()
 end function gui_close_requested
 
 subroutine shutdown_tui()
-    use fortui_tui, only: tui_shutdown
     call tui_shutdown()
 end subroutine shutdown_tui
 
 subroutine shutdown_gui()
 #ifdef ENABLE_GUI
-    use fortui_gui, only: gui_shutdown
     call gui_shutdown()
 #endif
 end subroutine shutdown_gui
