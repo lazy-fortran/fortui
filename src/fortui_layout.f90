@@ -1,27 +1,7 @@
 module fortui_layout
-! Immediate-mode cursor-based layout state management
-! Maintains a stack of layout scopes (column/row) with cursor tracking
-! Widgets read current cursor position and advance it after placement
+!! Immediate composition layout state in backend-neutral logical units (dp).
 implicit none
 private
-
-public :: layout_reset, layout_push_column, layout_push_row, layout_pop
-public :: layout_get_cursor, layout_advance, layout_get_depth
-
-! Node type: core UI tree building block
-public :: node
-
-! Tree-based constructors (for backend render tree)
-public :: column, row
-
-! Immediate-mode layout (cursor-based positioning)
-public :: column_begin, column_end, row_begin, row_end
-
-type :: node
-    character(len=32) :: layout_type = "none"
-    real :: gap_dp = 0.0
-    type(node), allocatable :: children(:)
-end type node
 
 integer, parameter :: MAX_LAYOUT_DEPTH = 32
 integer, parameter :: DIR_COLUMN = 1
@@ -41,176 +21,98 @@ end type layout_entry_t
 type(layout_entry_t), save :: layout_stack(MAX_LAYOUT_DEPTH)
 integer, save :: stack_depth = 0
 
+public :: layout_reset, layout_get_cursor, layout_advance, layout_depth
+public :: column_begin, column_end, row_begin, row_end
+
 contains
 
 subroutine layout_reset()
     stack_depth = 1
-    layout_stack(1) = layout_entry_t( &
-        direction=DIR_COLUMN, gap=0.0, &
-        origin_x=0.0, origin_y=0.0, &
-        cursor_x=0.0, cursor_y=0.0, &
-        max_cross=0.0, item_count=0)
+    layout_stack(1) = layout_entry_t(direction=DIR_COLUMN)
 end subroutine layout_reset
 
-subroutine layout_push_column(gap)
+subroutine column_begin(gap)
     real, intent(in), optional :: gap
+    call push_layout(DIR_COLUMN, gap)
+end subroutine column_begin
 
-    real :: g, cx, cy
+subroutine row_begin(gap)
+    real, intent(in), optional :: gap
+    call push_layout(DIR_ROW, gap)
+end subroutine row_begin
 
-    g = 0.0
-    if (present(gap)) g = gap
+subroutine column_end()
+    call pop_layout()
+end subroutine column_end
 
-    call layout_get_cursor(cx, cy)
+subroutine row_end()
+    call pop_layout()
+end subroutine row_end
 
-    if (stack_depth >= MAX_LAYOUT_DEPTH) return
+subroutine push_layout(direction, gap)
+    integer, intent(in) :: direction
+    real, intent(in), optional :: gap
+    real :: x, y, actual_gap
+
+    if (stack_depth == 0) call layout_reset()
+    if (stack_depth >= MAX_LAYOUT_DEPTH) error stop "fortui: layout nesting exceeds MAX_LAYOUT_DEPTH"
+
+    actual_gap = 0.0
+    if (present(gap)) actual_gap = max(0.0, gap)
+    call layout_get_cursor(x, y)
+
     stack_depth = stack_depth + 1
     layout_stack(stack_depth) = layout_entry_t( &
-        direction=DIR_COLUMN, gap=g, &
-        origin_x=cx, origin_y=cy, &
-        cursor_x=cx, cursor_y=cy, &
-        max_cross=0.0, item_count=0)
-end subroutine layout_push_column
+        direction=direction, gap=actual_gap, origin_x=x, origin_y=y, &
+        cursor_x=x, cursor_y=y)
+end subroutine push_layout
 
-subroutine layout_push_row(gap)
-    real, intent(in), optional :: gap
-
-    real :: g, cx, cy
-
-    g = 0.0
-    if (present(gap)) g = gap
-
-    call layout_get_cursor(cx, cy)
-
-    if (stack_depth >= MAX_LAYOUT_DEPTH) return
-    stack_depth = stack_depth + 1
-    layout_stack(stack_depth) = layout_entry_t( &
-        direction=DIR_ROW, gap=g, &
-        origin_x=cx, origin_y=cy, &
-        cursor_x=cx, cursor_y=cy, &
-        max_cross=0.0, item_count=0)
-end subroutine layout_push_row
-
-subroutine layout_pop()
-    real :: w, h
+subroutine pop_layout()
+    real :: width, height
 
     if (stack_depth <= 1) return
 
     if (layout_stack(stack_depth)%direction == DIR_COLUMN) then
-        w = layout_stack(stack_depth)%max_cross
-        h = layout_stack(stack_depth)%cursor_y &
-            - layout_stack(stack_depth)%origin_y
+        width = layout_stack(stack_depth)%max_cross
+        height = layout_stack(stack_depth)%cursor_y - layout_stack(stack_depth)%origin_y
     else
-        w = layout_stack(stack_depth)%cursor_x &
-            - layout_stack(stack_depth)%origin_x
-        h = layout_stack(stack_depth)%max_cross
+        width = layout_stack(stack_depth)%cursor_x - layout_stack(stack_depth)%origin_x
+        height = layout_stack(stack_depth)%max_cross
     end if
 
     stack_depth = stack_depth - 1
-
-    call layout_advance(w, h)
-end subroutine layout_pop
+    call layout_advance(width, height)
+end subroutine pop_layout
 
 subroutine layout_get_cursor(x, y)
     real, intent(out) :: x, y
 
-    if (stack_depth < 1) then
-        x = 0.0
-        y = 0.0
-        return
-    end if
-
+    if (stack_depth == 0) call layout_reset()
     x = layout_stack(stack_depth)%cursor_x
     y = layout_stack(stack_depth)%cursor_y
 end subroutine layout_get_cursor
 
 subroutine layout_advance(width, height)
     real, intent(in) :: width, height
-
     real :: gap_offset
 
-    if (stack_depth < 1) return
+    if (stack_depth == 0) call layout_reset()
 
     gap_offset = 0.0
-    if (layout_stack(stack_depth)%item_count > 0) then
-        gap_offset = layout_stack(stack_depth)%gap
-    end if
-
-    layout_stack(stack_depth)%item_count = &
-        layout_stack(stack_depth)%item_count + 1
+    if (layout_stack(stack_depth)%item_count > 0) gap_offset = layout_stack(stack_depth)%gap
+    layout_stack(stack_depth)%item_count = layout_stack(stack_depth)%item_count + 1
 
     if (layout_stack(stack_depth)%direction == DIR_COLUMN) then
-        layout_stack(stack_depth)%cursor_y = &
-            layout_stack(stack_depth)%cursor_y + gap_offset + height
-        if (width > layout_stack(stack_depth)%max_cross) then
-            layout_stack(stack_depth)%max_cross = width
-        end if
+        layout_stack(stack_depth)%cursor_y = layout_stack(stack_depth)%cursor_y + gap_offset + max(0.0, height)
+        layout_stack(stack_depth)%max_cross = max(layout_stack(stack_depth)%max_cross, max(0.0, width))
     else
-        layout_stack(stack_depth)%cursor_x = &
-            layout_stack(stack_depth)%cursor_x + gap_offset + width
-        if (height > layout_stack(stack_depth)%max_cross) then
-            layout_stack(stack_depth)%max_cross = height
-        end if
+        layout_stack(stack_depth)%cursor_x = layout_stack(stack_depth)%cursor_x + gap_offset + max(0.0, width)
+        layout_stack(stack_depth)%max_cross = max(layout_stack(stack_depth)%max_cross, max(0.0, height))
     end if
 end subroutine layout_advance
 
-integer function layout_get_depth()
-    layout_get_depth = stack_depth
-end function layout_get_depth
-
-function column(gap, children) result(n)
-    real, intent(in), optional :: gap
-    type(node), intent(in), optional :: children(:)
-    type(node) :: n
-
-    n%layout_type = "column"
-
-    if (present(gap)) then
-        n%gap_dp = gap
-    else
-        n%gap_dp = 0.0
-    end if
-
-    if (present(children)) then
-        allocate(n%children(size(children)), source=children)
-    end if
-end function column
-
-function row(gap, children) result(n)
-    real, intent(in), optional :: gap
-    type(node), intent(in), optional :: children(:)
-    type(node) :: n
-
-    n%layout_type = "row"
-
-    if (present(gap)) then
-        n%gap_dp = gap
-    else
-        n%gap_dp = 0.0
-    end if
-
-    if (present(children)) then
-        allocate(n%children(size(children)), source=children)
-    end if
-end function row
-
-subroutine column_begin(gap)
-    real, intent(in), optional :: gap
-
-    call layout_push_column(gap)
-end subroutine column_begin
-
-subroutine column_end()
-    call layout_pop()
-end subroutine column_end
-
-subroutine row_begin(gap)
-    real, intent(in), optional :: gap
-
-    call layout_push_row(gap)
-end subroutine row_begin
-
-subroutine row_end()
-    call layout_pop()
-end subroutine row_end
+integer function layout_depth()
+    layout_depth = stack_depth
+end function layout_depth
 
 end module fortui_layout
