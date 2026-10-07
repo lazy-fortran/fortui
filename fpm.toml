@@ -1,14 +1,9 @@
 name = "fortui"
-version = "0.1.0"
-license = "license"
+version = "0.2.0"
+license = "MIT"
 author = "Christopher Albert"
 maintainer = "albert@tugraz.at"
-copyright = "Copyright 2025, Christopher Albert"
-
-[[example]]
-name = "tui_demo"
-source-dir = "example"
-main = "tui_demo.f90"
+copyright = "Copyright 2025-2026, Christopher Albert"
 
 [build]
 auto-executables = true
@@ -17,7 +12,7 @@ auto-examples = true
 module-naming = false
 
 [install]
-library = false
+library = true
 
 [fortran]
 implicit-typing = false
@@ -27,4 +22,3 @@ source-form = "free"
 [preprocess]
 cpp.suffixes = ["F90", "f90"]
 cpp.directories = ["src", "app", "test", "example"]
-cpp.macros = ["ENABLE_TUI=1"]
