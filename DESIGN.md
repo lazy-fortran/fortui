@@ -1,137 +1,206 @@
-# FortUI design
+# FortUI architecture
 
-## Mission
+FortUI is a Fortran-native semantic UI framework with declarative/immediate
+composition over a retained incremental runtime, capable of realizing the same
+application intent through native controls, custom graphics, the web DOM,
+terminals, or headless automation while preserving platform-specific capabilities.
 
-Build a small, fast, portable UI system whose *application-facing* code is ordinary modern Fortran and whose semantic controls can run as GUI, TUI, headless automation, native mobile/desktop UI, and WebAssembly.
+This document freezes the principle layer. Renderer choices, layout algorithms,
+cache structures, reconciliation implementation, and exact future API spelling
+remain discoverable through real applications. The implementation is a prototype;
+[PLAN.md](PLAN.md) distinguishes completed work from proposed capabilities.
 
-FortUI optimizes for four things simultaneously:
+## Architecture map
 
-1. excellent application ergonomics;
-2. deterministic semantics and testability;
-3. minimal platform dependencies;
-4. easy inspection and modification by AI coding agents.
-
-No single implementation technique is allowed to become ideology.
-
-## The model: immediate composition, retained runtime
-
-"Immediate vs retained" conflates several independent choices. FortUI fixes them separately.
-
-| Concern | FortUI choice |
-|---|---|
-| Application authoring | Immediate, compositional Fortran DSL |
-| Application state | Caller-owned by default |
-| UI interaction state | Retained by FortUI and keyed by stable semantic IDs |
-| Current UI description | Re-composed from application state |
-| Previous UI geometry | Retained for input routing and reconciliation |
-| Layout/render caches | Retained when measurement proves useful |
-| Rendering | Semantic frame lowered by a backend |
-| Repainting | Event/dirty driven as backends mature |
-| Native widgets | Backend option, not a core requirement |
-
-The intended frame pipeline is:
-
-```text
-platform events
-      |
-      v
-normalized input
-      |
-      v
-route against previous semantic frame
-      |
-      v
-Fortran composition DSL
-      |
-      v
-current semantic frame
-      |
-      +--> layout / semantics / accessibility
-      |
-      v
-backend renderer or native-control reconciler
+```mermaid
+flowchart TD
+    A[Application: domain state and operations] --> B[Optional actions and commands]
+    B --> C[Ordinary Fortran composition]
+    C --> D[Owned semantic frame]
+    D --> E[Reconciliation]
+    E --> F[Retained incremental runtime]
+    F --> G[Native controls]
+    F --> H[Custom graphics]
+    F --> I[DOM / terminal / headless]
+    A --> S[Platform services and explicit extensions]
+    S --> P[Platform adapter]
+    G --> P
+    H --> P
+    I --> P
+    P --> Q[Normalized events and service completions]
+    Q --> B
 ```
 
-This keeps the simple immediate API without forcing an immediate renderer.
+User code describes intent; the runtime retains reality. Semantic controls express
+identity, role, value, state, relationships, constraints, and actions. Backends
+choose appropriate presentation. Platform services have independent request
+lifecycles rather than pretending that files, sharing, or notifications are widgets.
 
-## State
+Read the detailed contracts when implementing their subsystem:
 
-FortUI is not stateless.
+- [Transactions and commands](docs/TRANSACTIONS.md): scheduling, activation,
+  inline changes, dispatch, asynchronous completion, and failures.
+- [Semantic and runtime model](docs/SEMANTIC_MODEL.md): identity, ownership,
+  editing, layout, accessibility, canvas metadata, inspection, and invalidation.
+- [Platform boundary](docs/PLATFORM_BOUNDARY.md): native/custom realization,
+  text infrastructure, DOM, services, capabilities, ABI, and backend evidence.
+- [TPX experiment](docs/TPX_EXPERIMENT.md): independent tracks, common behavior,
+  acceptance slices, and comparison rules.
 
-The application owns domain state such as a selected TPX object, a file name, or a physical parameter. FortUI owns only UI state that cannot sensibly live in the model: focus, active pointer capture, hover, scroll positions, text-editing composition, animation state, cached measurement, and platform resources.
+## Fortran authoring
 
-A control ID is semantic identity, not a rendering address. IDs must remain stable across frames when the logical control remains the same.
+The primary DSL is ordinary Fortran with conditionals, loops, functions, and types.
+The prototype already permits this style:
 
-## Semantic frame
+```fortran
+call ui_frame_begin()
+call text("title", "Document")
+call row_begin(8.0)
+if (button("open", "Open")) call open_document()
+if (button("save", "Save", enabled=dirty)) call save_document()
+call row_end()
+changed = slider("width", 0.1, 10.0, 0.1, line_width)
+changed = checkbox("grid", show_grid, "Show grid")
+call ui_present()
+```
 
-Widgets may not draw. They emit semantic nodes such as text, button, slider, checkbox, viewport, list, table, or text editor. A semantic node carries stable identity, role/kind, content and current value, geometry, interaction flags, accessibility semantics, styling/theme tokens, and backend-independent capabilities.
+The desired scheduling contract executes composition once per scheduled semantic
+transaction. Layout, painting, reconciliation, and accessibility queries never
+execute that user routine. Transactions are serialized and composition is
+nonreentrant. A physical gesture can generate several transactions.
 
-The current prototype implements the first subset. Accessibility roles and theme tokens are mandatory before 1.0.
+The prototype's frame loop does not yet enforce the complete scheduling contract.
+In particular, an inline handler can change state after earlier controls were
+emitted. Consume its activation once, then schedule a separate follow-up transaction
+when a coherent post-action description is needed. Never replay the same transaction
+or silently assume arbitrary Fortran composition is pure.
 
-## Layout and units
+## State has explicit owners
 
-Application layout uses logical device-independent units. A graphical backend maps them to pixels using platform scale and font metrics. A terminal backend quantizes the same semantic geometry to character cells.
+| State | Authority | Examples |
+|---|---|---|
+| Domain | Application | Document geometry, committed properties, history, dirty flag |
+| UI-local | FortUI runtime | Focus, hover, capture, scroll, draft text, caret, IME session |
+| Platform | Adapter/host | Native handles, lifecycle, device resources, service requests |
 
-A GUI backend must never be constrained to a terminal grid merely to keep the source code shared.
+Application values may be mirrored for presentation; mirrors never become competing
+authorities. Editing drafts can temporarily differ from committed domain values.
+Commit/cancel and external-update policies make that difference explicit.
 
-Future layout work should add intrinsic sizing, grow/shrink constraints, scrolling, virtualization, overlays, and multipass measurement. Do not invent a general CSS clone.
+Frames and queued events own their payloads. Runtime and backend code must not keep
+borrowed pointers to caller scalars or temporary strings across composition. Use
+owned typed payloads, stable keys, and generation-checked handles for callbacks.
 
-## Backend boundary
+## Commands are independent of controls
 
-A backend has two responsibilities:
+Save, undo, zoom, and delete are operations, irrespective of whether a menu,
+toolbar, shortcut, touch control, command palette, or accessibility action invokes
+them. An optional command registry provides metadata and one execution owner.
+The application validates current domain eligibility when dispatching an operation.
 
-1. convert platform events into normalized FortUI input;
-2. present a semantic frame.
+A possible future API is shown below; these calls are design notation, not shipped
+symbols or a final Fortran signature:
 
-A backend may draw FortUI controls itself, reconcile them to native platform widgets, mix native widgets with custom drawing, serialize/remote the semantic frame, or render a terminal representation. Native appearance is therefore a backend policy instead of a permanent framework decision.
+```fortran
+! Application initialization selects one dispatcher/handler mechanism.
+call action_register(ACTION_SAVE, handler=save_action)
+! Composition describes availability and presentation.
+call action_define(ACTION_SAVE, label="Save", enabled=document%dirty)
+call action_button("save", ACTION_SAVE)
+call menu_action("file/save", ACTION_SAVE)
+```
 
-Raylib is a bootstrap graphical backend. termbox2 is the bootstrap terminal backend. Neither defines FortUI semantics.
+Action-bound controls route the intent to the selected command owner. They do not
+return a second signal instructing the application to execute it again. The simple
+inline `if (button(...)) call ...` form remains available without a command registry.
+A semantic toggle likewise needs an owned value and an explicit update intent,
+independent of whether its realization is a switch, checkbox, or terminal marker.
 
-## TUI and GUI from one code base
+## Meaning travels; realization adapts
 
-Controls preserve meaning, not pixels. A checkbox can render as a box in a GUI, `[x]` in a terminal, or a platform switch when a native backend decides that is the idiomatic representation.
+Choose native/custom/hybrid realization per backend and control. Native menus,
+file pickers, text services, ordinary editors, and accessibility can coexist with
+custom canvases, plots, and Bezier manipulation. No backend must support every
+strategy. Realization policy is replaceable behind tested semantic contracts.
 
-Some graphical controls degrade on TUI. For example, a scientific canvas can become a textual summary, object list, coordinate inspector, or Braille/ASCII preview. Backends expose capabilities when application behavior genuinely must differ.
+Browser ordinary controls use semantic DOM/HTML. Heavy drawing uses Canvas or an
+appropriate GPU renderer; Fortran/WebAssembly executes the application. Navigation,
+URLs, history, file access, and user-activation requirements are explicit platform
+integrations. A DOM backend does not automatically make drawn text searchable or
+provide application navigation.
 
-## Declarative languages and FortGen
+TUI realizes meaning in terminal-appropriate structures. A drawing canvas can
+become an object list and coordinate editor with optional previews. It requires
+application-supplied object/action metadata; it cannot infer a document from pixels.
+Headless realizes semantics and events for deterministic automation.
 
-The primary DSL is embedded Fortran. This follows the same ecosystem pattern as FortSym expressions and FortFEM weak forms: Fortran itself expresses the domain.
+## Layout, text, accessibility, and performance
 
-Do not add XAML/QML/JSON merely because other frameworks have markup. If an external declarative frontend earns its keep, it must compile into the same FortUI semantic model or generated FortUI calls.
+Graphical coordinates are device-independent logical units. Intrinsic sizing,
+min/max, grow/shrink, alignment, spacing, padding, overlays, scrolling, split views,
+and useful grids form a bounded layout vocabulary. Multipass measurement is allowed;
+CSS is not the portable layout specification. Native/DOM hosts may measure and lay
+out controls themselves and return realized geometry for input and inspection.
 
-FortUI owns UI semantics. FortGen may eventually provide shared source-emission mechanics after a real second producer demonstrates duplicated nontrivial code-generation logic. FortGen must not learn what a button or layout is.
+Text editors use native-integrated editing services where appropriate. UTF-8,
+selection, drafts, IME composition, validation, clipboard, and commit conflicts
+are infrastructure. Do not reset an IME session on every semantic update.
 
-## Agent-first API rules
+Accessibility roles, labels, states, ranges, actions, relationships, and focus
+order belong to semantic nodes from the start. Host bridges and actual assistive
+technology behavior still need platform tests.
 
-The preferred API has a small vocabulary, regular named arguments, explicit stable IDs, no hidden reflection, no stringly-typed bindings to model properties, no code-behind lifecycle, deterministic semantic output, a headless backend, and machine-checkable diagnostics.
+Retain expensive layout, shaped text, tessellation, textures, GPU buffers, native
+handles, accessibility nodes, and virtualized ranges. Invalidate affected work
+selectively. Zero composition/layout/redraw at idle is a measured goal; animations
+and caret blink may wake the runtime without executing application composition.
+Do not claim incremental performance merely because reconciliation exists.
 
-An agent should be able to infer the whole UI of a small application from one routine and test it without opening a window.
+## Ecosystem boundaries
 
-## Performance
+FortUI owns UI semantics, control definitions, layout, accessibility, reconciliation,
+commands, and capabilities. FortGen may supply generic source-emission, serialization,
+buffers, formatting, provenance, and binding generation only after genuine reuse.
+FortGen must not know what a button is. The embedded DSL matches the ecosystem
+principle used by FortSym and FortFEM.
 
-Immediate composition is not permission to redo expensive work blindly. Retained runtime data may cache shaped text and glyph runs, layout measurements, large-list visibility/virtualization, tessellated vector paths, GPU resources, accessibility trees, and native control handles.
+Optional external declarative formats may later lower into the same semantic IR.
+Introduce one only when an application demonstrates a concrete need. No second
+runtime, hidden binding authority, or mandatory markup language is required.
 
-The semantic layer should support dirty/invalidation tracking so idle UIs do no work and complex applications need not fully re-layout or redraw every display refresh. Optimize only with measurements and behavioral oracles.
+Application and most framework semantics live in Fortran. Small C, Objective-C,
+Java/Kotlin/JNI, or JavaScript shims are acceptable for platform lifecycle and ABI
+integration. Judge their responsibilities and dependencies, not ideological purity.
 
-## Portability target
+## Prototype and target status
 
-| Target | Preferred route |
-|---|---|
-| Linux | thin Wayland/X11/SDL-class platform adapter + renderer |
-| Windows | Win32 platform adapter + D3D/WebGPU/Vulkan-class renderer |
-| macOS | Cocoa adapter + Metal |
-| iOS/iPadOS | UIKit adapter + Metal |
-| Android | native activity/input adapter + Vulkan/OpenGL ES |
-| Web | WebAssembly + WebGPU/Canvas bootstrap |
-| Terminal | termbox2-class cell backend |
-| Tests/agents | headless semantic backend |
+| Area | Implemented base | Design target |
+|---|---|---|
+| Composition | Explicit begin/present frame loop | Event-driven, single composition per transaction |
+| Semantics | Text/button/slider/checkbox/viewport nodes | Roles, commands, owned variable-length data, relationships |
+| Identity/input | Previous frame and basic interaction routing | Scoped keys, generations, capture/focus/edit lifecycle |
+| Layout | Simple logical rows/columns | Intrinsic/adaptive layout and virtualization |
+| Backends | Headless, termbox2 TUI, optional raylib | Native/hybrid, DOM, mobile and additional renderers |
+| Text/accessibility | Basic labels | Editing/IME/shaping and verified host accessibility |
+| Performance | Retained frame/storage foundation | Dependency invalidation and measured incremental work |
 
-Small C/Objective-C platform shims are acceptable where the OS ABI requires them. Application and framework semantics remain Fortran.
+This table describes the base revision; completed milestones and executed evidence
+belong in [PLAN.md](PLAN.md). The target matrix is Windows/macOS/Linux, iOS/Android,
+Web, terminal, and headless. Compiler support alone does not establish backend support.
 
-## Non-goals
+## Acceptance and historical rationale
 
-- cloning Qt, GTK, CSS, or the DOM;
-- preserving old FortUI APIs that contradict the mission;
-- fake thread-safety or multi-window claims without backend evidence;
-- abstraction layers created before two real implementations need them;
-- platform-specific branches inside widgets.
+TPX/FortUI is an early architectural acceptance test within a controlled comparison
+against preserved Pascal/LCL and idiomatic C#/Avalonia. The three applications share
+behavioral specifications and fixtures, with independent implementation code.
+Do not put this experiment or FortUI redesign into the original TPX repository.
+
+The design combines direct manipulation, domain/presentation separation, stable
+identity, commands and RAD inspectability, HTML semantics, state-driven descriptions,
+retained reconciliation, and immediate host-language ergonomics. These traditions
+coexist; there is no inevitable historical winner. Persistent objects and callbacks
+remain appropriate inside runtime and platform implementations.
+
+Freeze those principles; change an abstraction when a real application demonstrates
+that it fails. Headless behavioral evidence establishes semantic correctness;
+backend tests establish actual rendering, text, accessibility, and platform quality.

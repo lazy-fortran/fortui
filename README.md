@@ -1,50 +1,57 @@
 # FortUI
 
-FortUI is an experimental cross-platform user-interface library for modern Fortran. Its mission is to let one Fortran UI description drive graphical, terminal, headless, native-mobile, and WebAssembly frontends without forcing applications to depend on a heavyweight widget toolkit.
+FortUI is a Fortran-native semantic UI framework with declarative/immediate
+composition over a retained incremental runtime. Its design aims to realize the
+same application intent through native controls, custom graphics, web DOM,
+terminals, and headless automation while preserving platform-specific capabilities.
 
-The public API is intentionally immediate and Fortran-native:
+The current implementation is an experimental pre-1.0 prototype: basic semantic
+controls, previous-frame input routing, headless tests, termbox2 TUI, and optional
+raylib GUI. Native widgets, DOM/WASM, mobile, full text/IME/accessibility, commands,
+and incremental transaction scheduling are roadmap work.
+
+## Current authoring API
 
 ```fortran
 call ui_frame_begin()
-
 call text("title", "Settings")
 call row_begin(8.0)
 if (button("save", "Save")) call save_document()
 if (button("quit", "Quit")) call ui_request_quit()
 call row_end()
-
 if (slider("volume", 0.0, 100.0, 1.0, volume)) call volume_changed()
 if (checkbox("autosave", autosave, "Auto-save")) call preferences_changed()
-
 call ui_present()
 ```
 
-This is **not** a pure immediate-mode renderer. Application code composes the current UI each frame, while FortUI retains the previous semantic frame, interaction identity, focus, and other runtime state. Input is routed against retained geometry before the next composition. Widgets emit backend-neutral semantic nodes; only backend adapters render them.
+Widgets describe semantics; adapters realize them. Application state remains
+caller-owned, while FortUI retains UI-local interaction state and resources.
+The design specifies one composition execution per scheduled transaction and
+selective runtime updates; the prototype's explicit frame loop is the starting point.
 
-See [DESIGN.md](DESIGN.md) for the architecture and [PLAN.md](PLAN.md) for the platform roadmap.
+[DESIGN.md](DESIGN.md) explains the architecture and links its detailed contracts.
+[PLAN.md](PLAN.md) records completed foundations and the implementation sequence.
+The [TPX experiment](docs/TPX_EXPERIMENT.md) is an early real-application acceptance
+test alongside independent Pascal/LCL and C#/Avalonia implementations.
 
-## Why this model
+## Design principles
 
-FortUI combines the strongest parts of several UI traditions:
+- Ordinary Fortran control flow describes UI intent with stable identity.
+- Commands separate operations from menus, buttons, shortcuts, and other triggers.
+- Domain, UI-local editing, and platform state have explicit owners.
+- Native/custom realization adapts per control; ordinary web controls use DOM.
+- TUI provides useful structural interaction rather than identical pixels.
+- Accessibility and text/IME are semantic infrastructure.
+- Headless inspection supports deterministic tests and agents; real host behavior
+  still needs platform tests.
 
-- immediate/declarative application code: no widget-object lifecycle, callbacks, reflection, or UI/model synchronization layer;
-- retained runtime semantics: stable identity, focus, interaction state, layout caches, accessibility, and future incremental rendering;
-- backend-neutral controls: the same button or slider can become a graphical control, a terminal representation, or a native platform control;
-- deterministic headless execution for tests and AI agents.
+An optional external declarative frontend can later lower to the same semantic
+model when a consumer needs it. FortGen may provide generic generation mechanics;
+FortUI retains ownership of UI semantics.
 
-The embedded Fortran API is the primary DSL. An external declarative format may be added later as an optional frontend, but it must lower to the same semantic model rather than create a second UI architecture.
+## Build and run
 
-## Current backends
-
-- **headless**: deterministic semantic-frame backend for tests and automation;
-- **TUI**: termbox2, embedded through a small C ABI;
-- **GUI**: raylib bootstrap backend, optional at build time.
-
-Raylib and termbox2 are backend implementations, not FortUI's abstraction. Future backends can target Win32/Direct3D, Cocoa/Metal, UIKit/Metal, Android/Vulkan or OpenGL ES, WebGPU/WebAssembly, or another thin platform layer without changing application code.
-
-## Build
-
-TUI + headless:
+TUI and headless:
 
 ```sh
 fpm build
@@ -63,10 +70,11 @@ Run the terminal demo in a real terminal:
 fpm run --example tui_demo
 ```
 
-The GUI demo uses `ui_init("auto", ...)` and chooses an available graphical backend first, then TUI.
+The GUI demo requests `ui_init("auto", ...)` and selects an available graphical
+backend first, then TUI. An explicit backend request must not silently fall back.
+Raylib and termbox2 are replaceable adapters rather than framework semantics.
 
-## Status
+License: MIT. The API may change before 1.0.
 
-FortUI is pre-1.0 and its API may change aggressively. The current revision establishes the semantic architecture; production-quality text editing, Unicode shaping, IME, accessibility bridges, scrolling/virtualization, native-platform backends, and WebAssembly are roadmap work.
-
-License: MIT.
+AI assistance: this architecture documentation was prepared with GPT assistance;
+project maintainers retain responsibility for its content and technical decisions.
