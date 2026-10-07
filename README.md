@@ -1,124 +1,72 @@
-# fortui
+# FortUI
 
-Immediate-mode UI library for modern Fortran with dual backends: terminal (TUI via termbox2) and graphical (GUI via raylib).
+FortUI is an experimental cross-platform user-interface library for modern Fortran. Its mission is to let one Fortran UI description drive graphical, terminal, headless, native-mobile, and WebAssembly frontends without forcing applications to depend on a heavyweight widget toolkit.
 
-## Quick Start
+The public API is intentionally immediate and Fortran-native:
 
-```bash
-git clone git@github.com:lazy-fortran/fortui.git
-cd fortui
+```fortran
+call ui_frame_begin()
+
+call text("title", "Settings")
+call row_begin(8.0)
+if (button("save", "Save")) call save_document()
+if (button("quit", "Quit")) call ui_request_quit()
+call row_end()
+
+if (slider("volume", 0.0, 100.0, 1.0, volume)) call volume_changed()
+if (checkbox("autosave", autosave, "Auto-save")) call preferences_changed()
+
+call ui_present()
+```
+
+This is **not** a pure immediate-mode renderer. Application code composes the current UI each frame, while FortUI retains the previous semantic frame, interaction identity, focus, and other runtime state. Input is routed against retained geometry before the next composition. Widgets emit backend-neutral semantic nodes; only backend adapters render them.
+
+See [DESIGN.md](DESIGN.md) for the architecture and [PLAN.md](PLAN.md) for the platform roadmap.
+
+## Why this model
+
+FortUI combines the strongest parts of several UI traditions:
+
+- immediate/declarative application code: no widget-object lifecycle, callbacks, reflection, or UI/model synchronization layer;
+- retained runtime semantics: stable identity, focus, interaction state, layout caches, accessibility, and future incremental rendering;
+- backend-neutral controls: the same button or slider can become a graphical control, a terminal representation, or a native platform control;
+- deterministic headless execution for tests and AI agents.
+
+The embedded Fortran API is the primary DSL. An external declarative format may be added later as an optional frontend, but it must lower to the same semantic model rather than create a second UI architecture.
+
+## Current backends
+
+- **headless**: deterministic semantic-frame backend for tests and automation;
+- **TUI**: termbox2, embedded through a small C ABI;
+- **GUI**: raylib bootstrap backend, optional at build time.
+
+Raylib and termbox2 are backend implementations, not FortUI's abstraction. Future backends can target Win32/Direct3D, Cocoa/Metal, UIKit/Metal, Android/Vulkan or OpenGL ES, WebGPU/WebAssembly, or another thin platform layer without changing application code.
+
+## Build
+
+TUI + headless:
+
+```sh
 fpm build
-fpm run --example tui_demo
+fpm test
 ```
 
-## Usage
+Optional raylib GUI:
 
-```fortran
-program my_app
-use fortui
-implicit none
-
-type(node) :: tree
-real :: volume = 50.0
-logical :: muted = .false.
-
-call ui_init("tui", 80, 24, "My App")
-tree = column()
-
-do while (.not. ui_should_close())
-    call ui_frame_begin()
-
-    call text("title", "Settings")
-    if (button("save", "Save")) print *, "Saved!"
-    if (slider("vol", value=volume)) print *, volume
-    if (checkbox("mute", muted, "Mute")) print *, muted
-
-    call ui_present(tree)
-end do
-
-call ui_shutdown()
-end program
-```
-
-## Controls
-
-- **Mouse click** - interact with widgets
-- **Tab** - cycle keyboard focus
-- **Enter / Space** - activate button or toggle checkbox
-- **Left / Right** - adjust slider
-- **ESC / Ctrl+C** - quit
-
-## Public API
-
-Everything via `use fortui`:
-
-```fortran
-! Lifecycle
-call ui_init(backend, width, height, title [, target_fps, vsync])
-call ui_frame_begin([timeout_ms])
-call ui_present(tree)
-ui_should_close()  ! returns logical
-call ui_shutdown()
-
-! Widgets (return .true. on interaction)
-button(id [, label, width, height])
-text(id [, value, text_size, width, height])  ! subroutine
-slider(id [, min_val, max_val, step_val, value, width, height])
-checkbox(id, checked [, label, width, height])
-viewport(id, width, height, view_state)
-
-! Layout
-column([gap, children])  ! returns node
-row([gap, children])      ! returns node
-column_begin([gap]) / column_end()
-row_begin([gap]) / row_end()
-
-! Types: node, view
-```
-
-## Backends
-
-**TUI** (termbox2) - always available, terminal rendering:
-```bash
-fpm run --example tui_demo
-```
-
-**GUI** (raylib) - optional, graphical window:
-```bash
-sudo pacman -S raylib  # or equivalent
+```sh
 make build-gui
-FPM_FFLAGS="-cpp -DENABLE_TUI=1 -DENABLE_GUI=1" \
-FPM_LDFLAGS="-lraylib" fpm run --example gui_demo
 ```
 
-## Architecture
+Run the terminal demo in a real terminal:
 
-10 source modules, ~3200 lines. No OO abstractions, no procedure pointers, no class(*) polymorphism. Simple integer dispatch for backend selection. Flat discriminated-union widget state. Designed for future lfortran/WASM compatibility.
-
-```
-fortui.f90           -> public API re-export
-fortui_core.f90      -> lifecycle, backend detection/dispatch
-fortui_context.f90   -> widget state map, context types
-fortui_render.f90    -> color constants, backend dispatch flag
-fortui_input.f90     -> input state, focus tracking
-fortui_layout.f90    -> layout stack, node type, constructors
-fortui_tui.f90       -> TUI backend (termbox2 C bindings)
-fortui_gui.f90       -> GUI backend (raylib C bindings)
-fortui_widgets.f90   -> button, text, slider, checkbox, viewport
-fortui_error.f90     -> error reporting
+```sh
+fpm run --example tui_demo
 ```
 
-## lfortran Status
+The GUI demo uses `ui_init("auto", ...)` and chooses an available graphical backend first, then TUI.
 
-9 of 10 modules compile with lfortran 0.61.0. Blocker: lfortran/lfortran#10902 (compiler crash on fortui_core.f90).
+## Status
 
-## Prerequisites
+FortUI is pre-1.0 and its API may change aggressively. The current revision establishes the semantic architecture; production-quality text editing, Unicode shaping, IME, accessibility bridges, scrolling/virtualization, native-platform backends, and WebAssembly are roadmap work.
 
-- gfortran 9+ (or lfortran for experimental WASM builds)
-- fpm (Fortran Package Manager)
-- termbox2 (embedded)
-- raylib (optional, for GUI backend)
-
-## License
-
-MIT
+License: MIT.
