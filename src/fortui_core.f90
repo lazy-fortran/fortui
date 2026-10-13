@@ -1,28 +1,37 @@
 module fortui_core
-!! FortUI lifecycle and backend selection for the reconciled immediate/retained model.
+!! FortUI lifecycle, frame transactions and idle scheduling. The core knows only
+!! the abstract backend interface; applications inject a backend value.
 use fortui_context, only: fortui_context_t, create_context, destroy_context, &
     get_default_context, set_default_context
-use fortui_frame, only: view
-use fortui_input, only: input_begin_frame, input_route, KEY_ESCAPE
-use fortui_layout, only: layout_reset, column_begin, column_end, row_begin, row_end
-use fortui_render, only: render_present, BACKEND_NONE, BACKEND_HEADLESS, BACKEND_TUI, BACKEND_GUI
-use fortui_tui, only: tui_init, tui_shutdown, tui_poll, tui_is_available, tui_should_close
-#ifdef ENABLE_GUI
-use fortui_gui, only: gui_init, gui_shutdown, gui_poll, gui_is_available, gui_should_close
-#endif
+use fortui_input, only: input_begin_frame, input_route, input_update_pointer, &
+    input_scroll, input_set_key, input_type_text, input_set_time, input_key_arrived, &
+    KEY_ESCAPE
+use fortui_layout, only: layout_reset, layout_check_balance
+use fortui_frame, only: UI_TEXT_INPUT, style_weight
+use fortui_backend, only: ui_backend_t, ui_backend_caps_t, ui_window_config_t
+use fortui_text, only: text_use_fixed_metrics, text_width
 use fortui_error, only: report_error
 implicit none
 private
 
-public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
-public :: ui_request_quit, ui_is_initialized, ui_get_backend
-public :: column_begin, column_end, row_begin, row_end
-public :: view
+interface ui_init
+    !! Start FortUI with an injected backend (see also fortui_backends).
+    module procedure ui_init_backend
+end interface ui_init
+
+public :: ui_init, ui_init_backend, ui_shutdown, ui_frame_begin, ui_present
+public :: ui_should_close, ui_request_quit, ui_is_initialized, ui_get_backend
+public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale
+public :: ui_key_pressed, ui_text_width, ui_backend_capabilities, ui_backend_caps_t
 
 contains
 
-subroutine ui_init(backend, width, height, title, target_fps, vsync, stat)
-    character(*), intent(in) :: backend
+subroutine ui_init_backend(backend, width, height, title, target_fps, vsync, stat)
+    !! Start FortUI with `backend`, a backend value such as `headless_backend_t()`.
+    !! The runtime keeps its own copy and creates the platform resources; a host
+    !! that is unavailable is an error (stat /= 0), never a fallback.
+    !! target_fps = 0 means unlimited (useful for benchmarks with vsync off).
+    class(ui_backend_t), intent(in) :: backend
     integer, intent(in) :: width, height
     character(*), intent(in) :: title
     integer, intent(in), optional :: target_fps
@@ -30,107 +39,205 @@ subroutine ui_init(backend, width, height, title, target_fps, vsync, stat)
     integer, intent(out), optional :: stat
 
     type(fortui_context_t), pointer :: ctx
-    integer :: backend_id, fps
-    logical :: use_vsync, ok
+    type(ui_window_config_t) :: config
 
     if (present(stat)) stat = 0
-
     ctx => get_default_context()
     if (associated(ctx)) call ui_shutdown()
 
-    backend_id = resolve_backend(backend)
-    if (backend_id == BACKEND_NONE) then
-        call report_error("fortui_core", "ui_init", "requested backend is unavailable")
-        if (present(stat)) stat = 1
-        return
-    end if
-
-    fps = 60
-    if (present(target_fps)) fps = max(1, target_fps)
-    use_vsync = .true.
-    if (present(vsync)) use_vsync = vsync
+    config%width = max(1, width)
+    config%height = max(1, height)
+    config%title = title
+    if (present(target_fps)) config%target_fps = max(0, target_fps)
+    if (present(vsync)) config%vsync = vsync
 
     ctx => create_context()
-    ctx%backend_id = backend_id
-    ctx%backend_name = backend_name(backend_id)
-    ctx%window_width = max(1, width)
-    ctx%window_height = max(1, height)
-    ctx%window_title = trim(title)
-    ctx%target_fps = fps
-    ctx%vsync = use_vsync
-
-    ok = init_backend(ctx)
-    if (.not. ok) then
-        call report_error("fortui_core", "ui_init", "backend initialization failed")
+    allocate(ctx%backend, source=backend)
+    ctx%backend%config = config
+    ctx%input%width = config%width
+    ctx%input%height = config%height
+    if (.not. ctx%backend%init()) then
+        call report_error("fortui_core", "ui_init", "backend '" // &
+            ctx%backend%name() // "' could not be initialized")
         call destroy_context(ctx)
         if (present(stat)) stat = 2
         return
     end if
-
+    ctx%backend_name = ctx%backend%name()
+    call ctx%backend%install_text_metrics()
     ctx%initialized = .true.
     call set_default_context(ctx)
-end subroutine ui_init
+end subroutine ui_init_backend
 
-subroutine ui_frame_begin(timeout_ms)
-    integer, intent(in), optional :: timeout_ms
+subroutine ui_frame_begin()
+    !! Start one composition: poll the host (blocking only when the previous
+    !! present allowed idle waiting), route input against the previous frame.
     type(fortui_context_t), pointer :: ctx
 
     ctx => get_default_context()
-    if (.not. associated(ctx) .or. .not. ctx%initialized) then
+    if (.not. associated(ctx)) then
         call report_error("fortui_core", "ui_frame_begin", "FortUI is not initialized")
+        return
+    end if
+    if (ctx%in_frame) then
+        call report_error("fortui_core", "ui_frame_begin", "frame already open")
         return
     end if
 
     call input_begin_frame(ctx%input)
-    select case (ctx%backend_id)
-    case (BACKEND_HEADLESS)
-        continue
-    case (BACKEND_TUI)
-        call poll_tui(ctx, timeout_ms)
-    case (BACKEND_GUI)
-        call poll_gui(ctx)
-    end select
+    call ctx%backend%poll(ctx%input, ctx%wait_next)
+    ! Synthetic events (automation/tests) are normalized input for any backend.
+    call apply_injected(ctx)
 
     call input_route(ctx%input, ctx%previous_frame)
-    if (ctx%input%key == KEY_ESCAPE) ctx%should_quit = .true.
+    ctx%text_focused = focused_kind(ctx) == UI_TEXT_INPUT
+    ! Escape leaves a focused text field; otherwise it is an ordinary key.
+    if (ctx%text_focused .and. input_key_arrived(ctx%input, KEY_ESCAPE)) &
+        ctx%input%focus_id = ""
 
     call ctx%current_frame%reset()
-    call layout_reset()
+    ctx%canvas_node = 0
+    call layout_reset(real(ctx%input%width), real(ctx%input%height))
     ctx%frame_count = ctx%frame_count + 1
     ctx%in_frame = .true.
 end subroutine ui_frame_begin
 
 subroutine ui_present()
+    !! Close the composition: check container balance, release absent widgets
+    !! and layers, decide idle waiting and hand the frame to the backend.
     type(fortui_context_t), pointer :: ctx
 
     ctx => get_default_context()
-    if (.not. associated(ctx) .or. .not. ctx%initialized) return
+    if (.not. associated(ctx)) return
     if (.not. ctx%in_frame) return
 
-    call render_present(ctx%current_frame, ctx%backend_id)
-    ctx%previous_frame = ctx%current_frame
+    if (ctx%canvas_node /= 0) then
+        call report_error("fortui_core", "ui_present", &
+            "canvas_begin without canvas_end at frame end")
+        ctx%canvas_node = 0
+    end if
+    call layout_check_balance()
+    call ctx%canvas%collect(ctx%frame_count)
+    call ctx%collect_states()
+    ctx%wait_next = .not. (ctx%continuous .or. ctx%frame_requested .or. ctx%followup)
+    if (ctx%wait_next) ctx%waiting_presents = ctx%waiting_presents + 1
+    if (ctx%followup) ctx%followups = ctx%followups + 1
+    ctx%frame_requested = .false.
+    ctx%followup = .false.
+    call ctx%backend%present(ctx%current_frame, ctx%canvas)
+    call ctx%swap_frames()
     ctx%in_frame = .false.
 end subroutine ui_present
 
-logical function ui_should_close()
+subroutine ui_request_frame()
+    !! Present the next frame without waiting for input (one-shot), e.g. after
+    !! an asynchronous result changed application state outside composition.
+    type(fortui_context_t), pointer :: ctx
+    ctx => get_default_context()
+    if (associated(ctx)) ctx%frame_requested = .true.
+end subroutine ui_request_frame
+
+subroutine ui_set_continuous(enabled)
+    !! Continuous frames (e.g. during an animation) instead of idle waiting.
+    logical, intent(in) :: enabled
+    type(fortui_context_t), pointer :: ctx
+    ctx => get_default_context()
+    if (associated(ctx)) ctx%continuous = enabled
+end subroutine ui_set_continuous
+
+logical function ui_key_pressed(key) result(pressed)
+    !! Application shortcut query: `key` (KEY_*) arrived in the current frame and
+    !! was not consumed by a focused text field. A true result schedules a
+    !! follow-up frame so that the reaction becomes visible.
+    integer, intent(in) :: key
+    type(fortui_context_t), pointer :: ctx
+    pressed = .false.
+    ctx => get_default_context()
+    if (.not. associated(ctx)) return
+    if (.not. ctx%in_frame .or. ctx%text_focused) return
+    pressed = input_key_arrived(ctx%input, key)
+    if (pressed) ctx%followup = .true.
+end function ui_key_pressed
+
+real function ui_text_width(value, size, style) result(width)
+    !! Logical width of UTF-8 `value` at logical `size` with the active backend's
+    !! metrics; `style` is a style token (UI_BODY, UI_HEADING, ...).
+    character(*), intent(in) :: value
+    real, intent(in) :: size
+    integer, intent(in), optional :: style
+    if (present(style)) then
+        width = text_width(value, size, style_weight(style))
+    else
+        width = text_width(value, size)
+    end if
+end function ui_text_width
+
+subroutine ui_window_size(width, height)
+    !! Current window size in logical units.
+    real, intent(out) :: width, height
     type(fortui_context_t), pointer :: ctx
 
+    width = 0.0
+    height = 0.0
     ctx => get_default_context()
-    if (.not. associated(ctx) .or. .not. ctx%initialized) then
-        ui_should_close = .true.
-        return
-    end if
+    if (.not. associated(ctx)) return
+    width = real(ctx%input%width)
+    height = real(ctx%input%height)
+end subroutine ui_window_size
 
-    select case (ctx%backend_id)
-    case (BACKEND_HEADLESS)
-        ui_should_close = ctx%should_quit
-    case (BACKEND_TUI)
-        ui_should_close = ctx%should_quit .or. tui_close_requested()
-    case (BACKEND_GUI)
-        ui_should_close = ctx%should_quit .or. gui_close_requested()
-    case default
-        ui_should_close = .true.
-    end select
+real function ui_scale()
+    !! Framebuffer pixels per logical unit (high-DPI factor).
+    type(fortui_context_t), pointer :: ctx
+    ui_scale = 1.0
+    ctx => get_default_context()
+    if (associated(ctx)) ui_scale = ctx%input%scale
+end function ui_scale
+
+subroutine apply_injected(ctx)
+    type(fortui_context_t), intent(inout) :: ctx
+    integer :: k
+
+    if (ctx%inject_time >= 0.0d0) call input_set_time(ctx%input, ctx%inject_time)
+    if (ctx%inject_resize) then
+        ctx%input%width = ctx%inject_width
+        ctx%input%height = ctx%inject_height
+        ctx%input%resized = .true.
+    end if
+    if (ctx%inject_pointer) call input_update_pointer(ctx%input, ctx%inject_x, &
+        ctx%inject_y, ctx%inject_down)
+    if (abs(ctx%inject_wheel) > 0.0) call input_scroll(ctx%input, &
+        nint(sign(1.0, ctx%inject_wheel)), ctx%inject_wheel)
+    do k = 1, ctx%inject_key_count
+        call input_set_key(ctx%input, ctx%inject_keys(k))
+    end do
+    if (ctx%inject_text_len > 0) call input_type_text(ctx%input, &
+        ctx%inject_text(1:ctx%inject_text_len))
+    ctx%inject_pointer = .false.
+    ctx%inject_wheel = 0.0
+    ctx%inject_key_count = 0
+    ctx%inject_text_len = 0
+    ctx%inject_resize = .false.
+end subroutine apply_injected
+
+integer function focused_kind(ctx) result(kind)
+    type(fortui_context_t), intent(in) :: ctx
+    integer :: i
+
+    kind = 0
+    if (len_trim(ctx%input%focus_id) == 0) return
+    i = ctx%previous_frame%find(ctx%input%focus_id)
+    if (i > 0) kind = ctx%previous_frame%nodes(i)%kind
+end function focused_kind
+
+logical function ui_should_close()
+    !! The application or the host asked to quit.
+    type(fortui_context_t), pointer :: ctx
+
+    ui_should_close = .true.
+    ctx => get_default_context()
+    if (.not. associated(ctx)) return
+    if (.not. ctx%initialized) return
+    ui_should_close = ctx%should_quit .or. ctx%backend%should_close()
 end function ui_should_close
 
 subroutine ui_request_quit()
@@ -145,13 +252,9 @@ subroutine ui_shutdown()
     ctx => get_default_context()
     if (.not. associated(ctx)) return
 
-    select case (ctx%backend_id)
-    case (BACKEND_TUI)
-        call shutdown_tui()
-    case (BACKEND_GUI)
-        call shutdown_gui()
-    end select
-
+    if (allocated(ctx%backend)) call ctx%backend%shutdown()
+    call text_use_fixed_metrics()
+    call layout_reset()
     call destroy_context(ctx)
 end subroutine ui_shutdown
 
@@ -171,151 +274,13 @@ function ui_get_backend() result(name)
     if (associated(ctx)) name = ctx%backend_name
 end function ui_get_backend
 
-integer function resolve_backend(requested) result(id)
-    character(*), intent(in) :: requested
-    character(len=64) :: choice, env_value
-    integer :: status
-
-    choice = lower(trim(requested))
-    call get_environment_variable("FORTUI_BACKEND", env_value, status=status)
-    if (status == 0 .and. len_trim(env_value) > 0) choice = lower(trim(env_value))
-
-    select case (trim(choice))
-    case ("headless")
-        id = BACKEND_HEADLESS
-    case ("tui", "terminal", "console")
-        if (tui_available()) then
-            id = BACKEND_TUI
-        else
-            id = BACKEND_NONE
-        end if
-    case ("gui", "graphics", "window")
-        if (gui_available()) then
-            id = BACKEND_GUI
-        else
-            id = BACKEND_NONE
-        end if
-    case ("auto", "")
-        if (gui_available()) then
-            id = BACKEND_GUI
-        else if (tui_available()) then
-            id = BACKEND_TUI
-        else
-            call get_environment_variable("FORTUI_HEADLESS", env_value, status=status)
-            if (status == 0 .and. trim(env_value) == "1") then
-                id = BACKEND_HEADLESS
-            else
-                id = BACKEND_NONE
-            end if
-        end if
-    case default
-        id = BACKEND_NONE
-    end select
-end function resolve_backend
-
-logical function init_backend(ctx)
-    type(fortui_context_t), intent(in) :: ctx
-
-    select case (ctx%backend_id)
-    case (BACKEND_HEADLESS)
-        init_backend = .true.
-    case (BACKEND_TUI)
-        init_backend = init_tui()
-    case (BACKEND_GUI)
-        init_backend = init_gui(ctx)
-    case default
-        init_backend = .false.
-    end select
-end function init_backend
-
-logical function init_tui()
-    init_tui = tui_init()
-end function init_tui
-
-logical function init_gui(ctx)
-    type(fortui_context_t), intent(in) :: ctx
-#ifdef ENABLE_GUI
-    init_gui = gui_init(ctx%window_width, ctx%window_height, trim(ctx%window_title), &
-        ctx%target_fps, ctx%vsync)
-#else
-    init_gui = .false.
-#endif
-end function init_gui
-
-subroutine poll_tui(ctx, timeout_ms)
-    type(fortui_context_t), intent(inout) :: ctx
-    integer, intent(in), optional :: timeout_ms
-
-    if (present(timeout_ms)) then
-        call tui_poll(ctx%input, timeout_ms)
-    else
-        call tui_poll(ctx%input)
-    end if
-end subroutine poll_tui
-
-subroutine poll_gui(ctx)
-    type(fortui_context_t), intent(inout) :: ctx
-#ifdef ENABLE_GUI
-    call gui_poll(ctx%input)
-#endif
-end subroutine poll_gui
-
-logical function tui_available()
-    tui_available = tui_is_available()
-end function tui_available
-
-logical function gui_available()
-#ifdef ENABLE_GUI
-    gui_available = gui_is_available()
-#else
-    gui_available = .false.
-#endif
-end function gui_available
-
-logical function tui_close_requested()
-    tui_close_requested = tui_should_close()
-end function tui_close_requested
-
-logical function gui_close_requested()
-#ifdef ENABLE_GUI
-    gui_close_requested = gui_should_close()
-#else
-    gui_close_requested = .true.
-#endif
-end function gui_close_requested
-
-subroutine shutdown_tui()
-    call tui_shutdown()
-end subroutine shutdown_tui
-
-subroutine shutdown_gui()
-#ifdef ENABLE_GUI
-    call gui_shutdown()
-#endif
-end subroutine shutdown_gui
-
-pure function backend_name(id) result(name)
-    integer, intent(in) :: id
-    character(len=32) :: name
-
-    select case (id)
-    case (BACKEND_HEADLESS); name = "headless"
-    case (BACKEND_TUI); name = "tui"
-    case (BACKEND_GUI); name = "gui"
-    case default; name = ""
-    end select
-end function backend_name
-
-pure function lower(value) result(out)
-    character(*), intent(in) :: value
-    character(len=len(value)) :: out
-    integer :: i, code
-
-    out = value
-    do i = 1, len(value)
-        code = iachar(out(i:i))
-        if (code >= iachar('A') .and. code <= iachar('Z')) out(i:i) = achar(code + 32)
-    end do
-end function lower
+function ui_backend_capabilities() result(caps)
+    !! Capabilities of the active backend (all false when not initialized).
+    type(ui_backend_caps_t) :: caps
+    type(fortui_context_t), pointer :: ctx
+    ctx => get_default_context()
+    if (.not. associated(ctx)) return
+    if (allocated(ctx%backend)) caps = ctx%backend%capabilities()
+end function ui_backend_capabilities
 
 end module fortui_core

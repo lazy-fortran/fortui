@@ -13,16 +13,31 @@ and incremental transaction scheduling are roadmap work.
 ## Current authoring API
 
 ```fortran
-call ui_frame_begin()
-call text("title", "Settings")
-call row_begin(8.0)
-if (button("save", "Save")) call save_document()
-if (button("quit", "Quit")) call ui_request_quit()
-call row_end()
-if (slider("volume", 0.0, 100.0, 1.0, volume)) call volume_changed()
-if (checkbox("autosave", autosave, "Auto-save")) call preferences_changed()
-call ui_present()
+use fortui
+use fortui_backends, only: ui_init          ! optional: backends by name
+
+call ui_init("auto", 900, 640, "Settings", stat=stat)
+do while (.not. ui_should_close())
+    call ui_frame_begin()
+    if (ui_key_pressed(KEY_ESCAPE)) call ui_request_quit()
+    call text("Settings", style=UI_TITLE)
+    call row_begin(8.0)
+    if (button("save", "Save")) call save_document()
+    if (button("quit", "Quit")) call ui_request_quit()
+    call row_end()
+    if (slider("volume", 0, 100, volume)) call volume_changed()
+    do k = 1, size(options)
+        if (checkbox("option", enabled(k), options(k), key=k)) call preferences_changed()
+    end do
+    call ui_present()
+end do
+call ui_shutdown()
 ```
+
+Applications can also inject a backend value without the registry, for example
+`call ui_init(headless_backend_t(), 800, 600, "test")` in tests or
+`call ui_init(raylib_backend_t(font_regular="Inter.ttf"), 1200, 800, "app")`.
+`fortui_testing` provides synthetic input and frame queries for automation.
 
 Widgets describe semantics; adapters realize them. Application state remains
 caller-owned, while FortUI retains UI-local interaction state and resources.
@@ -55,13 +70,15 @@ TUI and headless:
 
 ```sh
 fpm build
-fpm test
+fpm test          # or: make test
 ```
 
-Optional raylib GUI:
+Optional raylib GUI (Fortran and C need `-DENABLE_GUI=1`, link `-lraylib`):
 
 ```sh
 make build-gui
+make test-gui     # also runs the backend conformance scenario in a window
+make install      # library, modules and the DejaVu font licence under PREFIX
 ```
 
 Run the terminal demo in a real terminal:

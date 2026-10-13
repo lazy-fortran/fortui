@@ -169,9 +169,13 @@ contract. Measure allocations, text/layout work, dirty bounds, latency, and CPU.
 Existing files anchor incremental implementation: `fortui_core` owns orchestration,
 `fortui_context` runtime context, `fortui_frame` semantic storage, `fortui_input`
 normalized routing, `fortui_layout` constraints/measurement, `fortui_widgets`
-composition procedures, and `fortui_render` presentation dispatch. The facade is
-`fortui`; `fortui_gui`/`fortui_tui` are bootstrap adapters. Extract commands,
-services, text, or reconciliation modules only as a slice requires them.
+composition procedures, `fortui_text` UTF-8/metrics/wrapping, and `fortui_canvas`
+the retained canvas layer store. `fortui_backend` defines the backend interface
+that applications inject; the optional `fortui_backends` registry is the only
+module naming several concrete backends (`fortui_backend_headless`, `fortui_tui`,
+`fortui_gui_raylib`). The facade is `fortui`; `fortui_testing` holds automation
+and inspection. Extract commands, services, or reconciliation modules only as a
+slice requires them.
 
 Behavioral oracles cover reorder retaining focus, duplicate-key rejection,
 incompatible-role cleanup, Unicode editing/IME persistence, invalid numeric draft,

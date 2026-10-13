@@ -17,6 +17,68 @@ one activation token, serialized dispatch, one composition invocation, and the
 inline-refresh case. Preserve current controls and tests. Avoid building all action,
 service, or platform abstractions at once. Record the exact evidence commit when done.
 
+## Consumer slice: canvas resources, text, idle (branch `canvas-resources`)
+
+Driven by the brainview graph viewer (~8k nodes/38k edges, 10x headroom). Evidence:
+`test/test_canvas_text.f90` (headless) and `example/canvas_bench.f90` (raylib,
+Linux/X11, RTX 5060 Ti). Windows/macOS routes are unverified.
+
+- [x] Backend interface `ui_backend_t`; registry is the only module naming
+      several backends.
+- [x] Retained canvas layers (points, indexed lines) keyed by canvas/key with
+      generations; upload only on generation change; backend-neutral counters.
+- [x] Canvas view transform per frame (no re-upload); bounded canvas labels.
+- [x] Canvas pointer semantics: hover, press, click, double click, drag with
+      capture (released on button-up or widget removal), wheel; world coordinates.
+- [x] UTF-8 text measurement via backend metrics; bundled DejaVu Sans subset.
+- [x] Scrollable wrapped text (wheel, scrollbar drag, keys, light Markdown headings).
+- [x] Single-line UTF-8 text input (caret, Backspace/Delete/Home/End, Enter).
+- [x] Idle waiting with one-shot/continuous frame requests; split layout, resize.
+- [ ] IME/preedit, selection, clipboard; wide-character TUI widths.
+- [ ] Partial-range canvas uploads; canvas semantic object projection.
+
+API cleanup after review R1 (brainview `handoff/R1-fortui-review.md`). Evidence:
+`test_fortui`, `test_canvas_text` and `test_backend_conformance` (headless with the
+CI flags; conformance also against raylib in a real X11 window via `make test-gui`),
+LFortran 0.67.0-460 native build of all sources running `test_fortui` and
+`test_canvas_text`, brainview headless tests and its real-display script.
+
+- [x] Backend injection: `ui_init(backend_value, ...)`; the core, widgets and
+      facade use no concrete backend; optional `fortui_backends` registry adds
+      `ui_init(name, ...)`. Raylib module and bundled fonts compile only with
+      `-DENABLE_GUI=1`; `make install` installs the DejaVu licence; CI checks the
+      embedded font source against the font files.
+- [x] One idle rule: `present` never blocks, `poll(input, wait)` waits only when
+      the previous present allowed it; `ui_frame_begin` has no timeout.
+- [x] Store read-only for backends; realized versions, upload counters and GPU
+      resources live in backend components (`canvas_realizer_t`, `stats`).
+- [x] Shared vertex layers (`canvas_vertices` + `canvas_points`/`canvas_lines`
+      overloads; self-contained forms kept); segments revalidated when the vertex
+      count shrinks; empty arrays; duplicate layer keys reported; kind change and
+      slot growth covered.
+- [x] Backend-neutral `KEY_*`; pure `tui_map_key`; terminal size and resize in
+      logical units; termbox2 `int` results bound as functions and checked (#150).
+- [x] Identity: static text without id, container scopes, `key=` in loops,
+      duplicate ids reported and skipped; container balance checked at present.
+- [x] Authoring: `style=`/`size=`, `UI_FILL`, `ellipsis=`, three-pane
+      `split_begin(id, first=, last=, gap=)`, `tabs`, integer/real `slider`,
+      `ui_str`; Escape is an ordinary key (`ui_set_escape_quits` removed);
+      `view`/`viewport` removed.
+- [x] Follow-up frame only after consumed input (activation, toggle, changed
+      value, canvas click, handled shortcut); previous frame swapped, not copied.
+- [x] `fortui_testing` holds injection, statistics and frame queries.
+- [ ] Semantic host events (`input_state_t%events(:)` routed through widgets),
+      realized-geometry feedback from hosts that lay out controls, and a
+      non-blocking frame driver for browser hosts (#149, review F1).
+- [ ] `measure(text, size, style)` backend binding replacing the global metric
+      table (#149, review F3).
+- [ ] Text field draft session or documented commit-per-edit policy in
+      SEMANTIC_MODEL (review F5; `text_input` currently commits every edit).
+- [ ] Owned variable-length node text, ids and layer keys instead of 512/96/128
+      character fields (#149, review F7).
+- [ ] Context-owned layout stack and text metrics instead of module state;
+      `ui_shutdown` resetting all of it (#149, review F8).
+
 ## P0: completed architectural reset
 
 - [x] Ordinary Fortran is the primary embedded DSL.
@@ -36,10 +98,13 @@ These completed items do not imply the broader target contracts below are comple
 - [ ] Owned normalized events, activation tokens, transaction/revision IDs.
 - [ ] One composition per scheduled transaction; nonreentrant serialized execution.
 - [ ] Preserve two discrete actions; consume one activation at most once.
-- [ ] Inline mutation schedules one activation-free follow-up; explicit invalidation.
+- [x] Inline mutation schedules one activation-free follow-up; explicit invalidation.
+      Evidence: widgets that consume input schedule one follow-up frame,
+      `ui_request_frame` remains explicit (`test_fortui`, `test_canvas_text`).
 - [ ] Optional command metadata and one dispatcher/handler owner, with live guards.
 - [ ] Unified button/menu/shortcut intent without duplicate command execution.
-- [ ] Scoped keys, duplicate diagnostics, generation-based stale-event rejection.
+- [x] Scoped keys and duplicate diagnostics (`test_fortui`).
+- [ ] Generation-based stale-event rejection.
 - [ ] Failure/publication/shutdown behavior from the transaction contract.
 
 Acceptance: independent action/composition counters, stale-action rejection,
@@ -62,7 +127,7 @@ now; publish unsupported cells without blocking all document work.
 ## M3: canvas interaction and layout
 
 - [ ] Render lines/text/Bezier in the consumer; explicit document/view transforms.
-- [ ] Pointer capture, keyboard focus, hover, drag cancellation, zoom/pan.
+- [x] Pointer capture, keyboard focus, hover, drag cancellation, zoom/pan.
 - [ ] Independent pick/selection/snap/transform scenarios in the consumer oracle.
 - [ ] Intrinsic/min/max sizing, grow/shrink, alignment, spacing, padding.
 - [ ] Split/overlay/scroll and adaptive inspector only as the slice needs them.
@@ -106,8 +171,27 @@ bounded work for a large collection, and no unsupported performance claims.
 - [ ] Platform-specific menus, services, text, and accessibility evidence per host.
 - [ ] Browser semantic DOM controls plus custom canvas; explicit URL/history behavior.
 - [ ] Actual Fortran/WASM feature probes and runtime, including strings/callbacks.
+      Evidence 2026-10-13: LFortran main `0cd29dede1` (LLVM backend, target
+      `wasm32-unknown-emscripten`) compiles all `src/` modules unchanged and
+      `test_fortui` passes in Node and Chromium. `test_canvas_text` needs
+      `--realloc-lhs-arrays` (off by default in LFortran) and then passes natively.
+      Flang 23.1 cannot target wasm (`Target.cpp: target not implemented`, no
+      wasm32 intrinsic modules or runtime). Callbacks are not yet probed.
+- [ ] Browser `web` backend implementing `ui_backend_t`: WebGPU canvas through
+      emscripten `webgpu.h` and `html5.h` events, ordinary controls as DOM
+      elements, `requestAnimationFrame` frames with JSPI/Asyncify yielding at
+      `ui_present`. No raylib or window library in the browser.
+- [x] Correct termbox2 C binding signatures (C `int` results bound as
+      subroutines); harmless on x86-64, a trap on wasm. Fixed for #150: all
+      results are `integer(c_int)` functions and checked; `tb_attr_width` must
+      report the 16-bit `uintattr_t` matching the Fortran binding.
+- [ ] Optional: the same WebGPU backend on desktop through Dawn or wgpu-native.
 - [ ] Trusted browser service activation, permission/file/storage behavior.
 - [ ] Keep raylib as a useful reference; no explicit-backend silent fallback.
+- [ ] SDL3 + SDL_GPU backend implementing `ui_backend_t`.
+- [ ] Native hybrid hosts (GTK4, AppKit, Win32) with an embedded custom canvas.
+- [ ] Optional direct Vulkan/Metal/D3D12 canvas renderers.
+- [ ] Executed raylib evidence on Windows and macOS (GL 3.3/4.1 core, Retina).
 
 Desktop routes include Windows, macOS, and selected Linux hosts. Renderer choice
 follows measured consumer needs; do not require every GPU API before proving a slice.

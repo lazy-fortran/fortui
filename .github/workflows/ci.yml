@@ -34,10 +34,32 @@ jobs:
 
       - name: Enforce backend boundary
         run: |
-          if grep -E "use[[:space:]]+fortui_(tui|gui|render)" src/fortui_widgets.f90; then
-            echo "Widgets must not depend on renderer/platform backends"
+          runtime="src/fortui.f90 src/fortui_core.f90 src/fortui_widgets.f90
+            src/fortui_context.f90 src/fortui_frame.f90 src/fortui_input.f90
+            src/fortui_layout.f90 src/fortui_text.f90 src/fortui_canvas.f90
+            src/fortui_backend.f90 src/fortui_testing.f90"
+          # Core, widgets and the facade know no concrete backend and do not
+          # need the optional registry (applications inject a backend).
+          if grep -nE "use[[:space:]]+fortui_(tui|gui|backend_headless|backends)\b" \
+            $runtime; then
+            echo "Runtime modules must not depend on concrete backends or the registry"
             exit 1
           fi
+          if grep -nE "use[[:space:]]+fortui_backend\b" src/fortui_widgets.f90 \
+            src/fortui_layout.f90 src/fortui_frame.f90 src/fortui_canvas.f90; then
+            echo "Widgets and layout must not depend on the backend interface"
+            exit 1
+          fi
+          # Only the registry names more than one backend.
+          for f in src/*.f90; do
+            n=$(grep -cE "use[[:space:]]+fortui_(tui|gui_raylib|backend_headless)\b" "$f" || true)
+            if [ "$n" -gt 1 ] && [ "$f" != src/fortui_backends.f90 ]; then
+              echo "$f names several concrete backends"; exit 1
+            fi
+          done
+
+      - name: Bundled font source matches the font files
+        run: python3 tools/embed_fonts.py --check
 
       - name: Reject stale architecture
         run: |
