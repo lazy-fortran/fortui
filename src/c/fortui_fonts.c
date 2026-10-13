@@ -2,7 +2,9 @@
  * Code points: U+0020-007E,U+00A0-017F,U+0370-03FF,U+2000-206F,U+20AC,U+2190-21FF,U+2200-22FF,U+FFFD
  * DejaVuSans-fortui.ttf sha256 fb48617c241d0db3b17cfb61d7116c72bc03429d368303d1a3e28f5b195e33bf
  * DejaVuSans-Bold-fortui.ttf sha256 c2bad6a1c71b24aa24bc9c4f31beb1a48b26c533d6accd5282e6534d6a50388a
- * License: assets/fonts/LICENSE-DejaVu */
+ * License: assets/fonts/LICENSE-DejaVu (installed by `make install`).
+ * Compiled only for the raylib backend (-DENABLE_GUI=1). */
+#ifdef ENABLE_GUI
 
 static const unsigned char font_regular[73744] = {
   0,1,0,0,0,15,0,128,0,3,0,112,71,68,69,70,23,213,23,79,
@@ -7220,3 +7222,4 @@ const unsigned char *fortui_font_data(int style, int *size)
     *size = (int)sizeof(font_regular);
     return font_regular;
 }
+#endif

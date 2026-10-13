@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Regenerate the bundled FortUI fonts and their embedded C source.
 
-Usage: python3 tools/embed_fonts.py [--subset SRC_DIR]
+Usage: python3 tools/embed_fonts.py [--subset SRC_DIR | --check]
 
 --subset re-creates assets/fonts/*-fortui.ttf from upstream DejaVu Sans TTFs in
 SRC_DIR with pyftsubset (fontTools) using the code point set below. Without it,
-only src/c/fortui_fonts.c is regenerated from the committed subset files.
+only src/c/fortui_fonts.c is regenerated from the committed subset files;
+--check only verifies that it matches them (CI). Upstream: DejaVu Sans 2.37
+(name table "Version 2.37"), subset with fontTools pyftsubset.
 DejaVu fonts: see assets/fonts/LICENSE-DejaVu (Bitstream Vera/Arev derived).
 """
 import hashlib
@@ -33,7 +35,9 @@ def main():
     for _, dst, _ in FONTS:
         data = (out_dir / dst).read_bytes()
         lines.append(" * %s sha256 %s" % (dst, hashlib.sha256(data).hexdigest()))
-    lines += [" * License: assets/fonts/LICENSE-DejaVu */", ""]
+    lines += [" * License: assets/fonts/LICENSE-DejaVu (installed by `make install`).",
+              " * Compiled only for the raylib backend (-DENABLE_GUI=1). */",
+              "#ifdef ENABLE_GUI", ""]
     for _, dst, name in FONTS:
         data = (out_dir / dst).read_bytes()
         lines.append("static const unsigned char font_%s[%d] = {" % (name, len(data)))
@@ -48,8 +52,15 @@ def main():
         "    *size = (int)sizeof(font_regular);",
         "    return font_regular;",
         "}",
+        "#endif",
         ""]
-    (ROOT / "src" / "c" / "fortui_fonts.c").write_text("\n".join(lines))
+    text = "\n".join(lines)
+    target = ROOT / "src" / "c" / "fortui_fonts.c"
+    if "--check" in sys.argv:
+        if target.read_text() != text:
+            sys.exit("src/c/fortui_fonts.c does not match assets/fonts; regenerate it")
+        return
+    target.write_text(text)
 
 
 if __name__ == "__main__":
