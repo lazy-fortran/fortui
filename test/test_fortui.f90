@@ -55,15 +55,6 @@ call input_update_pointer(input, 10.0, 10.0, .false.)
 call input_route(input, frame)
 call check(input_activated(input, "probe"), "release activates captured node")
 
-! A press and release inside one backend event batch (button already up, but a
-! press was reported) is one complete click, not a lost press.
-call input_begin_frame(input)
-call input_update_pointer(input, 20.0, 20.0, .false., .true.)
-call input_route(input, frame)
-call check(input_activated(input, "probe"), "same-batch press+release activates")
-call check(trim(input%click_id) == "probe", "same-batch press+release is a click")
-call check(len_trim(input%active_id) == 0, "same-batch click leaves no capture")
-
 call ui_shutdown()
 call check(.not. ui_is_initialized(), "shutdown releases context")
 print *, "fortui tests passed"

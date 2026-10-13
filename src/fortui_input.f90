@@ -142,17 +142,6 @@ subroutine input_update_pointer(input, x, y, down, pressed)
     if (present(pressed)) input%pointer_pressed = input%pointer_pressed .or. pressed
     if (.not. was_down .and. down) input%pointer_pressed = .true.
     if (was_down .and. .not. down) input%pointer_released = .true.
-    if (present(pressed)) then
-        ! Press and release inside one event batch (touchpad tap, synthetic
-        ! click): the button is up again but a press was reported, so record
-        ! a complete press/release at this position instead of losing it.
-        if (pressed .and. .not. down .and. .not. was_down) then
-            input%pointer_released = .true.
-            input%press_x = x
-            input%press_y = y
-            input%drag_exceeded = .false.
-        end if
-    end if
     if (down .and. .not. was_down) then
         input%press_x = x
         input%press_y = y
