@@ -127,8 +127,8 @@ bounded work for a large collection, and no unsupported performance claims.
 - [ ] Actual Fortran/WASM feature probes and runtime, including strings/callbacks.
       Evidence 2026-10-13: LFortran main `0cd29dede1` (LLVM backend, target
       `wasm32-unknown-emscripten`) compiles all `src/` modules unchanged and
-      `test_fortui` passes in Node and Chromium. `test_canvas_text` fails under
-      LFortran (realloc-on-assignment to an allocatable component, native and wasm).
+      `test_fortui` passes in Node and Chromium. `test_canvas_text` needs
+      `--realloc-lhs-arrays` (off by default in LFortran) and then passes natively.
       Flang 23.1 cannot target wasm (`Target.cpp: target not implemented`, no
       wasm32 intrinsic modules or runtime). Callbacks are not yet probed.
 - [ ] Browser `web` backend implementing `ui_backend_t`: WebGPU canvas through
