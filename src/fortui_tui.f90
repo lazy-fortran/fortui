@@ -1,16 +1,20 @@
 module fortui_tui
 !! Terminal platform + renderer backend using termbox2.
 use iso_c_binding
-use fortui_frame, only: ui_frame_t, ui_node_t, UI_TEXT, UI_BUTTON, UI_SLIDER, UI_CHECKBOX, UI_VIEWPORT
-use fortui_input, only: input_state_t, input_update_pointer, input_scroll, input_set_key
+use fortui_frame, only: ui_frame_t, ui_node_t, UI_TEXT, UI_BUTTON, UI_SLIDER, UI_CHECKBOX, &
+    UI_VIEWPORT, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, SCROLL_PADDING
+use fortui_input, only: input_state_t, input_update_pointer, input_scroll, input_set_key, &
+    input_type_text, KEY_BACKSPACE
+use fortui_text, only: utf8_decode, utf8_encode, text_use_fixed_metrics
 use fortui_error, only: report_error
+use fortui_backend, only: ui_backend_t, ui_backend_caps_t
+use fortui_canvas, only: canvas_store_t, canvas_realize_frame
 implicit none
 private
 
 real, parameter :: CELL_W_DP = 8.0
 real, parameter :: CELL_H_DP = 16.0
 
-integer, parameter :: TB_KEY_ESC = 27
 integer, parameter :: TB_KEY_CTRL_C = 3
 integer, parameter :: TB_EVENT_KEY = 1
 integer, parameter :: TB_EVENT_RESIZE = 2
@@ -71,10 +75,93 @@ interface
     end function
 end interface
 
-public :: tui_init, tui_shutdown, tui_poll, tui_render_frame
-public :: tui_is_available, tui_should_close
+type, extends(ui_backend_t), public :: tui_backend_t
+    !! termbox2 terminal backend: adapts meaning (summaries) rather than pixels.
+contains
+    procedure :: name => tui_name
+    procedure :: init => tui_backend_init
+    procedure :: shutdown => tui_backend_shutdown
+    procedure :: poll => tui_backend_poll
+    procedure :: present => tui_backend_present
+    procedure :: should_close => tui_backend_should_close
+    procedure :: install_text_metrics => tui_metrics
+    procedure :: capabilities => tui_caps
+end type tui_backend_t
+
+public :: tui_is_available
 
 contains
+
+function tui_name(self) result(name)
+    class(tui_backend_t), intent(in) :: self
+    character(len=:), allocatable :: name
+    name = "tui"
+    if (.false.) name = merge("tui", "tui", same_type_as(self, self))
+end function tui_name
+
+logical function tui_backend_init(self, width, height, title, target_fps, vsync)
+    !! Terminal size is the terminal's; window arguments are ignored.
+    class(tui_backend_t), intent(inout) :: self
+    integer, intent(in) :: width, height, target_fps
+    character(*), intent(in) :: title
+    logical, intent(in) :: vsync
+    tui_backend_init = tui_init()
+    if (.false.) tui_backend_init = same_type_as(self, self) .and. vsync .and. &
+        width + height + target_fps + len(title) > 0
+end function tui_backend_init
+
+subroutine tui_backend_shutdown(self)
+    class(tui_backend_t), intent(inout) :: self
+    call tui_shutdown()
+    if (.false.) print *, same_type_as(self, self)
+end subroutine tui_backend_shutdown
+
+subroutine tui_backend_poll(self, input, width, height, scale, timeout_ms)
+    class(tui_backend_t), intent(inout) :: self
+    type(input_state_t), intent(inout) :: input
+    integer, intent(inout) :: width, height
+    real, intent(inout) :: scale
+    integer, intent(in), optional :: timeout_ms
+    call tui_poll(input, timeout_ms)
+    if (.false.) then
+        width = 0
+        height = 0
+        scale = 1.0
+        print *, same_type_as(self, self)
+    end if
+end subroutine tui_backend_poll
+
+subroutine tui_backend_present(self, frame, store, wait_for_events)
+    class(tui_backend_t), intent(inout) :: self
+    type(ui_frame_t), intent(in) :: frame
+    type(canvas_store_t), intent(inout), target :: store
+    logical, intent(in) :: wait_for_events
+    call canvas_realize_frame(store, frame)
+    call tui_render_frame(frame)
+    if (.false.) print *, same_type_as(self, self), wait_for_events
+end subroutine tui_backend_present
+
+logical function tui_backend_should_close(self)
+    class(tui_backend_t), intent(in) :: self
+    tui_backend_should_close = tui_should_close()
+    if (.false.) print *, same_type_as(self, self)
+end function tui_backend_should_close
+
+subroutine tui_metrics(self)
+    !! One logical 20-unit glyph maps to one 8x16 terminal cell.
+    class(tui_backend_t), intent(inout) :: self
+    call text_use_fixed_metrics(0.4, 0.8)
+    if (.false.) print *, same_type_as(self, self)
+end subroutine tui_metrics
+
+function tui_caps(self) result(caps)
+    class(tui_backend_t), intent(in) :: self
+    type(ui_backend_caps_t) :: caps
+    caps%pointer = .true.
+    caps%text_entry = .true.
+    caps%event_waiting = .true.
+    if (.false.) caps%graphical = same_type_as(self, self)
+end function tui_caps
 
 logical function tui_init()
     integer :: status
@@ -124,8 +211,14 @@ subroutine process_event(input, event)
     key = iand(int(event%key), 65535)
     select case (int(event%type))
     case (TB_EVENT_KEY)
-        if (key == TB_KEY_ESC .or. key == TB_KEY_CTRL_C) quit_requested = .true.
-        call input_set_key(input, key, int(event%ch))
+        if (key == TB_KEY_CTRL_C) quit_requested = .true.
+        if (event%ch > 0) then
+            call input_type_text(input, utf8_encode(int(event%ch)))
+        else if (key == 127) then
+            call input_set_key(input, KEY_BACKSPACE)
+        else
+            call input_set_key(input, key, int(event%ch))
+        end if
     case (TB_EVENT_MOUSE)
         select case (key)
         case (TB_KEY_MOUSE_LEFT)
@@ -216,8 +309,41 @@ subroutine draw_node(node)
         call put_cell(x + w - 1, y, iachar(']'), fg, bg)
     case (UI_VIEWPORT)
         call draw_border(x, y, w, h, fg, bg)
+    case (UI_CANVAS)
+        ! Terminal adaptation: a frame plus a semantic summary, not pixels.
+        call draw_border(x, y, w, h, fg, bg)
+        write(label, '(a,i0,a,i0,a)') " canvas " // trim(node%id) // ": ", &
+            node%layer_count, " layers, ", node%label_count, " labels "
+        call draw_string(x + 1, y, trim(label), fg, bg, max(0, w - 2))
+    case (UI_SCROLL_TEXT)
+        call draw_scroll_text(node, x, y, w, h, fg, bg)
+    case (UI_TEXT_INPUT)
+        call put_cell(x, y, iachar('['), fg, bg)
+        if (allocated(node%body)) then
+            if (len(node%body) > 0) then
+                call draw_string(x + 1, y, node%body, fg, bg, max(0, w - 2))
+            else
+                call draw_string(x + 1, y, trim(node%text), C_BLACK + C_BOLD, bg, max(0, w - 2))
+            end if
+        end if
+        call put_cell(x + w - 1, y, iachar(']'), fg, bg)
     end select
 end subroutine draw_node
+
+subroutine draw_scroll_text(node, x, y, w, h, fg, bg)
+    type(ui_node_t), intent(in) :: node
+    integer, intent(in) :: x, y, w, h, fg, bg
+    integer :: i, row
+
+    if (.not. allocated(node%body) .or. .not. allocated(node%lines)) return
+    do i = 1, node%line_count
+        row = nint((SCROLL_PADDING + node%lines(i)%y - node%scroll) / CELL_H_DP)
+        if (row < 0) cycle
+        if (row >= h) exit
+        if (node%lines(i)%last >= node%lines(i)%first) call draw_string(x, y + row, &
+            node%body(node%lines(i)%first:node%lines(i)%last), fg, bg, w)
+    end do
+end subroutine draw_scroll_text
 
 subroutine draw_border(x, y, w, h, fg, bg)
     integer, intent(in) :: x, y, w, h, fg, bg
@@ -238,12 +364,18 @@ subroutine draw_border(x, y, w, h, fg, bg)
 end subroutine draw_border
 
 subroutine draw_string(x, y, value, fg, bg, limit)
+    !! Draw UTF-8 text, one code point per cell (no wide-character evidence yet).
     integer, intent(in) :: x, y, fg, bg, limit
     character(*), intent(in) :: value
-    integer :: i, n
-    n = min(len_trim(value), max(0, limit))
-    do i = 1, n
-        call put_cell(x + i - 1, y, iachar(value(i:i)), fg, bg)
+    integer :: pos, col, cp, nb
+
+    pos = 1
+    col = 0
+    do while (pos <= len_trim(value) .and. col < limit)
+        call utf8_decode(value, pos, cp, nb)
+        call put_cell(x + col, y, cp, fg, bg)
+        pos = pos + nb
+        col = col + 1
     end do
 end subroutine draw_string
 

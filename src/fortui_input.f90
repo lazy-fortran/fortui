@@ -13,6 +13,17 @@ integer, parameter, public :: KEY_ARROW_UP = 65517
 integer, parameter, public :: KEY_ARROW_DOWN = 65516
 integer, parameter, public :: KEY_ARROW_LEFT = 65515
 integer, parameter, public :: KEY_ARROW_RIGHT = 65514
+integer, parameter, public :: KEY_BACKSPACE = 8
+integer, parameter, public :: KEY_DELETE = 65525
+integer, parameter, public :: KEY_HOME = 65523
+integer, parameter, public :: KEY_END = 65522
+integer, parameter, public :: KEY_PAGE_UP = 65521
+integer, parameter, public :: KEY_PAGE_DOWN = 65520
+integer, parameter, public :: MAX_FRAME_KEYS = 32
+integer, parameter, public :: MAX_FRAME_TEXT = 256
+real, parameter, public :: DRAG_THRESHOLD = 4.0
+real, parameter, public :: DOUBLE_CLICK_SECONDS = 0.4
+real, parameter, public :: DOUBLE_CLICK_DISTANCE = 6.0
 
 type, public :: input_state_t
     real :: pointer_x = -1.0
@@ -23,8 +34,26 @@ type, public :: input_state_t
     logical :: pointer_pressed = .false.
     logical :: pointer_released = .false.
     integer :: scroll_y = 0
+    real :: wheel = 0.0
     integer :: key = KEY_NONE
     integer :: key_char = 0
+    integer :: key_count = 0
+    integer :: keys(MAX_FRAME_KEYS) = KEY_NONE
+    ! Typed-text length when each key arrived, preserving key/text ordering.
+    integer :: key_text_pos(MAX_FRAME_KEYS) = 0
+    character(len=MAX_FRAME_TEXT) :: text = ""
+    integer :: text_len = 0
+    logical :: resized = .false.
+    double precision :: time = 0.0d0
+    real :: press_x = 0.0
+    real :: press_y = 0.0
+    logical :: drag_exceeded = .false.
+    character(len=96) :: click_id = ""
+    character(len=96) :: double_click_id = ""
+    character(len=96) :: last_click_id = ""
+    double precision :: last_click_time = -1.0d9
+    real :: last_click_x = 0.0
+    real :: last_click_y = 0.0
     character(len=96) :: focus_id = ""
     character(len=96) :: active_id = ""
     character(len=96) :: activated_id = ""
@@ -34,6 +63,7 @@ end type input_state_t
 public :: input_begin_frame, input_update_pointer, input_scroll, input_set_key
 public :: input_route, input_activated, input_focused, input_active
 public :: input_hovered, input_scroll_for, input_key_for
+public :: input_type_text, input_set_time, input_wheel_for, input_has_events
 
 contains
 
@@ -45,11 +75,52 @@ subroutine input_begin_frame(input)
     input%pointer_pressed = .false.
     input%pointer_released = .false.
     input%scroll_y = 0
+    input%wheel = 0.0
     input%key = KEY_NONE
     input%key_char = 0
+    input%key_count = 0
+    input%text_len = 0
+    input%resized = .false.
     input%activated_id = ""
     input%scroll_id = ""
+    input%click_id = ""
+    input%double_click_id = ""
 end subroutine input_begin_frame
+
+logical function input_has_events(input)
+    !! Whether this frame's input could change presentation (idle-wait decision).
+    type(input_state_t), intent(in) :: input
+    input_has_events = abs(input%pointer_dx) > 0.0 .or. abs(input%pointer_dy) > 0.0 .or. &
+        input%pointer_pressed .or. input%pointer_released .or. abs(input%wheel) > 0.0 .or. &
+        input%key_count > 0 .or. input%text_len > 0 .or. input%resized
+end function input_has_events
+
+subroutine input_type_text(input, utf8)
+    !! Append committed UTF-8 text typed during this frame.
+    type(input_state_t), intent(inout) :: input
+    character(*), intent(in) :: utf8
+    integer :: n
+
+    n = min(len(utf8), MAX_FRAME_TEXT - input%text_len)
+    if (n <= 0) return
+    input%text(input%text_len + 1:input%text_len + n) = utf8(1:n)
+    input%text_len = input%text_len + n
+end subroutine input_type_text
+
+subroutine input_set_time(input, seconds)
+    type(input_state_t), intent(inout) :: input
+    double precision, intent(in) :: seconds
+    input%time = seconds
+end subroutine input_set_time
+
+real function input_wheel_for(input, id)
+    type(input_state_t), intent(in) :: input
+    character(*), intent(in) :: id
+
+    input_wheel_for = 0.0
+    if (len_trim(input%scroll_id) > 0 .and. trim(input%scroll_id) == trim(id)) &
+        input_wheel_for = input%wheel
+end function input_wheel_for
 
 subroutine input_update_pointer(input, x, y, down, pressed)
     type(input_state_t), intent(inout) :: input
@@ -71,12 +142,27 @@ subroutine input_update_pointer(input, x, y, down, pressed)
     if (present(pressed)) input%pointer_pressed = input%pointer_pressed .or. pressed
     if (.not. was_down .and. down) input%pointer_pressed = .true.
     if (was_down .and. .not. down) input%pointer_released = .true.
+    if (down .and. .not. was_down) then
+        input%press_x = x
+        input%press_y = y
+        input%drag_exceeded = .false.
+    else if (down) then
+        if (abs(x - input%press_x) > DRAG_THRESHOLD .or. &
+            abs(y - input%press_y) > DRAG_THRESHOLD) input%drag_exceeded = .true.
+    end if
 end subroutine input_update_pointer
 
-subroutine input_scroll(input, amount)
+subroutine input_scroll(input, amount, wheel)
+    !! Record wheel motion: integer notches and, optionally, precise wheel steps.
     type(input_state_t), intent(inout) :: input
     integer, intent(in) :: amount
+    real, intent(in), optional :: wheel
     input%scroll_y = input%scroll_y + amount
+    if (present(wheel)) then
+        input%wheel = input%wheel + wheel
+    else
+        input%wheel = input%wheel + real(amount)
+    end if
 end subroutine input_scroll
 
 subroutine input_set_key(input, key, key_char)
@@ -86,6 +172,11 @@ subroutine input_set_key(input, key, key_char)
 
     input%key = key
     if (present(key_char)) input%key_char = key_char
+    if (input%key_count < MAX_FRAME_KEYS) then
+        input%key_count = input%key_count + 1
+        input%keys(input%key_count) = key
+        input%key_text_pos(input%key_count) = input%text_len
+    end if
 end subroutine input_set_key
 
 subroutine input_route(input, previous)
@@ -93,6 +184,12 @@ subroutine input_route(input, previous)
     type(ui_frame_t), intent(in) :: previous
 
     integer :: hit, i, focused_index, first_focus, next_focus
+
+    ! Pointer capture ends when its node disappears or the button is up.
+    if (len_trim(input%active_id) > 0) then
+        if (previous%find(trim(input%active_id)) == 0) input%active_id = ""
+    end if
+    if (.not. input%pointer_down .and. .not. input%pointer_released) input%active_id = ""
 
     if (input%key == KEY_TAB) then
         first_focus = 0
@@ -131,6 +228,7 @@ subroutine input_route(input, previous)
         if (hit > 0) then
             if (trim(previous%nodes(hit)%id) == trim(input%active_id)) then
                 input%activated_id = previous%nodes(hit)%id
+                if (.not. input%drag_exceeded) call register_click(input)
             end if
         end if
         input%active_id = ""
@@ -146,6 +244,26 @@ subroutine input_route(input, previous)
         if (hit > 0) input%scroll_id = previous%nodes(hit)%id
     end if
 end subroutine input_route
+
+subroutine register_click(input)
+    !! A click is press+release on one node without exceeding the drag threshold.
+    type(input_state_t), intent(inout) :: input
+
+    input%click_id = input%activated_id
+    if (trim(input%last_click_id) == trim(input%click_id) .and. &
+        input%time - input%last_click_time <= DOUBLE_CLICK_SECONDS .and. &
+        abs(input%press_x - input%last_click_x) <= DOUBLE_CLICK_DISTANCE .and. &
+        abs(input%press_y - input%last_click_y) <= DOUBLE_CLICK_DISTANCE) then
+        input%double_click_id = input%click_id
+        input%last_click_id = ""
+        input%last_click_time = -1.0d9
+    else
+        input%last_click_id = input%click_id
+        input%last_click_time = input%time
+        input%last_click_x = input%press_x
+        input%last_click_y = input%press_y
+    end if
+end subroutine register_click
 
 integer function hit_test(frame, x, y, interactive_only) result(index)
     type(ui_frame_t), intent(in) :: frame
