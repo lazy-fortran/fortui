@@ -11,6 +11,8 @@ program canvas_bench
 !! FORTUI_BENCH_UPDATE=1 every frame moves all points (re-upload per frame).
 use iso_fortran_env, only: int32, int64, real64
 use fortui
+use fortui_backends, only: ui_init
+use fortui_testing, only: ui_stats, ui_stats_t
 implicit none
 
 integer, parameter :: STEPS(4) = [13, 21, 34, 55]
@@ -73,7 +75,8 @@ status_line = "click a point"
 cam = canvas_view_t(zoom=0.6, pan_x=600.0, pan_y=450.0)
 
 if (bench_frames > 0) then
-    call ui_init("gui", 1600, 1000, "FortUI canvas bench", target_fps=0, vsync=.false., &
+    call ui_init("gui", 1600, 1000, "FortUI canvas bench", target_fps=0, &
+        vsync=.false., &
         stat=stat)
 else
     call ui_init("gui", 1600, 1000, "FortUI canvas demo", stat=stat)
@@ -88,14 +91,15 @@ call system_clock(t0, rate)
 frame_no = 0
 do while (.not. ui_should_close())
     call ui_frame_begin()
-    call split_begin(360.0, 8.0)
+    if (ui_key_pressed(KEY_ESCAPE)) call ui_request_quit()
+    call split_begin("main", first=360.0, gap=8.0)
     call column_begin(6.0)
-    call text("title", "Graph – Übersicht")
+    call text("Graph – Übersicht", style=UI_HEADING)
     if (text_input("search", query, placeholder="Search…", submitted=submitted)) &
         status_line = "query: " // query
     if (checkbox("labels", show_labels, "Show labels")) continue
     if (checkbox("animate", animate, "Animate layout")) call ui_set_continuous(animate)
-    call text("status", trim(status_line))
+    call text(trim(status_line), style=UI_CAPTION, ellipsis=.true.)
     call scroll_text("note", note, markdown=.true.)
     call column_end()
     call split_next()
@@ -110,15 +114,17 @@ do while (.not. ui_should_close())
         cam%pan_x = 600.0 + 100.0 * sin(0.01 * real(frame_no))
 
     call canvas_begin("graph", cam, ev, fill=ui_rgba(16, 18, 24))
-    call canvas_lines("edges", gen, xy, edge_rgba, segs, segment_generation=1, width=1.0)
-    call canvas_points("nodes", gen, xy, rgba, sizes=sizes, min_pixels=2.0)
+    call canvas_vertices("pos", gen, xy)
+    call canvas_lines("edges", "pos", segs, edge_rgba, generation=1, width=1.0)
+    call canvas_points("nodes", "pos", rgba, sizes=sizes, min_pixels=2.0)
     if (show_labels) then
         do i = 1, 40
-            call canvas_label(xy(1, i * 97), xy(2, i * 97), "Knoten Nr. " // itoa(i * 97), &
+            call canvas_label(xy(1, i * 97), xy(2, i * 97), "Knoten Nr. " // &
+                ui_str(i * 97), &
                 13.0, ui_rgba(220, 220, 230))
         end do
         if (picked > 0) call canvas_label(xy(1, picked), xy(2, picked), &
-            "▶ " // itoa(picked), 16.0, ui_rgba(255, 220, 90))
+            "▶ " // ui_str(picked), 16.0, ui_rgba(255, 220, 90))
     end if
     if (abs(ev%wheel) > 0.0) call canvas_zoom_at(cam, 1.15**ev%wheel, ev%local_x, &
         ev%local_y, 0.01, 200.0)
@@ -138,7 +144,6 @@ do while (.not. ui_should_close())
         end do
         call canvas_to_world(cam, ev%local_x, ev%local_y, wx, wy)
         write(status_line, '(a,i0,a,2f9.1)') "picked ", picked, " at", wx, wy
-        call ui_request_frame()
     end if
     call canvas_end(cam)
     call split_end()
@@ -159,8 +164,9 @@ if (bench_frames > 20 .and. frame_no > 20) then
     write(*, '(a,i0,a,i0,a,i0)') "points=", np, " segments=", ns, " frames=", frame_no
     write(*, '(a,f8.3,a,f8.3)') "median_ms=", frame_ms(10 + (frame_no - 10) / 2), &
         " p95_ms=", frame_ms(10 + nint(0.95 * real(frame_no - 10)))
-    write(*, '(a,i0,a,i0,a,i0)') "vertex_uploads=", stats%vertex_uploads, &
-        " index_uploads=", stats%index_uploads, " layers=", stats%active_layers
+    write(*, '(a,i0,a,i0,a,i0,a,i0)') "vertex_uploads=", stats%vertex_uploads, &
+        " attribute_uploads=", stats%attribute_uploads, " index_uploads=", &
+        stats%index_uploads, " layers=", stats%active_layers
     write(*, '(a,f5.2)') "ui_scale=", ui_scale()
 end if
 call ui_shutdown()
@@ -178,21 +184,13 @@ integer(int32) function palette(j)
     end select
 end function palette
 
-function itoa(n) result(s)
-    integer, intent(in) :: n
-    character(len=:), allocatable :: s
-    character(len=16) :: buf
-    write(buf, '(i0)') n
-    s = trim(buf)
-end function itoa
-
 function build_note() result(s)
     character(len=:), allocatable :: s
     integer :: j
 
     s = "# Notiz: Größenordnung" // achar(10) // achar(10)
     do j = 1, 60
-        s = s // "## Abschnitt " // itoa(j) // achar(10) // &
+        s = s // "## Abschnitt " // ui_str(j) // achar(10) // &
             "Über die Brücke gehen Bären, Füchse und Rehe; die Straße führt → " // &
             "zum Ölberg. Greek: α β γ δ λ π Ω. Größe ≤ 10 ± 2 °C, Preis 5 €. " // &
             "Ein längerer Absatz prüft den Umbruch über mehrere Zeilen hinweg, " // &

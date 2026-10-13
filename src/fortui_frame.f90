@@ -1,7 +1,8 @@
 module fortui_frame
 !! Backend-neutral semantic frame produced by the FortUI composition DSL.
-use iso_fortran_env, only: int32
-use fortui_text, only: text_line_t, TEXT_DEFAULT_SIZE
+use iso_fortran_env, only: int32, int64
+use fortui_text, only: text_line_t, TEXT_DEFAULT_SIZE, TEXT_STYLE_REGULAR, &
+    TEXT_STYLE_BOLD
 implicit none
 private
 
@@ -10,25 +11,29 @@ integer, parameter, public :: UI_TEXT = 1
 integer, parameter, public :: UI_BUTTON = 2
 integer, parameter, public :: UI_SLIDER = 3
 integer, parameter, public :: UI_CHECKBOX = 4
-integer, parameter, public :: UI_VIEWPORT = 5
+integer, parameter, public :: UI_TAB = 5
 integer, parameter, public :: UI_CANVAS = 6
 integer, parameter, public :: UI_SCROLL_TEXT = 7
 integer, parameter, public :: UI_TEXT_INPUT = 8
 
 integer, parameter, public :: LAYER_POINTS = 1
 integer, parameter, public :: LAYER_LINES = 2
+integer, parameter, public :: LAYER_VERTICES = 3
+
+! Presentation style tokens (role, default size and weight; backends choose colour).
+integer, parameter, public :: UI_BODY = 1
+integer, parameter, public :: UI_CAPTION = 2
+integer, parameter, public :: UI_HEADING = 3
+integer, parameter, public :: UI_TITLE = 4
+
+! Width that fills the remaining space of the current container.
+real, parameter, public :: UI_FILL = -1.0
 
 ! Presentation metrics shared by composition (hit regions) and renderers.
 real, parameter, public :: SCROLL_PADDING = 8.0
 real, parameter, public :: SCROLLBAR_WIDTH = 10.0
 real, parameter, public :: INPUT_PADDING = 6.0
-
-type, public :: view
-    real :: scale_x = 1.0
-    real :: scale_y = 1.0
-    real :: off_x = 0.0
-    real :: off_y = 0.0
-end type view
+real, parameter, public :: CONTROL_PADDING = 12.0
 
 type, public :: canvas_view_t
     !! Canvas transform: local = world * zoom + pan (logical units from canvas origin).
@@ -38,12 +43,19 @@ type, public :: canvas_view_t
 end type canvas_view_t
 
 type, public :: ui_layer_ref_t
-    !! Descriptor of a retained canvas geometry layer referenced by one frame.
+    !! Descriptor of a retained drawable canvas layer referenced by one frame.
+    !! `version`/`index_version` change whenever the store copied new data, so a
+    !! backend compares them with what it realized; `vertex_*` names the shared
+    !! vertex layer holding the positions.
     character(len=128) :: key = ""
     integer :: kind = 0
     integer :: slot = 0
-    integer :: generation = 0
-    integer :: index_generation = 0
+    integer :: serial = 0
+    integer :: version = 0
+    integer :: index_version = 0
+    integer :: vertex_slot = 0
+    integer :: vertex_serial = 0
+    integer :: vertex_version = 0
     integer :: vertex_count = 0
     integer :: index_count = 0
 end type ui_layer_ref_t
@@ -74,8 +86,9 @@ type, public :: ui_node_t
     real :: min_value = 0.0
     real :: max_value = 1.0
     logical :: checked = .false.
-    type(view) :: camera
+    integer :: style = UI_BODY
     real :: text_size = TEXT_DEFAULT_SIZE
+    logical :: ellipsis = .false.
     character(len=:), allocatable :: body
     type(text_line_t), allocatable :: lines(:)
     integer :: line_count = 0
@@ -84,7 +97,7 @@ type, public :: ui_node_t
     integer :: caret = 0
     logical :: markdown = .false.
     integer(int32) :: fill = 0
-    type(canvas_view_t) :: canvas_view
+    type(canvas_view_t) :: canvas_view = canvas_view_t()
     integer :: layer_first = 0
     integer :: layer_count = 0
     integer :: label_first = 0
@@ -98,6 +111,8 @@ type, public :: ui_frame_t
     integer :: layer_count = 0
     type(ui_label_t), allocatable :: labels(:)
     integer :: label_count = 0
+    ! Open-addressing index of node ids (0 = empty bucket).
+    integer, allocatable :: buckets(:)
 contains
     procedure :: reset => frame_reset
     procedure :: append => frame_append
@@ -106,15 +121,37 @@ contains
     procedure :: append_label => frame_append_label
 end type ui_frame_t
 
+public :: style_size, style_weight
+
 contains
+
+pure real function style_size(style) result(size)
+    !! Default logical text size of a style token.
+    integer, intent(in) :: style
+    select case (style)
+    case (UI_CAPTION); size = 15.0
+    case (UI_HEADING); size = 17.0
+    case (UI_TITLE); size = 26.0
+    case default; size = TEXT_DEFAULT_SIZE
+    end select
+end function style_size
+
+pure integer function style_weight(style) result(weight)
+    !! Font weight (TEXT_STYLE_REGULAR or TEXT_STYLE_BOLD) of a style token.
+    integer, intent(in) :: style
+    weight = TEXT_STYLE_REGULAR
+    if (style == UI_HEADING .or. style == UI_TITLE) weight = TEXT_STYLE_BOLD
+end function style_weight
 
 subroutine frame_reset(self)
     class(ui_frame_t), intent(inout) :: self
 
     if (.not. allocated(self%nodes)) allocate(self%nodes(64))
+    if (.not. allocated(self%buckets)) allocate(self%buckets(256))
     self%count = 0
     self%layer_count = 0
     self%label_count = 0
+    self%buckets = 0
 end subroutine frame_reset
 
 integer function frame_append_layer(self, layer) result(index)
@@ -150,6 +187,8 @@ integer function frame_append_label(self, label) result(index)
 end function frame_append_label
 
 integer function frame_append(self, node) result(index)
+    !! Append a node; a non-empty id is indexed for `find` (callers reject
+    !! duplicate ids before appending).
     class(ui_frame_t), intent(inout) :: self
     type(ui_node_t), intent(in) :: node
 
@@ -157,6 +196,10 @@ integer function frame_append(self, node) result(index)
     integer :: new_capacity
 
     if (.not. allocated(self%nodes)) allocate(self%nodes(64))
+    if (.not. allocated(self%buckets)) then
+        allocate(self%buckets(256))
+        self%buckets = 0
+    end if
     if (self%count >= size(self%nodes)) then
         new_capacity = max(64, 2 * size(self%nodes))
         allocate(grown(new_capacity))
@@ -167,20 +210,73 @@ integer function frame_append(self, node) result(index)
     self%count = self%count + 1
     self%nodes(self%count) = node
     index = self%count
+    if (len_trim(node%id) == 0) return
+    if (4 * self%count > 3 * size(self%buckets)) call rehash(self, &
+        4 * size(self%buckets))
+    call insert(self, index)
 end function frame_append
 
 integer function frame_find(self, id) result(index)
+    !! Index of the node with identity `id` (0 when absent).
     class(ui_frame_t), intent(in) :: self
     character(*), intent(in) :: id
-    integer :: i
+    integer :: b, mask
 
     index = 0
-    do i = self%count, 1, -1
-        if (trim(self%nodes(i)%id) == trim(id)) then
-            index = i
-            return
+    if (.not. allocated(self%buckets) .or. len_trim(id) == 0) return
+    mask = size(self%buckets) - 1
+    b = id_hash(id, mask)
+    do
+        if (self%buckets(b + 1) == 0) return
+        if (self%buckets(b + 1) <= self%count) then
+            if (self%nodes(self%buckets(b + 1))%id == id) then
+                index = self%buckets(b + 1)
+                return
+            end if
         end if
+        b = iand(b + 1, mask)
     end do
 end function frame_find
+
+subroutine insert(self, index)
+    type(ui_frame_t), intent(inout) :: self
+    integer, intent(in) :: index
+    integer :: b, mask
+
+    mask = size(self%buckets) - 1
+    b = id_hash(self%nodes(index)%id, mask)
+    do while (self%buckets(b + 1) /= 0)
+        b = iand(b + 1, mask)
+    end do
+    self%buckets(b + 1) = index
+end subroutine insert
+
+subroutine rehash(self, buckets)
+    type(ui_frame_t), intent(inout) :: self
+    integer, intent(in) :: buckets
+    integer :: i
+
+    deallocate(self%buckets)
+    allocate(self%buckets(buckets))
+    self%buckets = 0
+    do i = 1, self%count
+        if (len_trim(self%nodes(i)%id) > 0) call insert(self, i)
+    end do
+end subroutine rehash
+
+pure integer function id_hash(id, mask) result(b)
+    !! FNV-1a over the trimmed bytes, reduced to a bucket in 0..mask.
+    character(*), intent(in) :: id
+    integer, intent(in) :: mask
+    integer(int64), parameter :: LOW32 = 4294967295_int64
+    integer(int64) :: h
+    integer :: i
+
+    h = 2166136261_int64
+    do i = 1, len_trim(id)
+        h = iand(ieor(h, int(iachar(id(i:i)), int64)) * 16777619_int64, LOW32)
+    end do
+    b = int(iand(h, int(mask, int64)))
+end function id_hash
 
 end module fortui_frame

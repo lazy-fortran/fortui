@@ -4,21 +4,23 @@ use fortui_frame, only: ui_frame_t
 implicit none
 private
 
+! Backend-neutral named keys. Printable characters arrive as typed text.
 integer, parameter, public :: KEY_NONE = 0
-integer, parameter, public :: KEY_TAB = 9
-integer, parameter, public :: KEY_ENTER = 13
-integer, parameter, public :: KEY_SPACE = 32
-integer, parameter, public :: KEY_ESCAPE = 27
-integer, parameter, public :: KEY_ARROW_UP = 65517
-integer, parameter, public :: KEY_ARROW_DOWN = 65516
-integer, parameter, public :: KEY_ARROW_LEFT = 65515
-integer, parameter, public :: KEY_ARROW_RIGHT = 65514
-integer, parameter, public :: KEY_BACKSPACE = 8
-integer, parameter, public :: KEY_DELETE = 65525
-integer, parameter, public :: KEY_HOME = 65523
-integer, parameter, public :: KEY_END = 65522
-integer, parameter, public :: KEY_PAGE_UP = 65521
-integer, parameter, public :: KEY_PAGE_DOWN = 65520
+integer, parameter, public :: KEY_ENTER = 1
+integer, parameter, public :: KEY_ESCAPE = 2
+integer, parameter, public :: KEY_TAB = 3
+integer, parameter, public :: KEY_BACKSPACE = 4
+integer, parameter, public :: KEY_DELETE = 5
+integer, parameter, public :: KEY_HOME = 6
+integer, parameter, public :: KEY_END = 7
+integer, parameter, public :: KEY_ARROW_LEFT = 8
+integer, parameter, public :: KEY_ARROW_RIGHT = 9
+integer, parameter, public :: KEY_ARROW_UP = 10
+integer, parameter, public :: KEY_ARROW_DOWN = 11
+integer, parameter, public :: KEY_PAGE_UP = 12
+integer, parameter, public :: KEY_PAGE_DOWN = 13
+integer, parameter, public :: KEY_SPACE = 14
+integer, parameter, public :: KEY_INSERT = 15
 integer, parameter, public :: MAX_FRAME_KEYS = 32
 integer, parameter, public :: MAX_FRAME_TEXT = 256
 real, parameter, public :: DRAG_THRESHOLD = 4.0
@@ -26,6 +28,10 @@ real, parameter, public :: DOUBLE_CLICK_SECONDS = 0.4
 real, parameter, public :: DOUBLE_CLICK_DISTANCE = 6.0
 
 type, public :: input_state_t
+    ! Host window in logical units and framebuffer pixels per unit; persistent.
+    integer :: width = 1
+    integer :: height = 1
+    real :: scale = 1.0
     real :: pointer_x = -1.0
     real :: pointer_y = -1.0
     real :: pointer_dx = 0.0
@@ -35,8 +41,6 @@ type, public :: input_state_t
     logical :: pointer_released = .false.
     integer :: scroll_y = 0
     real :: wheel = 0.0
-    integer :: key = KEY_NONE
-    integer :: key_char = 0
     integer :: key_count = 0
     integer :: keys(MAX_FRAME_KEYS) = KEY_NONE
     ! Typed-text length when each key arrived, preserving key/text ordering.
@@ -62,7 +66,7 @@ end type input_state_t
 
 public :: input_begin_frame, input_update_pointer, input_scroll, input_set_key
 public :: input_route, input_activated, input_focused, input_active
-public :: input_hovered, input_scroll_for, input_key_for
+public :: input_hovered, input_key_arrived
 public :: input_type_text, input_set_time, input_wheel_for, input_has_events
 
 contains
@@ -76,8 +80,6 @@ subroutine input_begin_frame(input)
     input%pointer_released = .false.
     input%scroll_y = 0
     input%wheel = 0.0
-    input%key = KEY_NONE
-    input%key_char = 0
     input%key_count = 0
     input%text_len = 0
     input%resized = .false.
@@ -90,8 +92,9 @@ end subroutine input_begin_frame
 logical function input_has_events(input)
     !! Whether this frame's input could change presentation (idle-wait decision).
     type(input_state_t), intent(in) :: input
-    input_has_events = abs(input%pointer_dx) > 0.0 .or. abs(input%pointer_dy) > 0.0 .or. &
-        input%pointer_pressed .or. input%pointer_released .or. abs(input%wheel) > 0.0 .or. &
+    input_has_events = abs(input%pointer_dx) > 0.0 .or. &
+        abs(input%pointer_dy) > 0.0 .or. input%pointer_pressed .or. &
+        input%pointer_released .or. abs(input%wheel) > 0.0 .or. &
         input%key_count > 0 .or. input%text_len > 0 .or. input%resized
 end function input_has_events
 
@@ -165,13 +168,12 @@ subroutine input_scroll(input, amount, wheel)
     end if
 end subroutine input_scroll
 
-subroutine input_set_key(input, key, key_char)
+subroutine input_set_key(input, key)
+    !! Record a named key (KEY_*); KEY_NONE and unknown values are ignored.
     type(input_state_t), intent(inout) :: input
     integer, intent(in) :: key
-    integer, intent(in), optional :: key_char
 
-    input%key = key
-    if (present(key_char)) input%key_char = key_char
+    if (key <= KEY_NONE .or. key > KEY_INSERT) return
     if (input%key_count < MAX_FRAME_KEYS) then
         input%key_count = input%key_count + 1
         input%keys(input%key_count) = key
@@ -189,9 +191,10 @@ subroutine input_route(input, previous)
     if (len_trim(input%active_id) > 0) then
         if (previous%find(trim(input%active_id)) == 0) input%active_id = ""
     end if
-    if (.not. input%pointer_down .and. .not. input%pointer_released) input%active_id = ""
+    if (.not. input%pointer_down .and. &
+        .not. input%pointer_released) input%active_id = ""
 
-    if (input%key == KEY_TAB) then
+    if (input_key_arrived(input, KEY_TAB)) then
         first_focus = 0
         focused_index = 0
         do i = 1, previous%count
@@ -203,7 +206,8 @@ subroutine input_route(input, previous)
         next_focus = 0
         if (focused_index > 0) then
             do i = focused_index + 1, previous%count
-                if (previous%nodes(i)%focusable .and. .not. previous%nodes(i)%disabled) then
+                if (previous%nodes(i)%focusable .and. &
+                    .not. previous%nodes(i)%disabled) then
                     next_focus = i
                     exit
                 end if
@@ -234,8 +238,8 @@ subroutine input_route(input, previous)
         input%active_id = ""
     end if
 
-    if ((input%key == KEY_ENTER .or. input%key == KEY_SPACE) .and. &
-        len_trim(input%focus_id) > 0) then
+    if ((input_key_arrived(input, KEY_ENTER) .or. input_key_arrived(input, KEY_SPACE)) &
+        .and. len_trim(input%focus_id) > 0) then
         input%activated_id = input%focus_id
     end if
 
@@ -274,9 +278,12 @@ integer function hit_test(frame, x, y, interactive_only) result(index)
     index = 0
     do i = frame%count, 1, -1
         if (interactive_only .and. .not. frame%nodes(i)%focusable) cycle
+        if (len_trim(frame%nodes(i)%id) == 0) cycle
         if (frame%nodes(i)%disabled) cycle
-        if (x >= frame%nodes(i)%x .and. x < frame%nodes(i)%x + frame%nodes(i)%width .and. &
-            y >= frame%nodes(i)%y .and. y < frame%nodes(i)%y + frame%nodes(i)%height) then
+        if (x >= frame%nodes(i)%x .and. &
+            x < frame%nodes(i)%x + frame%nodes(i)%width .and. &
+            y >= frame%nodes(i)%y .and. &
+            y < frame%nodes(i)%y + frame%nodes(i)%height) then
             index = i
             return
         end if
@@ -309,26 +316,11 @@ logical function input_hovered(input, x, y, width, height)
         input%pointer_y >= y .and. input%pointer_y < y + height
 end function input_hovered
 
-integer function input_scroll_for(input, id)
+logical function input_key_arrived(input, key)
+    !! Whether `key` is among the keys of this frame.
     type(input_state_t), intent(in) :: input
-    character(*), intent(in) :: id
-
-    if (trim(input%scroll_id) == trim(id)) then
-        input_scroll_for = input%scroll_y
-    else
-        input_scroll_for = 0
-    end if
-end function input_scroll_for
-
-integer function input_key_for(input, id)
-    type(input_state_t), intent(in) :: input
-    character(*), intent(in) :: id
-
-    if (trim(input%focus_id) == trim(id)) then
-        input_key_for = input%key
-    else
-        input_key_for = KEY_NONE
-    end if
-end function input_key_for
+    integer, intent(in) :: key
+    input_key_arrived = any(input%keys(1:input%key_count) == key)
+end function input_key_arrived
 
 end module fortui_input

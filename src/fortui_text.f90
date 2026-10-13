@@ -27,13 +27,17 @@ real, save :: fixed_advance = 0.5
 real, save :: line_factor = 1.25
 real, save :: advance_table(0:TEXT_MAX_CODEPOINT, 2) = 0.5
 real, save :: fallback_advance(2) = 0.5
-character(len=:), allocatable, save :: font_paths(:)
 
 public :: utf8_decode, utf8_encode, utf8_length, utf8_prev, utf8_next
 public :: utf8_boundary
 public :: text_use_fixed_metrics, text_set_metrics, text_metrics_fixed
 public :: text_advance, text_width, text_line_height, text_caret_from_x
-public :: text_wrap, text_set_font_files, text_font_file
+public :: text_wrap, text_fit, ui_str
+
+interface ui_str
+    !! Decimal text of a number for labels: ui_str(42), ui_str(3.14159, 2).
+    module procedure str_int, str_real
+end interface ui_str
 
 contains
 
@@ -393,38 +397,64 @@ subroutine push_line(lines, count, line)
     lines(count) = line
 end subroutine push_line
 
-subroutine text_set_font_files(regular, bold)
-    !! Override the bundled fonts with TTF files; takes effect at backend init.
-    character(*), intent(in) :: regular
-    character(*), intent(in), optional :: bold
-    integer :: n
 
-    n = max(len_trim(regular), 1)
-    if (present(bold)) n = max(n, len_trim(bold))
-    if (allocated(font_paths)) deallocate(font_paths)
-    allocate(character(len=n) :: font_paths(2))
-    font_paths(1) = regular
-    font_paths(2) = ""
-    if (present(bold)) font_paths(2) = bold
-end subroutine text_set_font_files
+function text_fit(s, size, max_width, style) result(r)
+    !! `s` unchanged when it fits `max_width`; otherwise the longest code point
+    !! prefix followed by an ellipsis that fits (only the ellipsis if none does).
+    character(*), intent(in) :: s
+    real, intent(in) :: size, max_width
+    integer, intent(in), optional :: style
+    character(len=:), allocatable :: r
+    character(len=*), parameter :: ELLIPSIS = char(226) // char(128) // char(166)
+    real :: avail, w
+    integer :: pos, cp, nb, last
 
-function text_font_file(style) result(path)
-    !! Font file override: text_set_font_files, else FORTUI_FONT[_BOLD].
-    !! Empty means the backend uses the bundled DejaVu Sans subset.
-    integer, intent(in) :: style
-    character(len=:), allocatable :: path
-    character(len=1024) :: env
-    integer :: status
-
-    path = ""
-    if (allocated(font_paths)) path = trim(font_paths(max(1, min(2, style))))
-    if (len(path) > 0) return
-    if (style == TEXT_STYLE_BOLD) then
-        call get_environment_variable("FORTUI_FONT_BOLD", env, status=status)
-    else
-        call get_environment_variable("FORTUI_FONT", env, status=status)
+    if (text_width(s, size, style) <= max_width) then
+        r = s
+        return
     end if
-    if (status == 0 .and. len_trim(env) > 0) path = trim(env)
-end function text_font_file
+    avail = max_width - text_width(ELLIPSIS, size, style)
+    w = 0.0
+    last = 0
+    pos = 1
+    do while (pos <= len(s))
+        call utf8_decode(s, pos, cp, nb)
+        w = w + text_advance(cp, size, style)
+        if (w > avail) exit
+        pos = pos + nb
+        last = pos - 1
+    end do
+    r = s(1:last) // ELLIPSIS
+end function text_fit
+
+pure function str_int(value) result(s)
+    integer, intent(in) :: value
+    character(len=:), allocatable :: s
+    character(len=24) :: buf
+    write(buf, '(i0)') value
+    s = trim(buf)
+end function str_int
+
+pure function str_real(value, decimals) result(s)
+    !! Fixed-point text with `decimals` digits after the point (default 2).
+    real, intent(in) :: value
+    integer, intent(in), optional :: decimals
+    character(len=:), allocatable :: s
+    character(len=64) :: buf
+    character(len=16) :: fmt
+    integer :: d
+
+    d = 2
+    if (present(decimals)) d = max(0, min(12, decimals))
+    write(fmt, '(a,i0,a)') '(f0.', d, ')'
+    write(buf, fmt) value
+    s = trim(adjustl(buf))
+    if (len(s) > 0) then
+        if (s(1:1) == '.') s = '0' // s
+    end if
+    if (len(s) > 1) then
+        if (s(1:2) == '-.') s = '-0' // s(2:)
+    end if
+end function str_real
 
 end module fortui_text
