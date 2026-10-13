@@ -53,16 +53,45 @@ The primary DSL is ordinary Fortran with conditionals, loops, functions, and typ
 The prototype already permits this style:
 
 ```fortran
-call ui_frame_begin()
-call text("title", "Document")
-call row_begin(8.0)
-if (button("open", "Open")) call open_document()
-if (button("save", "Save", enabled=dirty)) call save_document()
-call row_end()
-changed = slider("width", 0.1, 10.0, 0.1, line_width)
-changed = checkbox("grid", show_grid, "Show grid")
-call ui_present()
+call ui_init(headless_backend_t(), 1200, 800, "Document")   ! or ui_init("auto", ...)
+do while (.not. ui_should_close())
+    call ui_frame_begin()
+    if (ui_key_pressed(KEY_ESCAPE)) call ui_request_quit()
+    call split_begin("main", first=260.0, gap=8.0)
+    call column_begin(gap=6.0)
+    call text("Document", style=UI_TITLE)                 ! static text needs no id
+    call row_begin(gap=8.0)
+    if (button("open", "Open")) call open_document()
+    if (button("save", "Save", enabled=dirty)) call save_document()
+    call row_end()
+    changed = tabs("view", [character(8) :: "Layers", "Style"], tab)
+    if (tab == 1) then
+        do k = 1, nlayers                                   ! identity "main/layer#k"
+            if (checkbox("layer", visible(k), layer_name(k), key=k)) call redraw()
+        end do
+    else
+        changed = slider("width", 1, 10, line_width)        ! integer or real
+        call text("Width " // ui_str(line_width), style=UI_CAPTION)
+    end if
+    call column_end()
+    call split_next()
+    call canvas_begin("drawing", view, events)
+    call canvas_vertices("pos", generation, xy)             ! one shared vertex layer
+    call canvas_lines("edges", "pos", segments, colours)
+    call canvas_points("nodes", "pos", colours, size=4.0)
+    call canvas_end(view)
+    call split_end()                                        ! balance checked at present
+    call ui_present()
+end do
 ```
+
+Identity is the id scoped by enclosing containers that carry one plus an
+integer `key=` inside loops; duplicates in one frame are reported and skipped.
+Widths are logical units or `UI_FILL`; `style=` tokens (`UI_BODY`, `UI_CAPTION`,
+`UI_HEADING`, `UI_TITLE`) and an absolute `size=` choose text presentation, and
+`ellipsis=` lets the backend shorten text that does not fit. Escape is an
+ordinary key; quitting is the application's decision. Backends are values that
+the application injects, so the core links no platform it does not use.
 
 The desired scheduling contract executes composition once per scheduled semantic
 transaction. Layout, painting, reconciliation, and accessibility queries never
@@ -70,10 +99,12 @@ execute that user routine. Transactions are serialized and composition is
 nonreentrant. A physical gesture can generate several transactions.
 
 The prototype's frame loop does not yet enforce the complete scheduling contract.
-In particular, an inline handler can change state after earlier controls were
-emitted. Consume its activation once, then schedule a separate follow-up transaction
-when a coherent post-action description is needed. Never replay the same transaction
-or silently assume arbitrary Fortran composition is pure.
+An inline handler can change state after earlier controls were emitted. A widget
+that consumed input (activation, toggle, changed value, canvas click, handled
+shortcut) therefore schedules exactly one follow-up frame without a new activation,
+so the coherent post-action description appears without application requests.
+Never replay the same transaction or silently assume arbitrary Fortran composition
+is pure.
 
 ## State has explicit owners
 
@@ -177,9 +208,9 @@ integration. Judge their responsibilities and dependencies, not ideological puri
 | Area | Implemented base | Design target |
 |---|---|---|
 | Composition | Explicit begin/present frame loop | Event-driven, single composition per transaction |
-| Semantics | Text/button/slider/checkbox/viewport nodes | Roles, commands, owned variable-length data, relationships |
-| Identity/input | Previous frame and basic interaction routing | Scoped keys, generations, capture/focus/edit lifecycle |
-| Layout | Simple logical rows/columns | Intrinsic/adaptive layout and virtualization |
+| Semantics | Text/button/slider/checkbox/tabs/text field/scroll text/canvas nodes | Roles, commands, owned variable-length data, relationships |
+| Identity/input | Container-scoped ids and loop keys with duplicate reports; previous-frame routing | Generations, capture/focus/edit lifecycle |
+| Layout | Logical rows/columns, fill widths, two/three-pane splits | Intrinsic/adaptive layout and virtualization |
 | Backends | Headless, termbox2 TUI, optional raylib | Native/hybrid, DOM, mobile and additional renderers |
 | Text/accessibility | Basic labels | Editing/IME/shaping and verified host accessibility |
 | Performance | Retained frame/storage foundation | Dependency invalidation and measured incremental work |

@@ -112,38 +112,65 @@ compile arbitrary TeX documents.
 ## Implemented backend interface
 
 `fortui_backend` defines the abstract `ui_backend_t` that every backend extends.
-The runtime core owns one instance and only calls these bindings:
+An application injects a backend value, `call ui_init(headless_backend_t(), ...)`
+or `call ui_init(raylib_backend_t(font_regular="..."), ...)`; the runtime keeps
+its own copy. The optional `fortui_backends` registry extends the same generic
+with `ui_init(name, ...)` (`headless`, `tui`, `gui`, or `auto`; `FORTUI_BACKEND`
+overrides) and is the only module that names several backends. The core,
+widgets, and facade use neither a concrete backend nor the registry, so an
+application links only the platforms it uses. An unknown or unavailable backend
+is an error, never a fallback.
+
+The runtime calls only these bindings:
 
 | Binding | Responsibility |
 |---|---|
 | `name`, `capabilities` | Identity and an honest `ui_backend_caps_t` (graphical, canvas layers, proportional text, event waiting, high DPI, pointer, text entry) |
-| `init`, `shutdown` | Create/release all platform resources, including retained canvas resources |
-| `poll` | Normalize platform events into `input_state_t`; report logical window size and framebuffer scale |
-| `present` | Realize one semantic frame; may block for events afterwards when the runtime allows idle waiting |
-| `install_text_metrics` | Publish per-code-point advances and line height to `fortui_text` for layout |
+| `init`, `shutdown` | Create/release all platform resources for `self%config` (window size, title, frame rate, vsync) |
+| `poll(input, wait)` | Normalize platform events into `input_state_t` (named `KEY_*` keys, typed UTF-8 text, pointer, wheel, logical window size and scale); block for the next event only when `wait` is set |
+| `present(frame, store)` | Realize one semantic frame without blocking |
+| `install_text_metrics` | Publish per-code-point advances and line height to `fortui_text` |
 | `should_close` | Host close request |
+| `stats` | Presents, waits, and canvas uploads the backend performed (inherited) |
 
-Backends receive only backend-neutral data: the semantic frame (nodes, canvas
-layer descriptors with key/kind/generation/count, labels, view transforms in
-logical units), the canvas store with owned layer arrays, and the input
-snapshot. Canvas layers are realized through `canvas_store_t%realize`, which
-reports whether vertex or index data must be uploaded (generation changed or the
-backend recreated its resource) and maintains backend-neutral upload counters.
-A backend frees its resources when a store slot is released or reassigned
-(slot `serial`). Packed colours are RGBA bytes in memory; positions are world
-units, transformed by `local = world * zoom + pan`. No GL, GLSL, or raylib type,
-handle, or convention appears in the frame, widgets, or public API.
+Idle rule: `present` never blocks. The runtime decides at each present whether
+the next frame may wait (nothing continuous, requested, or scheduled as a
+follow-up) and passes that decision to the next `poll`. Raylib waits in `poll`
+only when the events gathered after the last present are empty; the terminal
+backend blocks in `tb_poll_event`; headless counts requested waits.
 
-`fortui_backend_registry` is the only module that names concrete backends.
-`ui_init` takes an explicit name (`headless`, `tui`, `gui`, or `auto`;
-`FORTUI_BACKEND` overrides); an unknown or unavailable backend is an error.
+Backends receive only backend-neutral data: the semantic frame (nodes with
+style tokens and ellipsis requests, drawable canvas layer descriptors, labels,
+view transforms in logical units), the read-only canvas store, and the input
+snapshot. Canvas data lives in store layers keyed by canvas identity and key:
+shared vertex layers (positions) and point or line layers that reference one.
+The store copies caller data only when a generation or the referenced vertex
+count changes and then bumps an internal data version; it drops line segments
+that reference missing vertices. Each backend owns a `canvas_realizer_t` that
+records the realized serial and versions per store slot, so it uploads a layer
+only after a real change or after recreating its own resource, and it frees
+resources when a slot is released or reassigned. Packed colours are RGBA bytes in
+memory; positions are world units, transformed by `local = world * zoom + pan`.
+No GL, GLSL, or raylib type, handle, or convention appears in the frame, widgets,
+or public API. The same conformance scenario (`test/test_backend_conformance.f90`)
+runs against headless and, in GUI builds with a display, raylib.
+
 Implemented backends: `fortui_backend_headless` (fixed text metrics, resource-free
-canvas realization), `fortui_tui` (termbox2; cell-mapped fixed metrics, canvas
-shown as a semantic summary), and `fortui_gui_raylib` (raylib 6/rlgl, GLSL 330
-instanced quads for points and lines, bundled DejaVu Sans subset with a font
-override, idle waiting through raylib event waiting). A wake-up from another
-thread is not implemented. Only the Linux/X11 raylib route has executed evidence;
-the Windows and macOS raylib routes are unverified.
+canvas realization), `fortui_tui` (termbox2 with checked `int` results and the
+16-bit attribute width verified at init; terminal size and resize events in
+logical units; cell-mapped fixed metrics; canvas shown as a semantic summary),
+and `fortui_gui_raylib` (raylib 6/rlgl, compiled only with `-DENABLE_GUI=1`;
+one position texture per vertex layer read by GLSL 330 instanced quads for points
+and lines; bundled DejaVu Sans subset, compiled only for this backend, with TTF
+file options). A wake-up from another thread is not implemented. Only the
+Linux/X11 raylib route has executed evidence; the Windows and macOS raylib routes
+are unverified.
+
+The interface is meant to grow without breaking backends: semantic host events
+(DOM activation, edited text), realized geometry reported by hosts that lay out
+controls themselves, a `measure` binding replacing the global metric table, and
+a non-blocking frame driver for browser hosts are planned as additional bindings
+with defaults or additional `input_state_t` fields (issue #149).
 
 ## ABI, threading, and ownership
 
