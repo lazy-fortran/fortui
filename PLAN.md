@@ -125,6 +125,19 @@ bounded work for a large collection, and no unsupported performance claims.
 - [ ] Platform-specific menus, services, text, and accessibility evidence per host.
 - [ ] Browser semantic DOM controls plus custom canvas; explicit URL/history behavior.
 - [ ] Actual Fortran/WASM feature probes and runtime, including strings/callbacks.
+      Evidence 2026-10-13: LFortran main `0cd29dede1` (LLVM backend, target
+      `wasm32-unknown-emscripten`) compiles all `src/` modules unchanged and
+      `test_fortui` passes in Node and Chromium. `test_canvas_text` fails under
+      LFortran (realloc-on-assignment to an allocatable component, native and wasm).
+      Flang 23.1 cannot target wasm (`Target.cpp: target not implemented`, no
+      wasm32 intrinsic modules or runtime). Callbacks are not yet probed.
+- [ ] Browser `web` backend implementing `ui_backend_t`: WebGPU canvas through
+      emscripten `webgpu.h` and `html5.h` events, ordinary controls as DOM
+      elements, `requestAnimationFrame` frames with JSPI/Asyncify yielding at
+      `ui_present`. No raylib or window library in the browser.
+- [ ] Correct termbox2 C binding signatures (C `int` results bound as
+      subroutines); harmless on x86-64, a trap on wasm.
+- [ ] Optional: the same WebGPU backend on desktop through Dawn or wgpu-native.
 - [ ] Trusted browser service activation, permission/file/storage behavior.
 - [ ] Keep raylib as a useful reference; no explicit-backend silent fallback.
 - [ ] SDL3 + SDL_GPU backend implementing `ui_backend_t`.
