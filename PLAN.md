@@ -17,6 +17,25 @@ one activation token, serialized dispatch, one composition invocation, and the
 inline-refresh case. Preserve current controls and tests. Avoid building all action,
 service, or platform abstractions at once. Record the exact evidence commit when done.
 
+## Consumer slice: canvas resources, text, idle (branch `canvas-resources`)
+
+Driven by the brainview graph viewer (~8k nodes/38k edges, 10x headroom). Evidence:
+`test/test_canvas_text.f90` (headless) and `example/canvas_bench.f90` (raylib,
+Linux/X11, RTX 5060 Ti). Windows/macOS routes are unverified.
+
+- [x] Backend interface `ui_backend_t`; registry is the only module naming backends.
+- [x] Retained canvas layers (points, indexed lines) keyed by canvas/key with
+      generations; upload only on generation change; backend-neutral counters.
+- [x] Canvas view transform per frame (no re-upload); bounded canvas labels.
+- [x] Canvas pointer semantics: hover, press, click, double click, drag with
+      capture (released on button-up or widget removal), wheel; world coordinates.
+- [x] UTF-8 text measurement via backend metrics; bundled DejaVu Sans subset.
+- [x] Scrollable wrapped text (wheel, scrollbar drag, keys, light Markdown headings).
+- [x] Single-line UTF-8 text input (caret, Backspace/Delete/Home/End, Enter).
+- [x] Idle waiting with one-shot/continuous frame requests; split layout, resize.
+- [ ] IME/preedit, selection, clipboard; wide-character TUI widths.
+- [ ] Partial-range canvas uploads; canvas semantic object projection.
+
 ## P0: completed architectural reset
 
 - [x] Ordinary Fortran is the primary embedded DSL.
@@ -62,7 +81,7 @@ now; publish unsupported cells without blocking all document work.
 ## M3: canvas interaction and layout
 
 - [ ] Render lines/text/Bezier in the consumer; explicit document/view transforms.
-- [ ] Pointer capture, keyboard focus, hover, drag cancellation, zoom/pan.
+- [x] Pointer capture, keyboard focus, hover, drag cancellation, zoom/pan.
 - [ ] Independent pick/selection/snap/transform scenarios in the consumer oracle.
 - [ ] Intrinsic/min/max sizing, grow/shrink, alignment, spacing, padding.
 - [ ] Split/overlay/scroll and adaptive inspector only as the slice needs them.
@@ -108,6 +127,10 @@ bounded work for a large collection, and no unsupported performance claims.
 - [ ] Actual Fortran/WASM feature probes and runtime, including strings/callbacks.
 - [ ] Trusted browser service activation, permission/file/storage behavior.
 - [ ] Keep raylib as a useful reference; no explicit-backend silent fallback.
+- [ ] SDL3 + SDL_GPU backend implementing `ui_backend_t`.
+- [ ] Native hybrid hosts (GTK4, AppKit, Win32) with an embedded custom canvas.
+- [ ] Optional direct Vulkan/Metal/D3D12 canvas renderers.
+- [ ] Executed raylib evidence on Windows and macOS (GL 3.3/4.1 core, Retina).
 
 Desktop routes include Windows, macOS, and selected Linux hosts. Renderer choice
 follows measured consumer needs; do not require every GPU API before proving a slice.

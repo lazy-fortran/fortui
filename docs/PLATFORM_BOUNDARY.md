@@ -109,6 +109,42 @@ compiler/target/linker/browser versions. A hello-world demonstration is insuffic
 TeX preview is a separate local-engine/service capability; DOM rendering does not
 compile arbitrary TeX documents.
 
+## Implemented backend interface
+
+`fortui_backend` defines the abstract `ui_backend_t` that every backend extends.
+The runtime core owns one instance and only calls these bindings:
+
+| Binding | Responsibility |
+|---|---|
+| `name`, `capabilities` | Identity and an honest `ui_backend_caps_t` (graphical, canvas layers, proportional text, event waiting, high DPI, pointer, text entry) |
+| `init`, `shutdown` | Create/release all platform resources, including retained canvas resources |
+| `poll` | Normalize platform events into `input_state_t`; report logical window size and framebuffer scale |
+| `present` | Realize one semantic frame; may block for events afterwards when the runtime allows idle waiting |
+| `install_text_metrics` | Publish per-code-point advances and line height to `fortui_text` for layout |
+| `should_close` | Host close request |
+
+Backends receive only backend-neutral data: the semantic frame (nodes, canvas
+layer descriptors with key/kind/generation/count, labels, view transforms in
+logical units), the canvas store with owned layer arrays, and the input
+snapshot. Canvas layers are realized through `canvas_store_t%realize`, which
+reports whether vertex or index data must be uploaded (generation changed or the
+backend recreated its resource) and maintains backend-neutral upload counters.
+A backend frees its resources when a store slot is released or reassigned
+(slot `serial`). Packed colours are RGBA bytes in memory; positions are world
+units, transformed by `local = world * zoom + pan`. No GL, GLSL, or raylib type,
+handle, or convention appears in the frame, widgets, or public API.
+
+`fortui_backend_registry` is the only module that names concrete backends.
+`ui_init` takes an explicit name (`headless`, `tui`, `gui`, or `auto`;
+`FORTUI_BACKEND` overrides); an unknown or unavailable backend is an error.
+Implemented backends: `fortui_backend_headless` (fixed text metrics, resource-free
+canvas realization), `fortui_tui` (termbox2; cell-mapped fixed metrics, canvas
+shown as a semantic summary), and `fortui_gui_raylib` (raylib 6/rlgl, GLSL 330
+instanced quads for points and lines, bundled DejaVu Sans subset with a font
+override, idle waiting through raylib event waiting). A wake-up from another
+thread is not implemented. Only the Linux/X11 raylib route has executed evidence;
+the Windows and macOS raylib routes are unverified.
+
 ## ABI, threading, and ownership
 
 Use `iso_c_binding` interoperable scalars and explicit pointer/length views at a

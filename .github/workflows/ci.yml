@@ -34,8 +34,15 @@ jobs:
 
       - name: Enforce backend boundary
         run: |
-          if grep -E "use[[:space:]]+fortui_(tui|gui|render)" src/fortui_widgets.f90; then
-            echo "Widgets must not depend on renderer/platform backends"
+          if grep -E "use[[:space:]]+fortui_(tui|gui|backend_headless)" \
+            src/fortui_widgets.f90 src/fortui_core.f90 src/fortui_context.f90 \
+            src/fortui_frame.f90 src/fortui_input.f90 src/fortui_layout.f90 \
+            src/fortui_text.f90 src/fortui_canvas.f90 src/fortui.f90; then
+            echo "Widgets/runtime must not depend on concrete platform backends"
+            exit 1
+          fi
+          if grep -E "use[[:space:]]+fortui_backend" src/fortui_widgets.f90; then
+            echo "Widgets must not depend on the backend interface"
             exit 1
           fi
 
