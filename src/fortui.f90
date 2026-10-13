@@ -6,7 +6,7 @@ use fortui_core, only: ui_init, ui_shutdown, ui_frame_begin, ui_present, &
     view, ui_request_frame, ui_set_continuous, ui_window_size, ui_scale, ui_stats, &
     ui_stats_t, ui_canvas_layer_uploads, ui_set_font, ui_inject_pointer, &
     ui_inject_wheel, ui_inject_key, ui_inject_text, ui_inject_time, ui_inject_resize, &
-    ui_backend_capabilities, ui_backend_caps_t
+    ui_backend_capabilities, ui_backend_caps_t, ui_set_escape_quits, ui_key_pressed
 use fortui_widgets, only: button, text, slider, checkbox, viewport, canvas_begin, &
     canvas_end, canvas_points, canvas_lines, canvas_label, scroll_text, text_input
 use fortui_canvas, only: canvas_view_t, canvas_events_t, ui_rgba, canvas_to_world, &
@@ -31,6 +31,7 @@ public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale
 public :: ui_stats, ui_stats_t, ui_canvas_layer_uploads, ui_set_font
 public :: ui_inject_pointer, ui_inject_wheel, ui_inject_key, ui_inject_text
 public :: ui_inject_time, ui_inject_resize, ui_backend_capabilities, ui_backend_caps_t
+public :: ui_set_escape_quits, ui_key_pressed
 public :: KEY_ENTER, KEY_ESCAPE, KEY_TAB, KEY_BACKSPACE, KEY_DELETE, KEY_HOME
 public :: KEY_END, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_ARROW_UP, KEY_ARROW_DOWN
 public :: KEY_PAGE_UP, KEY_PAGE_DOWN

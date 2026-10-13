@@ -32,6 +32,7 @@ public :: column_begin, column_end, row_begin, row_end
 public :: split_begin, split_next, split_end
 public :: view
 public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale, ui_stats
+public :: ui_set_escape_quits, ui_key_pressed
 public :: ui_canvas_layer_uploads, ui_set_font
 public :: ui_inject_pointer, ui_inject_wheel, ui_inject_key, ui_inject_text
 public :: ui_inject_time, ui_inject_resize
@@ -112,11 +113,13 @@ subroutine ui_frame_begin(timeout_ms)
     call apply_injected(ctx)
 
     call input_route(ctx%input, ctx%previous_frame)
+    ctx%text_focused = focused_kind(ctx) == UI_TEXT_INPUT
     if (ctx%input%key == KEY_ESCAPE) then
-        ! Escape leaves a focused text field first; otherwise it requests quit.
-        if (focused_kind(ctx) == UI_TEXT_INPUT) then
+        ! Escape leaves a focused text field first; otherwise it requests quit
+        ! (unless the application handles Escape itself, ui_set_escape_quits).
+        if (ctx%text_focused) then
             ctx%input%focus_id = ""
-        else
+        else if (ctx%escape_quits) then
             ctx%should_quit = .true.
         end if
     end if
@@ -163,6 +166,27 @@ subroutine ui_set_continuous(enabled)
     ctx => get_default_context()
     if (associated(ctx)) ctx%continuous = enabled
 end subroutine ui_set_continuous
+
+subroutine ui_set_escape_quits(enabled)
+    !! Whether Escape (outside a focused text field) requests quit. Disable it
+    !! when the application uses Escape itself (see ui_key_pressed).
+    logical, intent(in) :: enabled
+    type(fortui_context_t), pointer :: ctx
+    ctx => get_default_context()
+    if (associated(ctx)) ctx%escape_quits = enabled
+end subroutine ui_set_escape_quits
+
+logical function ui_key_pressed(key) result(pressed)
+    !! Application shortcut query: `key` arrived in the current frame and was not
+    !! consumed by a focused text field. Call between ui_frame_begin and ui_present.
+    integer, intent(in) :: key
+    type(fortui_context_t), pointer :: ctx
+    pressed = .false.
+    ctx => get_default_context()
+    if (.not. associated(ctx)) return
+    if (.not. ctx%in_frame .or. ctx%text_focused) return
+    pressed = any(ctx%input%keys(1:ctx%input%key_count) == key)
+end function ui_key_pressed
 
 subroutine ui_window_size(width, height)
     !! Current window size in logical units.

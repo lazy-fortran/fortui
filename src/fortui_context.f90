@@ -31,6 +31,10 @@ type, public :: fortui_context_t
     logical :: initialized = .false.
     logical :: in_frame = .false.
     logical :: should_quit = .false.
+    ! Escape requests quit unless a text field consumes it (ui_set_escape_quits).
+    logical :: escape_quits = .true.
+    ! Whether keys of the current frame went to a focused text field.
+    logical :: text_focused = .false.
     integer :: frame_count = 0
     class(ui_backend_t), allocatable :: backend
     character(len=32) :: backend_name = ""

@@ -16,7 +16,7 @@ character(len=:), allocatable :: query, doc
 real :: xy(2, 3), lxy(2, 3)
 integer(int32) :: colours(3)
 integer :: segs(2, 2), point_gen, line_gen, seg_gen, stat, vu, iu, i
-logical :: show_canvas, changed, submitted
+logical :: show_canvas, changed, submitted, esc_seen
 real :: bx, by, bh
 double precision :: now
 
@@ -161,6 +161,14 @@ call ui_inject_key(KEY_ESCAPE)
 call frame()
 call check(len_trim(ctx%input%focus_id) == 0 .and. .not. ui_should_close(), &
     "escape leaves the text field without quitting")
+call check(.not. esc_seen, "escape consumed by the text field is no shortcut")
+call ui_set_escape_quits(.false.)
+call ui_inject_key(KEY_ESCAPE)
+call frame()
+call check(esc_seen .and. .not. ui_should_close(), "escape as application shortcut")
+call frame()
+call check(.not. esc_seen, "shortcut key lasts one frame")
+call ui_set_escape_quits(.true.)
 call ui_inject_text("x")
 call frame()
 call check(query == "ÄGrß", "unfocused field ignores typing")
@@ -235,6 +243,7 @@ subroutine frame()
     call ui_frame_begin()
     call split_begin(200.0)
     changed = text_input("search", query, placeholder="Search", submitted=submitted)
+    esc_seen = ui_key_pressed(KEY_ESCAPE)
     call scroll_text("note", doc, markdown=.true.)
     call split_next()
     if (show_canvas) then
