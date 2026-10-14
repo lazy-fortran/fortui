@@ -38,6 +38,8 @@ type, public :: canvas_events_t
     real :: wheel = 0.0
     real :: width = 0.0
     real :: height = 0.0
+    !! Pointer position uncertainty (logical units, e.g. half a terminal cell).
+    real :: pointer_slop = 0.0
 end type canvas_events_t
 
 type, public :: canvas_layer_t

@@ -23,6 +23,7 @@ public :: ui_init, ui_init_backend, ui_shutdown, ui_frame_begin, ui_present
 public :: ui_should_close, ui_request_quit, ui_is_initialized, ui_get_backend
 public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale
 public :: ui_key_pressed, ui_text_width, ui_backend_capabilities, ui_backend_caps_t
+public :: ui_backend_description
 
 contains
 
@@ -282,5 +283,16 @@ function ui_backend_capabilities() result(caps)
     if (.not. associated(ctx)) return
     if (allocated(ctx%backend)) caps = ctx%backend%capabilities()
 end function ui_backend_capabilities
+
+function ui_backend_description() result(text)
+    !! How the active backend realizes the UI (e.g. terminal graphics and
+    !! colour mode), empty when not initialized.
+    character(len=:), allocatable :: text
+    type(fortui_context_t), pointer :: ctx
+    text = ""
+    ctx => get_default_context()
+    if (.not. associated(ctx)) return
+    if (allocated(ctx%backend)) text = ctx%backend%describe()
+end function ui_backend_description
 
 end module fortui_core

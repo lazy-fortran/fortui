@@ -32,6 +32,9 @@ type, public :: input_state_t
     integer :: width = 1
     integer :: height = 1
     real :: scale = 1.0
+    ! Positional uncertainty of the pointer in logical units (half a terminal
+    ! cell for cell-based mice); hit tests may widen their tolerance by it.
+    real :: pointer_slop = 0.0
     real :: pointer_x = -1.0
     real :: pointer_y = -1.0
     real :: pointer_dx = 0.0

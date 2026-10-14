@@ -414,6 +414,7 @@ subroutine canvas_begin(id, view_state, events, width, height, fill)
         events%width = node%width
         events%height = node%height
         events%hovered = node%hovered
+        events%pointer_slop = inp%pointer_slop
         events%local_x = inp%pointer_x - node%x
         events%local_y = inp%pointer_y - node%y
         call canvas_to_world(view_state, events%local_x, events%local_y, &
