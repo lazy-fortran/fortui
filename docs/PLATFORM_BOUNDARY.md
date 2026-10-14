@@ -157,14 +157,43 @@ runs against headless and, in GUI builds with a display, raylib.
 
 Implemented backends: `fortui_backend_headless` (fixed text metrics, resource-free
 canvas realization), `fortui_tui` (termbox2 with checked `int` results and the
-16-bit attribute width verified at init; terminal size and resize events in
-logical units; cell-mapped fixed metrics; canvas shown as a semantic summary),
+32-bit attribute width verified at init; terminal size and resize events in
+logical units; character-cell metrics, one cell per code point and line whatever
+the text size; canvas layers rasterized in Fortran by `fortui_raster` and shown
+as braille cells, 2x4 dots per cell with one colour per cell, or as kitty
+graphics images; see below),
 and `fortui_gui_raylib` (raylib 6/rlgl, compiled only with `-DENABLE_GUI=1`;
 one position texture per vertex layer read by GLSL 330 instanced quads for points
 and lines; bundled DejaVu Sans subset, compiled only for this backend, with TTF
 file options). A wake-up from another thread is not implemented. Only the
 Linux/X11 raylib route has executed evidence; the Windows and macOS raylib routes
 are unverified.
+
+Terminal canvas realization (`fortui_tui`, `fortui_raster`, `fortui_kitty`,
+`src/c/fortui_tty.c`): at init the backend asks the terminal in-band (kitty
+graphics query, cell size `CSI 16 t`, SGR-pixel mouse `DECRQM 1016`, truecolor
+by `DECRQSS` and `XTGETTCAP RGB`, terminated by device attributes), so detection
+works over ssh where environment variables do not cross. `FORTUI_TUI_GRAPHICS`
+(`auto`, `braille`, `kitty`; `sixel` is not implemented and fails init) and
+`FORTUI_TUI_COLOR` (`auto`, `truecolor`, `256`) make the choice explicit; an
+explicit choice that cannot be honoured (kitty inside tmux, sixel, an unknown
+value) fails init with a reason. Automatic choices are reported by
+`ui_backend_description()`, for example `256 colours: no truecolor reply`.
+Every canvas is rasterized when its geometry, view, fill or a layer version
+changed: points as discs honouring `min_pixels` (braille draws discs wider than
+three dots as one-dot rings), indexed lines with interpolated colour and alpha,
+both clipped to horizontal bands that OpenMP draws in parallel with a raster
+independent of the thread count. Braille cells take the dot colour of highest
+contrast, brightened by at most 2x so faint edges stay visible; labels are text
+cells. Kitty images (RGB, zlib, base64 chunks of 4096 bytes, one image id per
+canvas, replaced in place, deleted at shutdown) are sent after the cells only
+when the canvas changed; termbox2 then writes only changed cells, so an idle
+application writes nothing. Mouse input uses any-motion tracking for hover and
+reports pixels when the terminal supports mode 1016, else cell centres;
+`input_state_t%pointer_slop` and `canvas_events_t%pointer_slop` carry the
+remaining position uncertainty. Executed evidence: kitty 0.49, WezTerm
+20260716, xterm 411, Alacritty 0.17 and tmux 3.8 (braille only) on Linux,
+locally and through `ssh localhost`.
 
 The interface is meant to grow without breaking backends: semantic host events
 (DOM activation, edited text), realized geometry reported by hosts that lay out

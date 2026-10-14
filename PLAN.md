@@ -79,6 +79,39 @@ LFortran 0.67.0-460 native build of all sources running `test_fortui` and
 - [ ] Context-owned layout stack and text metrics instead of module state;
       `ui_shutdown` resetting all of it (#149, review F8).
 
+## Consumer slice T1: terminal canvas over ssh (branch `tui-canvas`, #151)
+
+Driven by brainview over `ssh localhost`. Evidence: `test/test_tui_canvas.f90`
+(headless: braille cells and colours of known layers, clipping, disc edges and
+rings, band invariance, colour conversion, kitty chunks decoded by an
+independent base64/inflate, terminal reply parsing, mouse cell/pixel mapping),
+`example/tui_canvas_bench.f90` (raster cost, thread-count-invariant checksums),
+LFortran 0.67.0-460 native build of all sources running the three headless
+tests, and brainview screenshots in kitty 0.49.2, WezTerm 20260716, xterm 411,
+Alacritty 0.17 and tmux 3.8 (Linux/X11), locally and through ssh.
+
+- [x] Canvas layers in the TUI: shared vertex layers, points (sizes, rgba,
+      `min_pixels`), indexed lines (interpolated rgba), labels as text cells,
+      fill and view transform; raster only when geometry, view or a layer
+      version changed; buffers reused; OpenMP bands with identical results.
+- [x] Braille realization (2x4 dots, per-cell colour of highest contrast,
+      large discs as rings), truecolor or 256 colours; explicit screen
+      background; character-cell text metrics.
+- [x] Kitty graphics: in-band detection, zlib/base64 chunks, image replaced by
+      id, deleted at shutdown; explicit `FORTUI_TUI_GRAPHICS`/`FORTUI_TUI_COLOR`;
+      explicit choices that cannot be honoured fail init (sixel, kitty in tmux).
+- [x] Truecolor detection by DECRQSS/XTGETTCAP replies, 256-colour fallback
+      reported through `ui_backend_description()`.
+- [x] Mouse: press/release/click/double click, drag with capture, wheel, hover
+      (any-motion tracking); SGR-pixel positions (mode 1016) when supported,
+      cell centres otherwise; `pointer_slop` for hit-test tolerance.
+- [x] Idle: nothing written to the terminal without input (strace, 6 s).
+- [ ] Sixel (explicitly unsupported); kitty through tmux (unicode placeholders).
+- [ ] Semantic fallback: canvas object list when the canvas is too small or the
+      application supplies object metadata (needs canvas semantic projection).
+- [ ] Keyboard pan/zoom/pick semantics for canvases (no canvas key semantics yet).
+- [ ] Wide-character label widths; partial kitty updates; macOS/Windows terminals.
+
 ## P0: completed architectural reset
 
 - [x] Ordinary Fortran is the primary embedded DSL.

@@ -63,6 +63,7 @@ contains
     procedure(backend_metrics_i), deferred :: install_text_metrics
     procedure(backend_caps_i), deferred :: capabilities
     procedure :: stats => backend_stats
+    procedure :: describe => backend_describe
 end type ui_backend_t
 
 abstract interface
@@ -136,5 +137,12 @@ function backend_stats(self) result(stats)
     stats%attribute_uploads = self%canvas%attribute_uploads
     stats%index_uploads = self%canvas%index_uploads
 end function backend_stats
+
+function backend_describe(self) result(text)
+    !! Human-readable realization choices (backends override; default: name).
+    class(ui_backend_t), intent(in) :: self
+    character(len=:), allocatable :: text
+    text = self%name()
+end function backend_describe
 
 end module fortui_backend

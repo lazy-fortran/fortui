@@ -27,10 +27,15 @@ real, save :: fixed_advance = 0.5
 real, save :: line_factor = 1.25
 real, save :: advance_table(0:TEXT_MAX_CODEPOINT, 2) = 0.5
 real, save :: fallback_advance(2) = 0.5
+! Character-cell metrics (terminals): every code point and line has the size of
+! one cell whatever the requested text size (0 = off).
+real, save :: cell_advance = 0.0
+real, save :: cell_height = 0.0
 
 public :: utf8_decode, utf8_encode, utf8_length, utf8_prev, utf8_next
 public :: utf8_boundary
 public :: text_use_fixed_metrics, text_set_metrics, text_metrics_fixed
+public :: text_use_cell_metrics
 public :: text_advance, text_width, text_line_height, text_caret_from_x
 public :: text_wrap, text_fit, ui_str
 
@@ -170,11 +175,24 @@ subroutine text_use_fixed_metrics(advance_factor, height_factor)
     real, intent(in), optional :: advance_factor, height_factor
 
     fixed_metrics = .true.
+    cell_advance = 0.0
+    cell_height = 0.0
     fixed_advance = 0.5
     line_factor = 1.25
     if (present(advance_factor)) fixed_advance = advance_factor
     if (present(height_factor)) line_factor = height_factor
 end subroutine text_use_fixed_metrics
+
+subroutine text_use_cell_metrics(advance, height)
+    !! Character-cell metrics: every code point advances `advance` and every
+    !! line is `height` logical units, independent of the text size (a terminal
+    !! shows all text sizes in the same cells).
+    real, intent(in) :: advance, height
+
+    fixed_metrics = .true.
+    cell_advance = advance
+    cell_height = height
+end subroutine text_use_cell_metrics
 
 subroutine text_set_metrics(advances, fallback, height_factor)
     !! Install measured advances per unit font size, indexed (code point, style).
@@ -184,6 +202,8 @@ subroutine text_set_metrics(advances, fallback, height_factor)
     integer :: n, s
 
     fixed_metrics = .false.
+    cell_advance = 0.0
+    cell_height = 0.0
     n = min(ubound(advances, 1), TEXT_MAX_CODEPOINT)
     do s = 1, 2
         advance_table(:, s) = fallback(s)
@@ -203,6 +223,10 @@ real function text_advance(cp, size, style) result(adv)
     integer, intent(in), optional :: style
     integer :: st
 
+    if (cell_advance > 0.0) then
+        adv = cell_advance
+        return
+    end if
     if (fixed_metrics) then
         adv = fixed_advance * size
         return
@@ -233,7 +257,11 @@ end function text_width
 
 real function text_line_height(size) result(h)
     real, intent(in) :: size
-    h = line_factor * size
+    if (cell_height > 0.0) then
+        h = cell_height
+    else
+        h = line_factor * size
+    end if
 end function text_line_height
 
 integer function text_caret_from_x(s, size, x) result(caret)

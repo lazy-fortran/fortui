@@ -87,6 +87,11 @@ Run the terminal demo in a real terminal:
 fpm run --example tui_demo
 ```
 
+Canvases render in the terminal as braille cells or, in terminals with the kitty
+graphics protocol (kitty, WezTerm), as pixels, also over ssh;
+`FORTUI_TUI_GRAPHICS=braille|kitty` and `FORTUI_TUI_COLOR=truecolor|256` force a
+choice. `fpm run --example tui_canvas_bench` measures the terminal raster cost.
+
 The GUI demo requests `ui_init("auto", ...)` and selects an available graphical
 backend first, then TUI. An explicit backend request must not silently fall back.
 Raylib and termbox2 are replaceable adapters rather than framework semantics.
