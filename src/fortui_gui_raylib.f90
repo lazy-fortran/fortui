@@ -196,6 +196,10 @@ interface
     integer(c_int) function rl_get_render_width() bind(C, name="GetRenderWidth")
         import :: c_int
     end function
+    subroutine rl_wait_time(seconds) bind(C, name="WaitTime")
+        import :: c_double
+        real(c_double), value :: seconds
+    end subroutine rl_wait_time
     subroutine rl_enable_event_waiting() bind(C, name="EnableEventWaiting")
     end subroutine
     subroutine rl_disable_event_waiting() bind(C, name="DisableEventWaiting")
@@ -451,9 +455,15 @@ subroutine rl_poll(self, input, wait)
     call read_input(self, input)
     if (wait .and. .not. input_has_events(input) .and. .not. self%close_requested) then
         self%waits = self%waits + 1
-        call rl_enable_event_waiting()
-        call rl_poll_input_events()
-        call rl_disable_event_waiting()
+        if (self%wake_in >= 0.0) then
+            ! raylib has no event wait with a timeout: sleep until the timer.
+            call rl_wait_time(real(self%wake_in, c_double))
+            call rl_poll_input_events()
+        else
+            call rl_enable_event_waiting()
+            call rl_poll_input_events()
+            call rl_disable_event_waiting()
+        end if
         if (rl_window_should_close()) self%close_requested = .true.
         call read_input(self, input)
     end if

@@ -13,6 +13,8 @@ type, public :: ui_stats_t
     integer :: frames = 0
     integer :: waiting_presents = 0
     logical :: last_present_waits = .false.
+    !! Seconds after which the waiting host wakes for a timer; negative: none.
+    real :: wake_in = -1.0
     integer :: followups = 0
     integer :: duplicates = 0
     integer :: active_layers = 0
@@ -103,6 +105,7 @@ function ui_stats() result(stats)
     stats%frames = ctx%frame_count
     stats%waiting_presents = ctx%waiting_presents
     stats%last_present_waits = ctx%wait_next
+    stats%wake_in = ctx%backend%wake_in
     stats%followups = ctx%followups
     stats%duplicates = ctx%duplicates
     stats%active_layers = ctx%canvas%active_layers()

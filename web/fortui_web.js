@@ -256,6 +256,13 @@ addToLibrary({
 
   fortui_web_now: function () { return performance.now() / 1000; },
 
+  // One timer for the next due frame (ms), replacing the previous one; -1 cancels.
+  fortui_web_wake_after__deps: ['$FUI'],
+  fortui_web_wake_after: function (ms) {
+    if (FUI.timer) { clearTimeout(FUI.timer); FUI.timer = 0; }
+    if (ms >= 0) FUI.timer = setTimeout(function () { FUI.timer = 0; FUI.request(); }, ms);
+  },
+
   fortui_web_present__deps: ['$FUI'],
   fortui_web_present: function (ptr, n) {
     var records = UTF8ToString(ptr, n).split('\x1e');

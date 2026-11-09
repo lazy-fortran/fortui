@@ -610,7 +610,12 @@ subroutine tui_poll(self, input, wait)
     stop = .false.
     if (wait) then
         self%waits = self%waits + 1
-        status = tb_poll_event(event)
+        if (self%wake_in >= 0.0) then
+            ! A timer is due: wait for input at most until then.
+            status = tb_peek_event(event, int(ceiling(1000.0 * self%wake_in), c_int))
+        else
+            status = tb_poll_event(event)
+        end if
         if (status == TB_OK) call process_event(self, input, event, stop)
     end if
     do while (.not. stop)

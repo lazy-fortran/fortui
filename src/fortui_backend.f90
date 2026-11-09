@@ -55,6 +55,9 @@ type, abstract, public :: ui_backend_t
     type(canvas_realizer_t) :: canvas = canvas_realizer_t()
     integer :: presents = 0
     integer :: waits = 0
+    !! Seconds until a frame is due when the next poll may wait; negative: wait
+    !! for input only. Set by the runtime before each present.
+    real :: wake_in = -1.0
 contains
     procedure(backend_name_i), deferred :: name
     procedure(backend_init_i), deferred :: init

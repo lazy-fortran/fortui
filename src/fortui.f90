@@ -8,6 +8,7 @@ module fortui
 use fortui_core, only: ui_init, ui_shutdown, ui_frame_begin, ui_present, &
     ui_should_close, ui_request_quit, ui_is_initialized, ui_get_backend, &
     ui_request_frame, ui_set_continuous, ui_window_size, ui_scale, ui_key_pressed, &
+    ui_time, ui_wake_after, &
     ui_text_width, ui_backend_capabilities, ui_backend_caps_t, ui_backend_description, &
     ui_run, ui_run_step, ui_frame_proc
 use fortui_layout, only: column_begin, column_end, row_begin, row_end, split_begin, &
@@ -34,6 +35,7 @@ public :: ui_run, ui_run_step, ui_frame_proc
 public :: ui_request_quit, ui_is_initialized, ui_get_backend
 public :: ui_backend_capabilities, ui_backend_caps_t, ui_backend_description
 public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale
+public :: ui_time, ui_wake_after
 public :: ui_key_pressed, ui_text_width, ui_str
 public :: column_begin, column_end, row_begin, row_end
 public :: split_begin, split_next, split_end

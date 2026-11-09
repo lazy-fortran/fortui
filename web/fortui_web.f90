@@ -71,6 +71,11 @@ module fortui_web
             import :: c_double
         end function js_now
 
+        subroutine js_wake_after(ms) bind(C, name="fortui_web_wake_after")
+            import :: c_int
+            integer(c_int), value :: ms
+        end subroutine js_wake_after
+
         subroutine js_present(frame, n) bind(C, name="fortui_web_present")
             import :: c_int, c_char
             character(kind=c_char), intent(in) :: frame(*)
@@ -180,6 +185,12 @@ contains
         integer :: i, used
 
         if (.not. self%active) return
+        ! A due timer: the host wakes the frame loop then (setTimeout), not by polling.
+        if (self%wake_in >= 0.0) then
+            call js_wake_after(int(ceiling(1000.0 * self%wake_in), c_int))
+        else
+            call js_wake_after(-1_c_int)
+        end if
         ! Grows by doubling: a page of thousands of lines stays linear.
         allocate (character(len=65536) :: buf)
         used = 0

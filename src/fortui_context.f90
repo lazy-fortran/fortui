@@ -52,6 +52,8 @@ type, public :: fortui_context_t
     logical :: frame_requested = .false.
     logical :: followup = .false.
     logical :: wait_next = .false.
+    !! Monotonic time (ui_time) at which a frame is due without input; negative: none.
+    double precision :: wake_at = -1d0
     integer :: waiting_presents = 0
     integer :: followups = 0
     ! Identity diagnostics: duplicates are reported once per id.

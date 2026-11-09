@@ -167,6 +167,23 @@ call check(ui_node_rect("narrow#2", x, y, w, h) .and. abs(y - 48.0) < 1e-4 &
     .and. abs(x - 100.0) < 1e-4 .and. abs(w - 100.0) < 1e-4, &
     "row is 48 tall; tabs share the given width")
 
+! --- a timer brings a frame without input, at the time asked for -----------
+call ui_frame_begin()
+call ui_wake_after(0.3)
+call ui_present()
+st = ui_stats()
+call check(st%last_present_waits .and. st%wake_in > 0.2 .and. st%wake_in <= 0.3, &
+    "a timer bounds the idle wait")
+call execute_command_line("sleep 0.31")
+call ui_frame_begin()
+call ui_present()
+st = ui_stats()
+call check(.not. st%last_present_waits, "a due timer makes the next frame come without input")
+call ui_frame_begin()
+call ui_present()
+st = ui_stats()
+call check(st%last_present_waits .and. st%wake_in < 0.0, "a timer fires once")
+
 ! --- a link is laid out like text and activated like a button ---------------
 call compose_link()
 call check(ui_node_rect("docs", x, y, w, h) .and. ui_node_rect("plain", x2, y2, w2, h2) .and. &

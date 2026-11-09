@@ -8,7 +8,8 @@ module web_demo_app
     public :: compose
 
     logical :: checked = .false., submitted = .false.
-    integer :: value = 25, tab = 1, clicks = 0
+    integer :: value = 25, tab = 1, clicks = 0, ticks = 0
+    double precision :: next_tick = 0d0
     character(len=:), allocatable :: name
     character(len=16), parameter :: tab_labels(3) = [character(len=16) :: "Controls", &
         "Text", "About"]
@@ -20,6 +21,16 @@ contains
 
         if (.not. allocated(name)) name = ""
         call text("FortUI in the browser", style=UI_TITLE)
+        ! A clock driven only by timers: three ticks, 0.2 s apart, no input.
+        if (ticks < 3) then
+            if (next_tick <= 0d0) next_tick = ui_time() + 0.2d0
+            if (ui_time() >= next_tick) then
+                ticks = ticks + 1
+                next_tick = ui_time() + 0.2d0
+            end if
+            if (ticks < 3) call ui_wake_after(real(next_tick - ui_time()))
+        end if
+        call text("Ticks " // ui_str(ticks), id="ticks")
         if (tabs("tabs", tab_labels, tab)) continue
         select case (tab)
         case (1)

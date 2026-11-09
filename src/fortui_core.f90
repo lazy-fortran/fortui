@@ -1,6 +1,7 @@
 module fortui_core
 !! FortUI lifecycle, frame transactions and idle scheduling. The core knows only
 !! the abstract backend interface; applications inject a backend value.
+use iso_fortran_env, only: int64
 use fortui_context, only: fortui_context_t, create_context, destroy_context, &
     get_default_context, set_default_context
 use fortui_input, only: input_begin_frame, input_route, input_update_pointer, &
@@ -22,6 +23,7 @@ end interface ui_init
 public :: ui_init, ui_init_backend, ui_shutdown, ui_frame_begin, ui_present
 public :: ui_should_close, ui_request_quit, ui_is_initialized, ui_get_backend
 public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale
+public :: ui_time, ui_wake_after
 public :: ui_key_pressed, ui_text_width, ui_backend_capabilities, ui_backend_caps_t
 public :: ui_backend_description, ui_run, ui_run_step, ui_frame_proc
 
@@ -132,6 +134,17 @@ subroutine ui_present()
     call ctx%canvas%collect(ctx%frame_count)
     call ctx%collect_states()
     ctx%wait_next = .not. (ctx%continuous .or. ctx%frame_requested .or. ctx%followup)
+    ! A due timer makes the next frame come without input; a later one bounds
+    ! the wait for input.
+    ctx%backend%wake_in = -1.0
+    if (ctx%wake_at >= 0d0) then
+        if (ui_time() >= ctx%wake_at) then
+            ctx%wake_at = -1d0
+            ctx%wait_next = .false.
+        else if (ctx%wait_next) then
+            ctx%backend%wake_in = real(ctx%wake_at - ui_time())
+        end if
+    end if
     if (ctx%wait_next) ctx%waiting_presents = ctx%waiting_presents + 1
     if (ctx%followup) ctx%followups = ctx%followups + 1
     ctx%frame_requested = .false.
@@ -148,6 +161,26 @@ subroutine ui_request_frame()
     ctx => get_default_context()
     if (associated(ctx)) ctx%frame_requested = .true.
 end subroutine ui_request_frame
+
+double precision function ui_time() result(seconds)
+    !! Seconds on a monotonic clock, for timers and animations.
+    integer(int64) :: count, rate
+    call system_clock(count, rate)
+    seconds = real(count, kind(seconds)) / real(max(rate, 1_int64), kind(seconds))
+end function ui_time
+
+subroutine ui_wake_after(seconds)
+    !! A frame after `seconds` without input (one-shot; the earliest request
+    !! wins), for clocks, countdowns and retries. The host waits for it
+    !! without polling.
+    real, intent(in) :: seconds
+    type(fortui_context_t), pointer :: ctx
+    double precision :: at
+    ctx => get_default_context()
+    if (.not. associated(ctx)) return
+    at = ui_time() + max(0.0, seconds)
+    if (ctx%wake_at < 0d0 .or. at < ctx%wake_at) ctx%wake_at = at
+end subroutine ui_wake_after
 
 subroutine ui_set_continuous(enabled)
     !! Continuous frames (e.g. during an animation) instead of idle waiting.

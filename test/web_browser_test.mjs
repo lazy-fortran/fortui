@@ -103,6 +103,8 @@ try {
   check(await evaluate(`[...document.querySelectorAll('.fui-k1')].some((e) => e.textContent === 'FortUI in the browser')`),
     'static texts without id are realized separately');
   check((await text('[data-id="count"]')) === 'Clicked 0', 'buttons are DOM buttons with their labels');
+  await until(`document.querySelector('[data-id="ticks"]')?.textContent === 'Ticks 3'`, 'timer ticks');
+  check(true, 'timers advance the page without input');
   check(await evaluate(`document.querySelector('[data-id="count"]').tagName === 'BUTTON'`), 'button element');
   check(await evaluate(`getComputedStyle(document.querySelector('[data-id="count"]')).fontFamily === getComputedStyle(document.querySelector('.fui-root')).fontFamily`),
     'controls use the page font the metrics were measured in');
