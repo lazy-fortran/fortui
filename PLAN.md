@@ -210,10 +210,17 @@ bounded work for a large collection, and no unsupported performance claims.
       `--realloc-lhs-arrays` (off by default in LFortran) and then passes natively.
       Flang 23.1 cannot target wasm (`Target.cpp: target not implemented`, no
       wasm32 intrinsic modules or runtime). Callbacks are not yet probed.
-- [ ] Browser `web` backend implementing `ui_backend_t`: WebGPU canvas through
-      emscripten `webgpu.h` and `html5.h` events, ordinary controls as DOM
-      elements, `requestAnimationFrame` frames with JSPI/Asyncify yielding at
-      `ui_present`. No raylib or window library in the browser.
+- [x] Browser `web` backend implementing `ui_backend_t` (`web/`): ordinary
+      controls as DOM elements reconciled by node id at the runtime's geometry,
+      browser events replayed into the input snapshot, text metrics measured by
+      the browser in the rendered font, and `poll` yielding to the browser
+      through Asyncify (next animation frame, or next event when idle). Checked
+      in headless Chromium with real pointer and key events
+      (`test/web_browser_test.mjs`). Evidence 2026-11-09: LFortran
+      0.68.0-222-gf25f8f8542, emscripten 6.0.13, Chromium 156.
+- [ ] Web backend: canvas layers (WebGPU through emscripten `webgpu.h`, or 2-D
+      canvas first), DOM-realized geometry fed back to the runtime, IME through
+      composition events, URL/history integration, and a CI job.
 - [x] Correct termbox2 C binding signatures (C `int` results bound as
       subroutines); harmless on x86-64, a trap on wasm. Fixed for #150: all
       results are `integer(c_int)` functions and checked; `tb_attr_width` must
