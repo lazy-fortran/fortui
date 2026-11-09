@@ -126,8 +126,14 @@ try {
   await click('[data-id$="#3"]');
   await until(`!!document.querySelector('[data-style="5"]')`, 'code lines');
   check(await evaluate(`getComputedStyle(document.querySelector('[data-style="5"]')).fontFamily.includes('mono')`) &&
-    await evaluate(`getComputedStyle(document.querySelector('[data-style="5"]')).whiteSpace === 'pre'`),
+    await evaluate(`getComputedStyle(document.querySelector('[data-style="5"]')).whiteSpace === 'pre-wrap'`),
     'code is monospaced and keeps its spaces');
+  check(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth`),
+    'a long code line wraps instead of widening the page');
+  check(await evaluate(`(() => { const root = document.querySelector('.fui-root');
+    const box = [...root.children].find((e) => e.classList.contains('fui-box'));
+    return !!box && Math.abs(box.offsetWidth - root.clientWidth) < 1; })()`),
+    'a container spans the width of its column');
   check(await evaluate(`!!document.querySelector('[data-tone="1"]') && !!document.querySelector('[data-tone="2"]')`),
     'text carries its tone');
   check(await evaluate(`document.documentElement.scrollHeight > window.innerHeight + 200`),
