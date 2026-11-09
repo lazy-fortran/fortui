@@ -6,8 +6,9 @@ same application intent through native controls, custom graphics, web DOM,
 terminals, and headless automation while preserving platform-specific capabilities.
 
 The current implementation is an experimental pre-1.0 prototype: basic semantic
-controls, previous-frame input routing, headless tests, termbox2 TUI, and optional
-raylib GUI. Native widgets, DOM/WASM, mobile, full text/IME/accessibility, commands,
+controls, previous-frame input routing, headless tests, termbox2 TUI, optional
+raylib GUI, and a first browser backend with DOM controls. Native widgets, browser
+canvas, mobile, full text/IME/accessibility, commands,
 and incremental transaction scheduling are roadmap work.
 
 ## Current authoring API
@@ -80,6 +81,17 @@ make build-gui
 make test-gui     # also runs the backend conformance scenario in a window
 make install      # library, modules and the DejaVu font licence under PREFIX
 ```
+
+Browser (LFortran with target `wasm32-unknown-emscripten` and an emscripten SDK
+in `EMSDK_PATH`):
+
+```sh
+web/build.sh                                  # web/example/web_demo.f90 into build/web
+node test/web_browser_test.mjs build/web      # drives it in headless Chromium
+```
+
+Serve `build/web` over HTTP and open `index.html`. Ordinary controls are DOM
+elements; the application loop yields to the browser between frames.
 
 Run the terminal demo in a real terminal:
 
