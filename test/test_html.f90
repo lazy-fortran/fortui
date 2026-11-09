@@ -8,6 +8,8 @@ program test_html
 
     character(len=:), allocatable :: html, name
     integer :: stat, tab
+    integer :: j, k
+    integer(8) :: t0, t1, rate
     logical :: clicked
 
     name = 'Ada "<x>"'
@@ -53,6 +55,25 @@ program test_html
         'data-id="docs" data-style="1" data-tone="14"') > 0 .and. index(html, '>Docs &amp; more</a>') > 0, &
         'a link is an anchor with its location')
     call check(html_escape('a<b>&"c"') == 'a&lt;b&gt;&amp;&quot;c&quot;', 'html_escape')
+
+    ! A long page (a large diff): its HTML grows in time linear in its length.
+    call ui_init(headless_backend_t(), 800, 600, "html", stat=stat)
+    call ui_frame_begin()
+    do k = 1, 200
+        call column_begin(0.0, id="f"//ui_str(k))
+        do j = 1, 100
+            call text(repeat("x", 60), style=UI_CODE)
+        end do
+        call column_end()
+    end do
+    call ui_present()
+    call system_clock(t0, rate)
+    html = ui_frame_html()
+    call system_clock(t1)
+    call ui_shutdown()
+    call check(at('data-box="f200"') < at('data-key="1:~20000"') .and. &
+        at('data-key="1:~19901"') > at('data-box="f200"'), 'each block holds its lines')
+    call check(real(t1 - t0) / real(rate) < 2.0, '20000 lines as HTML in under 2 s')
     print *, "fortui html tests passed"
 
 contains
