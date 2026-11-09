@@ -187,7 +187,7 @@ contains
             associate (b => frame%boxes(i))
                 rec = 'B'//US//ui_str(b%kind)//US//ui_str(b%parent)//US//ui_str(b%after)// &
                     US//ui_str(nint(b%gap))//US//ui_str(nint(b%cross))//US// &
-                    ui_str(nint(b%width))//RS
+                    ui_str(nint(b%width))//US//clean(trim(b%id))//RS
             end associate
             call add(rec)
         end do
@@ -241,7 +241,22 @@ contains
             ui_str(nint(n%text_size))//US//ui_str(n%box)//US//ui_str(n%width_mode)//US// &
             ui_str(n%tone)//US//clean(trim(n%text))//US
         if (allocated(n%body)) r = r//clean(n%body)
+        r = r//US//runs(n)
     end function node_record
+
+    function runs(n) result(s)
+        !! "end:tone,end:tone" of rich text, or empty.
+        type(ui_node_t), intent(in) :: n
+        character(len=:), allocatable :: s
+        integer :: k
+
+        s = ''
+        if (.not. allocated(n%run_end)) return
+        do k = 1, size(n%run_end)
+            if (k > 1) s = s//','
+            s = s//ui_str(n%run_end(k))//':'//ui_str(n%run_tone(k))
+        end do
+    end function runs
 
     function clean(s) result(r)
         !! Separators cannot occur inside a field.

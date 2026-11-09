@@ -174,18 +174,21 @@ end function width_mode
 
 ! --- static and simple controls ------------------------------------------------
 
-subroutine text(value, style, size, width, ellipsis, id, tone)
+subroutine text(value, style, size, width, ellipsis, id, tone, ends, tones)
     !! Static text. `style` is a token (UI_BODY default, UI_CAPTION, UI_HEADING,
     !! UI_TITLE, UI_CODE); `tone` a UI_TONE_* token for its colour; `size`
     !! overrides its logical size. With `ellipsis`, text wider than `width`
     !! (default: the remaining container width) is shortened with an ellipsis by
     !! the backend. `id` is only needed for later reference.
+    !! With `ends` and `tones` the text is rich: run k ends at byte ends(k) and
+    !! has tone tones(k) (highlighted code, emphasis, links).
     character(*), intent(in) :: value
     integer, intent(in), optional :: style
     real, intent(in), optional :: size, width
     logical, intent(in), optional :: ellipsis
     character(*), intent(in), optional :: id
     integer, intent(in), optional :: tone
+    integer, intent(in), optional :: ends(:), tones(:)
 
     type(fortui_context_t), pointer :: ctx
     type(ui_node_t) :: node
@@ -195,6 +198,11 @@ subroutine text(value, style, size, width, ellipsis, id, tone)
 
     node%kind = UI_TEXT
     if (present(tone)) node%tone = tone
+    if (present(ends) .and. present(tones)) then
+        ! `size` is the text size argument here.
+        node%run_end = ends(1:min(ubound(ends, 1), ubound(tones, 1)))
+        node%run_tone = tones(1:ubound(node%run_end, 1))
+    end if
     if (present(id)) then
         node%id = scoped_id(id)
         if (.not. claim(ctx, trim(node%id), "text")) return

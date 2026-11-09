@@ -56,6 +56,8 @@ type, public :: layout_box_t
     real :: cross = 0.0
     !! Fixed width of a pane (negative: none).
     real :: width = -1.0
+    !! The id the container was opened with (for page styles), or empty.
+    character(len=64) :: id = ""
 end type layout_box_t
 
 type(layout_entry_t), save :: layout_stack(MAX_LAYOUT_DEPTH)
@@ -270,7 +272,7 @@ subroutine push_region(kind, direction, gap, x, y, w, h, id)
     if (box_count >= size(boxes)) boxes = [boxes, boxes]
     box_count = box_count + 1
     boxes(box_count) = layout_box_t(kind=kind, parent=layout_stack(stack_depth)%box, &
-        after=nodes_emitted, gap=gap)
+        after=nodes_emitted, gap=gap, id=id)
     if (kind == KIND_PANE) boxes(box_count)%width = w
     stack_depth = stack_depth + 1
     layout_stack(stack_depth) = layout_entry_t(kind=kind, direction=direction, &

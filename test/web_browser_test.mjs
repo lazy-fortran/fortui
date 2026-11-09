@@ -128,6 +128,10 @@ try {
   check(await evaluate(`getComputedStyle(document.querySelector('[data-style="5"]')).fontFamily.includes('mono')`) &&
     await evaluate(`getComputedStyle(document.querySelector('[data-style="5"]')).whiteSpace === 'pre-wrap'`),
     'code is monospaced and keeps its spaces');
+  check(await evaluate(`(() => { const r = document.querySelector('[data-id="rich"]');
+    return r.querySelector('span[data-t="5"]').textContent === 'call' && r.querySelector('span[data-t="8"]').textContent === '3.5'
+      && r.querySelector('span[data-t="7"]').textContent === '! done' && r.textContent === 'call solve(n, 3.5) ! done'; })()`),
+    'highlighted code arrives as toned spans');
   check(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth`),
     'a long code line wraps instead of widening the page');
   check(await evaluate(`(() => { const root = document.querySelector('.fui-root');

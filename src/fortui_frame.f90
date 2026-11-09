@@ -35,6 +35,11 @@ integer, parameter, public :: UI_TONE_POSITIVE = 1
 integer, parameter, public :: UI_TONE_NEGATIVE = 2
 integer, parameter, public :: UI_TONE_MUTED = 3
 integer, parameter, public :: UI_TONE_ACCENT = 4
+! Roles of code tokens and diff lines (backends choose the colours).
+integer, parameter, public :: UI_TONE_KEYWORD = 5, UI_TONE_STRING = 6, UI_TONE_COMMENT = 7, &
+    UI_TONE_NUMBER = 8, UI_TONE_TYPE = 9, UI_TONE_PREPROC = 10, UI_TONE_ADDED = 11, &
+    UI_TONE_REMOVED = 12, UI_TONE_HUNK = 13, UI_TONE_LINK = 14, UI_TONE_STRONG = 15, &
+    UI_TONE_EMPHASIS = 16
 
 integer, parameter, public :: WIDTH_NATURAL = 0, WIDTH_FIXED = 1, WIDTH_FILL = 2
 
@@ -104,6 +109,8 @@ type, public :: ui_node_t
     integer :: box = 0
     ! How the width was asked for: WIDTH_NATURAL, WIDTH_FIXED or WIDTH_FILL.
     integer :: width_mode = 0
+    ! Runs of rich text: byte offset where each run ends, and its tone.
+    integer, allocatable :: run_end(:), run_tone(:)
     real :: text_size = TEXT_DEFAULT_SIZE
     logical :: ellipsis = .false.
     character(len=:), allocatable :: body

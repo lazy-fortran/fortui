@@ -40,6 +40,9 @@ contains
                 "Ordinary controls are DOM elements; the frame loop yields to the " // &
                 "browser between frames.", height=120.0)
             call text("long line: "//repeat("abcdefghij ", 30), style=UI_CODE, id="longcode")
+            call text("call solve(n, 3.5) ! done", style=UI_CODE, id="rich", &
+                ends=[4, 11, 14, 17, 19, 26], tones=[UI_TONE_KEYWORD, 0, 0, UI_TONE_NUMBER, 0, &
+                UI_TONE_COMMENT])
             ! A listing longer than the window: the browser scrolls the page.
             do k = 1, 60
                 select case (mod(k, 3))
