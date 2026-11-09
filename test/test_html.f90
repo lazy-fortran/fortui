@@ -24,6 +24,7 @@ program test_html
     call column_end()
     if (tabs("t", [character(len=4) :: "A", "B"], tab, width=200.0)) continue
     call text("after")
+    call text("call f(1)", style=UI_CODE, ends=[4, 7, 8, 9], tones=[UI_TONE_KEYWORD, 0, UI_TONE_NUMBER, 0])
     call ui_present()
     html = ui_frame_html()
     call ui_shutdown()
@@ -42,6 +43,9 @@ program test_html
     call check(index(html, 'role="tab" aria-selected="true" class="fui fui-k5" data-key="5:t#2"') &
         > 0, 'selected tab')
     call check(at('data-key="5:t#1"') < at('data-key="1:~3"'), 'text after the tabs comes last')
+    call check(index(html, '<span data-t="5">call</span><span> f(</span><span data-t="8">1</span><span>)</span>') &
+        > 0, 'rich text as spans')
+    call check(index(html, 'class="fui-box fui-col" data-box="c"') > 0, 'a container carries its id')
     call check(html_escape('a<b>&"c"') == 'a&lt;b&gt;&amp;&quot;c&quot;', 'html_escape')
     print *, "fortui html tests passed"
 

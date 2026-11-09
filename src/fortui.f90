@@ -18,7 +18,10 @@ use fortui_widgets, only: text, button, slider, checkbox, tabs, scroll_text, &
 use fortui_canvas, only: canvas_view_t, canvas_events_t, ui_rgba, canvas_to_world, &
     canvas_to_local, canvas_zoom_at
 use fortui_frame, only: UI_BODY, UI_CAPTION, UI_HEADING, UI_TITLE, UI_FILL, UI_CODE, &
-    UI_TONE_NORMAL, UI_TONE_POSITIVE, UI_TONE_NEGATIVE, UI_TONE_MUTED, UI_TONE_ACCENT
+    UI_TONE_NORMAL, UI_TONE_POSITIVE, UI_TONE_NEGATIVE, UI_TONE_MUTED, UI_TONE_ACCENT, &
+    UI_TONE_KEYWORD, UI_TONE_STRING, UI_TONE_COMMENT, UI_TONE_NUMBER, UI_TONE_TYPE, &
+    UI_TONE_PREPROC, UI_TONE_ADDED, UI_TONE_REMOVED, UI_TONE_HUNK, UI_TONE_LINK, &
+    UI_TONE_STRONG, UI_TONE_EMPHASIS
 use fortui_text, only: ui_str
 use fortui_input, only: KEY_ENTER, KEY_ESCAPE, KEY_TAB, KEY_BACKSPACE, KEY_DELETE, &
     KEY_HOME, KEY_END, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_ARROW_UP, KEY_ARROW_DOWN, &
@@ -40,6 +43,9 @@ public :: canvas_label, canvas_view_t, canvas_events_t, ui_rgba
 public :: canvas_to_world, canvas_to_local, canvas_zoom_at
 public :: UI_BODY, UI_CAPTION, UI_HEADING, UI_TITLE, UI_FILL, UI_CODE
 public :: UI_TONE_NORMAL, UI_TONE_POSITIVE, UI_TONE_NEGATIVE, UI_TONE_MUTED, UI_TONE_ACCENT
+public :: UI_TONE_KEYWORD, UI_TONE_STRING, UI_TONE_COMMENT, UI_TONE_NUMBER, UI_TONE_TYPE
+public :: UI_TONE_PREPROC, UI_TONE_ADDED, UI_TONE_REMOVED, UI_TONE_HUNK, UI_TONE_LINK
+public :: UI_TONE_STRONG, UI_TONE_EMPHASIS
 public :: KEY_ENTER, KEY_ESCAPE, KEY_TAB, KEY_BACKSPACE, KEY_DELETE, KEY_HOME
 public :: KEY_END, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_ARROW_UP, KEY_ARROW_DOWN
 public :: KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_SPACE, KEY_INSERT

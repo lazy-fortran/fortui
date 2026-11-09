@@ -153,13 +153,32 @@ addToLibrary({
           if (el.placeholder !== text) el.placeholder = text;
           break;
         default:
-          if (el.textContent !== text) el.textContent = text;
+          FUI.text(el, text, f[17] || '');
           el.classList.toggle('fui-ellipsis', (flags & 64) !== 0);
       }
       if ((flags & 8) && document.activeElement !== el && kind !== 1 && kind !== 7) {
         var target = kind === 4 ? el.firstChild : el;
         if (target.focus && document.hasFocus()) target.focus({ preventScroll: true });
       }
+    },
+    // Plain text, or runs of rich text as spans (ends are UTF-8 byte offsets).
+    text: function (el, text, runs) {
+      if (el._text === text && el._runs === runs) return;
+      el._text = text; el._runs = runs;
+      if (!runs) { el.textContent = text; return; }
+      var bytes = new TextEncoder().encode(text), dec = new TextDecoder(), at = 0;
+      var frag = document.createDocumentFragment();
+      runs.split(',').forEach(function (r) {
+        var p = r.split(':'), end = Math.min(+p[0], bytes.length);
+        if (end <= at) return;
+        var span = document.createElement('span');
+        span.textContent = dec.decode(bytes.subarray(at, end));
+        if (p[1] !== '0') span.dataset.t = p[1];
+        frag.appendChild(span);
+        at = end;
+      });
+      if (at < bytes.length) frag.appendChild(document.createTextNode(dec.decode(bytes.subarray(at))));
+      el.replaceChildren(frag);
     },
     box: function (el, b) {
       var kind = +b[1], s = el.style;
@@ -168,6 +187,7 @@ addToLibrary({
       if (s.gap !== gap) s.gap = gap;
       s.minHeight = +b[5] > 0 ? b[5] + 'px' : '';
       if (kind === 4 && +b[6] >= 0) { s.width = b[6] + 'px'; s.flex = '0 0 auto'; }
+      if ((b[7] || '') !== (el.dataset.box || '')) { if (b[7]) el.dataset.box = b[7]; else delete el.dataset.box; }
     },
   },
 

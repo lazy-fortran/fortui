@@ -78,8 +78,10 @@ contains
                 if (x%kind == KIND_PANE .and. x%width >= 0.0) style = style//' width: '// &
                     ui_str(nint(x%width))//'px; flex: 0 0 auto;'
             end associate
-            s = '<div data-key="b'//ui_str(b)//'" class="'//cls//'" style="'//style//'">'// &
-                children(b)//'</div>'
+            s = '<div data-key="b'//ui_str(b)//'" class="'//cls//'"'
+            if (len_trim(frame%boxes(b)%id) > 0) s = s//' data-box="'// &
+                html_escape(trim(frame%boxes(b)%id))//'"'
+            s = s//' style="'//style//'">'//children(b)//'</div>'
         end function box_html
 
         logical function in_row(b)
@@ -136,6 +138,7 @@ contains
                 case (UI_TEXT_INPUT)
                     s = '<input type="text" value="'//body//'" placeholder="'//text//'"'//a//'>'
                 case default
+                    if (allocated(n%run_end)) text = runs_html(trim(n%text), n%run_end, n%run_tone)
                     s = '<div'//a//'>'//text//'</div>'
                 end select
             end associate
@@ -153,6 +156,28 @@ contains
         if (.not. associated(ctx)) return
         html = frame_to_html(ctx%previous_frame)
     end function ui_frame_html
+
+    function runs_html(text, ends, tones) result(s)
+        !! Rich text as spans, as the browser host builds it.
+        character(len=*), intent(in) :: text
+        integer, intent(in) :: ends(:), tones(:)
+        character(len=:), allocatable :: s
+        integer :: k, at, e
+
+        s = ''
+        at = 0
+        do k = 1, size(ends)
+            e = min(ends(k), len(text))
+            if (e <= at) cycle
+            if (tones(k) /= 0) then
+                s = s//'<span data-t="'//ui_str(tones(k))//'">'//html_escape(text(at + 1:e))//'</span>'
+            else
+                s = s//'<span>'//html_escape(text(at + 1:e))//'</span>'
+            end if
+            at = e
+        end do
+        if (at < len(text)) s = s//html_escape(text(at + 1:))
+    end function runs_html
 
     function width_style(n, row) result(s)
         !! As the host sizes elements: fixed width, filling the container, or natural.
