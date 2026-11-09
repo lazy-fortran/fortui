@@ -92,7 +92,7 @@ Browser (LFortran with target `wasm32-unknown-emscripten` and an emscripten SDK
 in `EMSDK_PATH`):
 
 ```sh
-web/build.sh                                  # web/example/web_demo.f90 into build/web
+web/build.sh                                  # the demo into build/web
 node test/web_browser_test.mjs build/web      # drives it in headless Chromium
 ```
 
