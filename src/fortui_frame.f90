@@ -89,7 +89,8 @@ end type ui_label_t
 type, public :: ui_node_t
     integer :: kind = UI_NONE
     character(len=96) :: id = ""
-    character(len=512) :: text = ""
+    ! Variable length: labels, code lines and paragraphs are never cut.
+    character(len=:), allocatable :: text
     real :: x = 0.0
     real :: y = 0.0
     real :: width = 0.0
@@ -239,6 +240,8 @@ integer function frame_append(self, node) result(index)
 
     self%count = self%count + 1
     self%nodes(self%count) = node
+    ! Every node carries a text, so readers need not check.
+    if (.not. allocated(self%nodes(self%count)%text)) self%nodes(self%count)%text = ""
     index = self%count
     if (len_trim(node%id) == 0) return
     if (4 * self%count > 3 * size(self%buckets)) call rehash(self, &
