@@ -43,6 +43,13 @@ addToLibrary({
         var el = e.target.closest('[data-id]');
         if (!el || !root.contains(el)) return;
         if (el.tagName === 'BUTTON') FUI.host(H.activate, el);
+        // A plain click on a link is the application's to handle; with a
+        // modifier or another button the browser opens the location itself.
+        if (el.tagName === 'A' && e.button === 0 && !e.metaKey && !e.ctrlKey &&
+          !e.shiftKey && !e.altKey) {
+          e.preventDefault();
+          FUI.host(H.activate, el);
+        }
       });
       root.addEventListener('change', function (e) {
         var el = e.target.closest('[data-id]');
@@ -89,7 +96,7 @@ addToLibrary({
       }, { passive: false });
       window.addEventListener('resize', FUI.resize);
     },
-    tags: { 2: 'button', 3: 'input', 4: 'label', 5: 'button', 6: 'canvas', 8: 'input' },
+    tags: { 2: 'button', 3: 'input', 4: 'label', 5: 'button', 6: 'canvas', 8: 'input', 9: 'a' },
     create: function (kind, key) {
       var el = document.createElement(FUI.tags[kind] || 'div');
       if (kind === 3) { el.type = 'range'; el.step = 'any'; }
@@ -145,6 +152,11 @@ addToLibrary({
           break;
         case 7:
           if (el.textContent !== body) el.textContent = body;
+          break;
+        case 9:
+          if (el.textContent !== text) el.textContent = text;
+          if (el.getAttribute('href') !== body) el.setAttribute('href', body);
+          el.classList.toggle('fui-ellipsis', (flags & 64) !== 0);
           break;
         case 8:
           // The field edits natively; the runtime's value is shown only when

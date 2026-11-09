@@ -28,6 +28,7 @@ contains
             if (button("two", "Two")) value = 90
             if (button("count", "Clicked " // ui_str(clicks))) clicks = clicks + 1
             call row_end()
+            if (link("more", "Read more", "#more")) clicks = clicks + 100
             call text("Value " // ui_str(value))
             if (slider("value", 0, 100, value, step=5, width=240.0)) continue
             if (checkbox("check", checked, "Enabled")) continue

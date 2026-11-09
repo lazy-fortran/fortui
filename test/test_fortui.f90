@@ -167,6 +167,19 @@ call check(ui_node_rect("narrow#2", x, y, w, h) .and. abs(y - 48.0) < 1e-4 &
     .and. abs(x - 100.0) < 1e-4 .and. abs(w - 100.0) < 1e-4, &
     "row is 48 tall; tabs share the given width")
 
+! --- a link is laid out like text and activated like a button ---------------
+call compose_link()
+call check(ui_node_rect("docs", x, y, w, h) .and. ui_node_rect("plain", x2, y2, w2, h2) .and. &
+    abs(w - w2) < 1e-4 .and. abs(h - h2) < 1e-4, "a link is as large as its text")
+call check(.not. clicked, "a link is not spuriously activated")
+call ui_inject_pointer(x + 2.0, y + 2.0, .true.)
+call compose_link()
+call ui_inject_pointer(x + 2.0, y + 2.0, .false.)
+call compose_link()
+call check(clicked, "releasing the pointer on a link activates it")
+call compose_link()
+call check(.not. clicked, "a link activation is consumed once")
+
 call ui_shutdown()
 call check(.not. ui_is_initialized(), "shutdown releases context")
 print *, "fortui tests passed"
@@ -201,6 +214,13 @@ subroutine click_node(id)
     call ui_inject_pointer(nx + 0.5 * nw, ny + 0.5 * nh, .false.)
     call compose_last()
 end subroutine click_node
+
+subroutine compose_link()
+    call ui_frame_begin()
+    clicked = link("docs", "Read the docs", "/docs")
+    call text("Read the docs", id="plain")
+    call ui_present()
+end subroutine compose_link
 
 subroutine compose_last()
     !! Re-run whichever composition the current section uses.

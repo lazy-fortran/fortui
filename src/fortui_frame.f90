@@ -16,6 +16,8 @@ integer, parameter, public :: UI_TAB = 5
 integer, parameter, public :: UI_CANVAS = 6
 integer, parameter, public :: UI_SCROLL_TEXT = 7
 integer, parameter, public :: UI_TEXT_INPUT = 8
+! A hyperlink: activated like a button, and a location the host can open itself.
+integer, parameter, public :: UI_LINK = 9
 
 integer, parameter, public :: LAYER_POINTS = 1
 integer, parameter, public :: LAYER_LINES = 2

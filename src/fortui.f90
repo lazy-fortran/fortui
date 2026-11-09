@@ -12,7 +12,7 @@ use fortui_core, only: ui_init, ui_shutdown, ui_frame_begin, ui_present, &
     ui_run, ui_run_step, ui_frame_proc
 use fortui_layout, only: column_begin, column_end, row_begin, row_end, split_begin, &
     split_next, split_end
-use fortui_widgets, only: text, button, slider, checkbox, tabs, scroll_text, &
+use fortui_widgets, only: text, button, link, slider, checkbox, tabs, scroll_text, &
     text_input, canvas_begin, canvas_end, canvas_vertices, canvas_points, &
     canvas_lines, canvas_label
 use fortui_canvas, only: canvas_view_t, canvas_events_t, ui_rgba, canvas_to_world, &
@@ -37,7 +37,7 @@ public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale
 public :: ui_key_pressed, ui_text_width, ui_str
 public :: column_begin, column_end, row_begin, row_end
 public :: split_begin, split_next, split_end
-public :: text, button, slider, checkbox, tabs, scroll_text, text_input
+public :: text, button, link, slider, checkbox, tabs, scroll_text, text_input
 public :: canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_lines
 public :: canvas_label, canvas_view_t, canvas_events_t, ui_rgba
 public :: canvas_to_world, canvas_to_local, canvas_zoom_at

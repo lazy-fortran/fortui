@@ -11,10 +11,10 @@ module fortui_widgets
 !! handler becomes visible without the application requesting a frame.
 use iso_fortran_env, only: int32
 use fortui_context, only: fortui_context_t, get_default_context
-use fortui_frame, only: ui_node_t, canvas_view_t, ui_label_t, UI_TEXT, UI_BUTTON, &
+use fortui_frame, only: ui_node_t, canvas_view_t, ui_label_t, UI_TEXT, UI_BUTTON, UI_LINK, &
     UI_SLIDER, UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, &
     LAYER_VERTICES, SCROLL_PADDING, SCROLLBAR_WIDTH, INPUT_PADDING, CONTROL_PADDING, &
-    style_size, style_weight, WIDTH_NATURAL, WIDTH_FIXED, WIDTH_FILL
+    style_size, style_weight, WIDTH_NATURAL, WIDTH_FIXED, WIDTH_FILL, UI_TONE_LINK
 use fortui_layout, only: layout_get_cursor, layout_advance, layout_available, &
     layout_scope, layout_fill_width, layout_place, layout_note_node, row_begin, row_end
 use fortui_input, only: input_activated, input_focused, input_active, input_hovered, &
@@ -49,7 +49,7 @@ interface canvas_lines
     module procedure canvas_lines_own, canvas_lines_shared
 end interface canvas_lines
 
-public :: text, button, slider, checkbox, tabs
+public :: text, button, link, slider, checkbox, tabs
 public :: canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_lines
 public :: canvas_label, scroll_text, text_input
 
@@ -257,6 +257,49 @@ logical function button(id, label, key, width, height, enabled, ellipsis, size) 
     if (clicked) ctx%followup = .true.
     call place_and_emit(ctx, node)
 end function button
+
+logical function link(id, label, href, key, width, ellipsis, size, style, tone) &
+        result(clicked)
+    !! A hyperlink to `href`, a location such as "/docs/intro"; true once when
+    !! activated, so the application navigates itself. A host that knows
+    !! locations (a browser) shows `href` and opens it on its own when asked to,
+    !! for example in a new tab. Laid out like text of `style` and `size`.
+    character(*), intent(in) :: id, label, href
+    integer, intent(in), optional :: key, style, tone
+    real, intent(in), optional :: width, size
+    logical, intent(in), optional :: ellipsis
+
+    type(fortui_context_t), pointer :: ctx
+    type(ui_node_t) :: node
+
+    clicked = .false.
+    ctx => get_default_context()
+    if (.not. composing(ctx)) return
+
+    node%kind = UI_LINK
+    node%id = scoped_id(id, key)
+    if (.not. claim(ctx, trim(node%id), "link")) return
+    node%text = label
+    node%body = href
+    node%tone = UI_TONE_LINK
+    if (present(tone)) node%tone = tone
+    if (present(style)) node%style = style
+    node%text_size = style_size(node%style)
+    if (present(size)) node%text_size = max(1.0, size)
+    node%width = resolve_width(width, &
+        text_width(label, node%text_size, style_weight(node%style)))
+    node%width_mode = width_mode(width)
+    if (present(ellipsis)) node%ellipsis = ellipsis
+    if (node%ellipsis .and. .not. present(width)) &
+        node%width = min(node%width, layout_fill_width())
+    node%height = text_line_height(node%text_size)
+    node%focusable = .true.
+
+    call decorate_from_input(ctx, node)
+    clicked = input_activated(ctx%input, trim(node%id))
+    if (clicked) ctx%followup = .true.
+    call place_and_emit(ctx, node)
+end function link
 
 logical function checkbox(id, checked, label, key, width, enabled) result(toggled)
     !! Checkbox bound to the caller's `checked`; true when toggled this frame.

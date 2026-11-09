@@ -16,7 +16,7 @@ module fortui_tui
 !! reply"), never silently assumed.
 use iso_c_binding, only: c_int, c_int8_t, c_int16_t, c_int32_t, c_long, c_char
 use iso_fortran_env, only: int32, int64
-use fortui_frame, only: ui_frame_t, ui_node_t, UI_TEXT, UI_BUTTON, UI_SLIDER, &
+use fortui_frame, only: ui_frame_t, ui_node_t, UI_TEXT, UI_BUTTON, UI_LINK, UI_SLIDER, &
     UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_CAPTION, &
     UI_HEADING, UI_TITLE, SCROLL_PADDING
 use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
@@ -1015,7 +1015,7 @@ subroutine draw_node(self, node)
     end if
 
     select case (node%kind)
-    case (UI_TEXT)
+    case (UI_TEXT, UI_LINK)
         if (node%style == UI_HEADING .or. node%style == UI_TITLE) fg = fg + TB_BOLD
         if (node%style == UI_CAPTION) fg = colour(self, RGB_CAPTION)
         call draw_string(self, x, y, trim(node%text), fg, bg, w, node%ellipsis)
