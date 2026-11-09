@@ -2,7 +2,8 @@
 # Builds the fortui library and a program for the browser with LFortran
 # (target wasm32-unknown-emscripten) and links it with emcc and the web host.
 #   web/build.sh [PROGRAM.f90] [OUTDIR]
-# Defaults: web/example/web_demo.f90 into build/web. Needs lfortran and an
+# Defaults: the demo (example/web_demo_app.f90, web/example/web_demo.f90) into
+# build/web. Needs lfortran and an
 # emscripten SDK in EMSDK_PATH (the one LFortran itself uses).
 # FORTUI_WEB_SOURCES: further Fortran sources of the application, in dependency
 # order, compiled before PROGRAM. FORTUI_WEB_JS: further emscripten JavaScript
@@ -10,6 +11,10 @@
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 top=$(dirname "$here")
+caller=$(pwd)
+if [ -z "${1:-}" ] && [ -z "${FORTUI_WEB_SOURCES:-}" ]; then
+    FORTUI_WEB_SOURCES=$top/example/web_demo_app.f90
+fi
 prog=${1:-$here/example/web_demo.f90}
 prog=$(cd "$(dirname "$prog")" && pwd)/$(basename "$prog")
 out=${2:-$top/build/web}
@@ -30,10 +35,14 @@ for m in fortui_error fortui_text fortui_layout fortui_frame fortui_canvas \
 done
 "$lf" -c $flags "$here/fortui_web.f90" -o fortui_web.o
 for src in ${FORTUI_WEB_SOURCES:-}; do
+    case $src in /*) ;; *) src=$caller/$src ;; esac
     "$lf" -c $flags "$src" -o "$(basename "$src" .f90).o"
 done
 js="--js-library $here/fortui_web.js"
-for lib in ${FORTUI_WEB_JS:-}; do js="$js --js-library $lib"; done
+for lib in ${FORTUI_WEB_JS:-}; do
+    case $lib in /*) ;; *) lib=$caller/$lib ;; esac
+    js="$js --js-library $lib"
+done
 name=$(basename "$prog" .f90)
 "$lf" -c $flags "$prog" -o "$name.o"
 "$emcc" --target=wasm32-unknown-emscripten -O2 -sALLOW_MEMORY_GROWTH \

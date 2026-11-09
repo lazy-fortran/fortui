@@ -3,14 +3,26 @@
 //   node test/web_browser_test.mjs BUILD_DIR [SCREENSHOT.png]
 import { createServer } from 'node:http';
 import { readFile, writeFile } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { join, extname } from 'node:path';
 
 const dir = process.argv[2];
 const shot = process.argv[3];
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.css': 'text/css' };
+// The demo's first frame rendered natively by fortui_html, as a server would.
+execFileSync('fpm', ['run', '--example', 'web_demo_ssr', '--', join(dir, 'ssr.html')], { stdio: 'ignore' });
+const ssr = (await readFile(join(dir, 'ssr.html'))).toString().trim();
 const server = createServer(async (req, res) => {
   try {
+    if (req.url === '/?ssr') {
+      // Every server element is marked before the WebAssembly starts.
+      const page = (await readFile(join(dir, 'index.html'))).toString().replace('<div id="app"></div>',
+        `<div id="app">${ssr}</div><script>document.querySelectorAll('[data-key]').forEach((e) => { e.__ssr = 1; });
+        window.__ssrCount = document.querySelectorAll('[data-key]').length;</script>`);
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end(page);
+      return;
+    }
     const body = await readFile(join(dir, req.url === '/' ? 'index.html' : req.url));
     res.writeHead(200, { 'content-type': types[extname(req.url)] || 'text/html' });
     res.end(body);
@@ -120,6 +132,17 @@ try {
     'text carries its tone');
   check(await evaluate(`document.documentElement.scrollHeight > window.innerHeight + 200`),
     'a long page grows and the browser scrolls it');
+  // A page the server rendered: the WebAssembly adopts its elements.
+  await send('Page.navigate', { url: url + '?ssr' });
+  await until(`window.__ssrCount > 0 && !!document.querySelector('[data-id="count"]')`, 'server page');
+  check(await evaluate(`document.querySelector('[data-id="count"]').textContent === 'Clicked 0'`),
+    'the server page shows the first frame before the WebAssembly runs');
+  await click('[data-id="count"]');
+  await until(`document.querySelector('[data-id="count"]')?.textContent === 'Clicked 1'`, 'click on server page');
+  check(await evaluate(`(() => { const all = [...document.querySelectorAll('[data-key]')];
+    return all.length === window.__ssrCount && all.every((e) => e.__ssr === 1); })()`),
+    'every server element is adopted, none rebuilt');
+
   if (shot) {
     const png = await send('Page.captureScreenshot', { format: 'png' });
     await writeFile(shot, Buffer.from(png.result.data, 'base64'));

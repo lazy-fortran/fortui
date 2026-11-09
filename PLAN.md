@@ -223,6 +223,9 @@ bounded work for a large collection, and no unsupported performance claims.
       (`test/web_browser_test.mjs`). Evidence 2026-11-09: LFortran
       0.68.0-222-gf25f8f8542, emscripten 6.0.13, Chromium 156; LFortran keeps
       main-program variables on the stack, so frame state belongs in modules.
+- [x] `fortui_html`: a composed frame as the HTML the browser host builds
+      (same elements, classes, styles and keys), for pages a server renders
+      with the headless backend before the WebAssembly starts.
 - [ ] Web backend: canvas layers (WebGPU through emscripten `webgpu.h`, or 2-D
       canvas first), DOM-realized geometry fed back to the runtime, IME through
       composition events, URL/history integration, and a CI job.
