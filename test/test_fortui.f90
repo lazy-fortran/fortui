@@ -150,6 +150,22 @@ call ui_inject_key(KEY_ARROW_RIGHT)
 call compose_tabs()
 call check(deg == 16, "integer slider steps by one key press")
 
+! --- fixed-height rows centre their items; tabs take an explicit width -------
+call ui_frame_begin()
+call row_begin(8.0, height=48.0)
+call text("Label", id="label")
+if (button("go", "Go")) continue
+call row_end()
+if (tabs("narrow", [character(8) :: "A", "B"], sel, width=200.0)) continue
+call ui_present()
+call check(ui_node_rect("label", x, y, w, h) .and. abs(y + 0.5 * h - 24.0) < 1e-4, &
+    "text centred in a 48-unit row")
+call check(ui_node_rect("go", x2, y2, w2, h2) .and. abs(y2 + 0.5 * h2 - 24.0) < 1e-4, &
+    "button centred in the same row")
+call check(ui_node_rect("narrow#2", x, y, w, h) .and. abs(y - 48.0) < 1e-4 &
+    .and. abs(x - 100.0) < 1e-4 .and. abs(w - 100.0) < 1e-4, &
+    "row is 48 tall; tabs share the given width")
+
 call ui_shutdown()
 call check(.not. ui_is_initialized(), "shutdown releases context")
 print *, "fortui tests passed"

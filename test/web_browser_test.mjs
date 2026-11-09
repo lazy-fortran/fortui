@@ -105,6 +105,11 @@ try {
   await type('Ada');
   await until(`[...document.querySelectorAll('.fui-k1')].some((e) => e.textContent === 'Hello, Ada!')`, 'typed text');
   check(true, 'typing reaches the text field');
+  await evaluate(`(() => { const dt = new DataTransfer(); dt.setData('text/plain', ' Lovelace\\n');
+    document.querySelector('[data-id="name"]').dispatchEvent(new ClipboardEvent('paste',
+      { clipboardData: dt, bubbles: true, cancelable: true })); })()`);
+  await until(`[...document.querySelectorAll('.fui-k1')].some((e) => e.textContent === 'Hello, Ada Lovelace!')`, 'pasted text');
+  check(true, 'pasted text reaches the runtime without its line break');
   if (shot) {
     const png = await send('Page.captureScreenshot', { format: 'png' });
     await writeFile(shot, Buffer.from(png.result.data, 'base64'));

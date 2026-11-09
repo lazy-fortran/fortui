@@ -16,7 +16,7 @@ use fortui_frame, only: ui_node_t, canvas_view_t, ui_label_t, UI_TEXT, UI_BUTTON
     LAYER_VERTICES, SCROLL_PADDING, SCROLLBAR_WIDTH, INPUT_PADDING, CONTROL_PADDING, &
     style_size, style_weight
 use fortui_layout, only: layout_get_cursor, layout_advance, layout_available, &
-    layout_scope, layout_fill_width
+    layout_scope, layout_fill_width, layout_place
 use fortui_input, only: input_activated, input_focused, input_active, input_hovered, &
     input_wheel_for, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_ARROW_UP, KEY_ARROW_DOWN, &
     KEY_BACKSPACE, KEY_DELETE, KEY_HOME, KEY_END, KEY_ENTER, KEY_PAGE_UP, KEY_PAGE_DOWN
@@ -138,13 +138,14 @@ subroutine text(value, style, size, width, ellipsis, id)
     call place_and_emit(ctx, node)
 end subroutine text
 
-logical function button(id, label, key, width, height, enabled, ellipsis) &
+logical function button(id, label, key, width, height, enabled, ellipsis, size) &
     result(clicked)
     !! Push button; true once when activated (pointer release or Enter/Space).
+    !! `size` is the logical text size of the label.
     character(*), intent(in) :: id
     character(*), intent(in), optional :: label
     integer, intent(in), optional :: key
-    real, intent(in), optional :: width, height
+    real, intent(in), optional :: width, height, size
     logical, intent(in), optional :: enabled, ellipsis
 
     type(fortui_context_t), pointer :: ctx
@@ -159,6 +160,7 @@ logical function button(id, label, key, width, height, enabled, ellipsis) &
     if (.not. claim(ctx, trim(node%id), "button")) return
     node%text = trim(id)
     if (present(label)) node%text = label
+    if (present(size)) node%text_size = max(1.0, size)
     node%width = resolve_width(width, max(72.0, text_width(trim(node%text), &
         node%text_size) + 2.0 * CONTROL_PADDING))
     node%height = CONTROL_HEIGHT
@@ -308,13 +310,14 @@ logical function slider_core(id, lo_in, hi_in, value, step, key, width, enabled)
     call emit_at_current_position(ctx, node)
 end function slider_core
 
-logical function tabs(id, labels, selected) result(changed)
-    !! Tab bar over the remaining row/column width: one equal-width tab per
-    !! label; `selected` (1-based) changes by click, Enter/Space or the arrow
+logical function tabs(id, labels, selected, width, size) result(changed)
+    !! Tab bar over `width`, or the remaining row/column width: one equal-width
+    !! tab per label; `selected` (1-based) changes by click, Enter/Space or the arrow
     !! keys on a focused tab. Returns whether `selected` changed.
     character(*), intent(in) :: id
     character(*), intent(in) :: labels(:)
     integer, intent(inout) :: selected
+    real, intent(in), optional :: width, size
 
     type(fortui_context_t), pointer :: ctx
     type(ui_node_t) :: node
@@ -324,12 +327,13 @@ logical function tabs(id, labels, selected) result(changed)
     changed = .false.
     ctx => get_default_context()
     if (.not. composing(ctx)) return
-    n = size(labels)
+    n = ubound(labels, 1) ! `size` is the text size argument here
     if (n == 0) return
     old = selected
     selected = max(1, min(n, selected))
     call layout_get_cursor(x0, y0)
     total = layout_fill_width()
+    if (present(width)) total = max(0.0, width)
     w = total / real(n)
 
     do k = 1, n
@@ -338,6 +342,7 @@ logical function tabs(id, labels, selected) result(changed)
         node%id = scoped_id(id, k)
         if (.not. claim(ctx, trim(node%id), "tabs")) cycle
         node%text = trim(labels(k))
+        if (present(size)) node%text_size = max(1.0, size)
         node%x = x0 + real(k - 1) * w
         node%y = y0
         node%width = w
@@ -787,7 +792,8 @@ subroutine scroll_text(id, value, size, markdown, width, height, scroll_to)
     call emit_at_current_position(ctx, node)
 end subroutine scroll_text
 
-logical function text_input(id, value, placeholder, submitted, width, enabled, key) &
+logical function text_input(id, value, placeholder, submitted, width, enabled, key, &
+    size) &
     result(changed)
     !! Single-line UTF-8 text field. Focus by click or Tab; typing inserts at the
     !! caret; Backspace/Delete/Left/Right/Home/End edit; Enter sets `submitted`;
@@ -798,7 +804,7 @@ logical function text_input(id, value, placeholder, submitted, width, enabled, k
     character(len=:), allocatable, intent(inout) :: value
     character(*), intent(in), optional :: placeholder
     logical, intent(out), optional :: submitted
-    real, intent(in), optional :: width
+    real, intent(in), optional :: width, size
     logical, intent(in), optional :: enabled
     integer, intent(in), optional :: key
 
@@ -822,6 +828,7 @@ logical function text_input(id, value, placeholder, submitted, width, enabled, k
     if (present(placeholder)) node%text = placeholder
     node%width = max(40.0, resolve_width(width, layout_fill_width()))
     node%height = CONTROL_HEIGHT
+    if (present(size)) node%text_size = max(1.0, size)
     call decorate_from_input(ctx, node)
 
     old = value
@@ -895,7 +902,7 @@ subroutine decorate_from_input(ctx, node)
     type(fortui_context_t), intent(in) :: ctx
     type(ui_node_t), intent(inout) :: node
 
-    call layout_get_cursor(node%x, node%y)
+    call layout_place(node%height, node%x, node%y)
     node%hovered = input_hovered(ctx%input, node%x, node%y, node%width, node%height)
     if (len_trim(node%id) == 0 .or. node%disabled) return
     node%focused = input_focused(ctx%input, trim(node%id))
@@ -906,7 +913,7 @@ subroutine place_and_emit(ctx, node)
     type(fortui_context_t), intent(inout) :: ctx
     type(ui_node_t), intent(inout) :: node
 
-    call layout_get_cursor(node%x, node%y)
+    call layout_place(node%height, node%x, node%y)
     if (node%focusable) call decorate_from_input(ctx, node)
     call emit_at_current_position(ctx, node)
 end subroutine place_and_emit
