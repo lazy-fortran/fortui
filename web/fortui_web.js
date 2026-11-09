@@ -40,6 +40,7 @@ addToLibrary({
         // defaults would change them behind its back. Text stays selectable.
         if (e.target.closest('button, input, label, canvas')) e.preventDefault();
         down = true;
+        root.classList.remove('fui-keyboard');
         try { root.setPointerCapture(e.pointerId); } catch (x) {}
         FUI.pointer(e, true);
       }, true);
@@ -55,12 +56,32 @@ addToLibrary({
         FUI.push([3, Math.round(-steps), -steps, 0]);
       }, { passive: false, capture: true });
       window.addEventListener('keydown', function (e) {
+        // Focus rings matter after keyboard navigation, not after a click.
+        if (e.key === 'Tab' || e.key.indexOf('Arrow') === 0) root.classList.add('fui-keyboard');
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         var k = FUI.keys[e.key];
         if (k) FUI.push([2, k, 0, 0]);
         if (e.key.length === 1) FUI.text(e.key);
         if (k || e.key.length === 1) e.preventDefault();
       });
+      // Text that does not arrive as a key press (paste, phone keyboards,
+      // autofill, drop) would change a DOM field behind the runtime's back;
+      // it goes to the runtime instead. Line breaks at the ends of pasted
+      // text are dropped, inner ones become spaces.
+      root.addEventListener('paste', function (e) {
+        var t = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
+        e.preventDefault();
+        t = t.replace(/^[\r\n]+|[\r\n]+$/g, '').replace(/[\r\n]+/g, ' ');
+        if (t) FUI.text(t);
+      }, true);
+      root.addEventListener('beforeinput', function (e) {
+        if (e.inputType === 'insertCompositionText') return;
+        e.preventDefault();
+        if (e.inputType === 'deleteContentBackward') FUI.push([2, 4, 0, 0]);
+        else if (e.inputType === 'deleteContentForward') FUI.push([2, 5, 0, 0]);
+        else if (e.data) FUI.text(e.data);
+        else if (e.dataTransfer) FUI.text(e.dataTransfer.getData('text/plain'));
+      }, true);
       window.addEventListener('resize', FUI.resize);
     },
     text: function (s) { FUI.push([5, s]); },
@@ -97,6 +118,8 @@ addToLibrary({
       s.width = f[4] + 'px'; s.height = f[5] + 'px';
       s.fontSize = f[11] + 'px';
       s.fontWeight = (+f[10] >= 3) ? '600' : '';
+      // The style token (1 body, 2 caption, 3 heading, 4 title) for page CSS.
+      if (el.dataset.style !== f[10]) el.dataset.style = f[10];
       el.classList.toggle('fui-hover', (flags & 4) !== 0);
       el.classList.toggle('fui-focus', (flags & 8) !== 0);
       el.classList.toggle('fui-active', (flags & 16) !== 0);
@@ -243,20 +266,52 @@ addToLibrary({
     });
   },
 
+  // Measuring a code point the page font lacks makes the browser search its
+  // fallback fonts, about a millisecond each, so only the ranges ordinary
+  // text uses are measured; the others advance like '?' (wide scripts from
+  // U+2E80 by one em). The table is kept per font and device in
+  // localStorage, so later visits skip the measuring.
   fortui_web_measure__deps: ['$FUI'],
   fortui_web_measure: function (advPtr, ncp, fallbackPtr, linePtr) {
-    var ctx = document.createElement('canvas').getContext('2d');
-    var ref = 100, base = advPtr >> 2;
-    var weights = ['400', '600'];
-    for (var s = 0; s < 2; s++) {
-      ctx.font = weights[s] + ' ' + ref + 'px ' + FUI.font;
-      HEAPF32[(fallbackPtr >> 2) + s] = ctx.measureText('?').width / ref;
-      for (var cp = 0; cp < ncp; cp++) {
-        var w = (cp < 32 || (cp >= 0xD800 && cp <= 0xDFFF)) ? 0 :
-          ctx.measureText(String.fromCodePoint(cp)).width / ref;
-        HEAPF32[base + s * ncp + cp] = w;
+    var ranges = [[0x20, 0x250], [0x370, 0x530], [0x2000, 0x20D0],
+      [0x2100, 0x2400], [0x2500, 0x2600]];
+    var key = 'fortui-metrics-v1:' + FUI.font + ':' + (window.devicePixelRatio || 1);
+    var base = advPtr >> 2, n = 2 * ncp;
+    var table = null;
+    try {
+      var saved = localStorage.getItem(key);
+      if (saved) {
+        var bytes = Uint8Array.from(atob(saved), function (c) { return c.charCodeAt(0); });
+        if (bytes.length === 4 * (n + 2)) table = new Float32Array(bytes.buffer);
       }
+    } catch (x) { table = null; }
+    if (!table) {
+      table = new Float32Array(n + 2);
+      var ctx = document.createElement('canvas').getContext('2d');
+      var ref = 100, weights = ['400', '600'];
+      for (var s = 0; s < 2; s++) {
+        ctx.font = weights[s] + ' ' + ref + 'px ' + FUI.font;
+        var q = ctx.measureText('?').width / ref;
+        table[n + s] = q;
+        for (var cp = 0; cp < ncp; cp++) table[s * ncp + cp] = cp >= 0x2E80 ? 1 : q;
+        for (var r = 0; r < ranges.length; r++) {
+          for (var c = ranges[r][0]; c < Math.min(ranges[r][1], ncp); c++) {
+            table[s * ncp + c] = ctx.measureText(String.fromCodePoint(c)).width / ref;
+          }
+        }
+        for (var z = 0; z < 32; z++) table[s * ncp + z] = 0;
+      }
+      try {
+        var str = '', u8 = new Uint8Array(table.buffer);
+        for (var i = 0; i < u8.length; i += 0x8000) {
+          str += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+        }
+        localStorage.setItem(key, btoa(str));
+      } catch (x) {}
     }
+    HEAPF32.set(table.subarray(0, n), base);
+    HEAPF32[fallbackPtr >> 2] = table[n];
+    HEAPF32[(fallbackPtr >> 2) + 1] = table[n + 1];
     HEAPF32[linePtr >> 2] = 1.25;
   },
 });

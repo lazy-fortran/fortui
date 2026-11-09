@@ -26,6 +26,8 @@ type :: layout_entry_t
     real :: cursor_x = 0.0
     real :: cursor_y = 0.0
     real :: max_cross = 0.0
+    ! Rows with a fixed cross size centre shorter items in it (0: top-aligned).
+    real :: cross_size = 0.0
     integer :: item_count = 0
     ! Region available to this container (bounds for fill-remaining sizing).
     real :: region_x = 0.0
@@ -43,7 +45,7 @@ end type layout_entry_t
 type(layout_entry_t), save :: layout_stack(MAX_LAYOUT_DEPTH)
 integer, save :: stack_depth = 0
 
-public :: layout_reset, layout_get_cursor, layout_advance, layout_depth
+public :: layout_reset, layout_get_cursor, layout_advance, layout_depth, layout_place
 public :: column_begin, column_end, row_begin, row_end
 public :: layout_available, split_begin, split_next, split_end
 public :: layout_scope, layout_fill_width, layout_check_balance
@@ -254,11 +256,13 @@ subroutine column_begin(gap, id)
     call push_layout(KIND_COLUMN, DIR_COLUMN, gap, id)
 end subroutine column_begin
 
-subroutine row_begin(gap, id)
-    !! Horizontal container; `id` (optional) scopes the identities inside.
-    real, intent(in), optional :: gap
+subroutine row_begin(gap, id, height)
+    !! Horizontal container; `id` (optional) scopes the identities inside. With
+    !! `height`, the row is at least that tall and centres shorter items in it.
+    real, intent(in), optional :: gap, height
     character(*), intent(in), optional :: id
     call push_layout(KIND_ROW, DIR_ROW, gap, id)
+    if (present(height)) layout_stack(stack_depth)%cross_size = max(0.0, height)
 end subroutine row_begin
 
 subroutine column_end()
@@ -323,6 +327,19 @@ subroutine layout_get_cursor(x, y)
     end if
 end subroutine layout_get_cursor
 
+subroutine layout_place(height, x, y)
+    !! Position of the next item of this height: the cursor, centred across a
+    !! row of fixed height.
+    real, intent(in) :: height
+    real, intent(out) :: x, y
+
+    call layout_get_cursor(x, y)
+    associate(e => layout_stack(stack_depth))
+        if (e%direction == DIR_ROW .and. e%cross_size > height) &
+            y = y + 0.5 * (e%cross_size - height)
+    end associate
+end subroutine layout_place
+
 subroutine layout_advance(width, height)
     real, intent(in) :: width, height
     real :: gap_offset
@@ -338,7 +355,7 @@ subroutine layout_advance(width, height)
             e%max_cross = max(e%max_cross, max(0.0, width))
         else
             e%cursor_x = e%cursor_x + gap_offset + max(0.0, width)
-            e%max_cross = max(e%max_cross, max(0.0, height))
+            e%max_cross = max(e%max_cross, max(0.0, height), e%cross_size)
         end if
     end associate
 end subroutine layout_advance
