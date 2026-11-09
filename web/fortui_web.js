@@ -19,6 +19,68 @@ addToLibrary({
       FUI.events.push(ev);
       FUI.wakeUp();
     },
+    metrics: null,
+    metricsChanged: false,
+    // A table of advances per unit size: regular, then bold, then the two
+    // fallbacks; ranges[style] are measured, the rest get the fallback.
+    table: function (ncp) {
+      var t = new Float32Array(2 * ncp + 2), ctx = FUI.ctx();
+      for (var s = 0; s < 2; s++) {
+        ctx.font = FUI.weights[s] + ' 100px ' + FUI.font;
+        var q = ctx.measureText('?').width / 100;
+        t[2 * ncp + s] = q;
+        for (var cp = 32; cp < ncp; cp++) t[s * ncp + cp] = cp >= 0x2E80 ? 1 : q;
+      }
+      return t;
+    },
+    weights: ['400', '600'],
+    ctx: function () {
+      if (!FUI.ctx2d) FUI.ctx2d = document.createElement('canvas').getContext('2d');
+      return FUI.ctx2d;
+    },
+    measure: function (ncp, ranges) {
+      var t = FUI.table(ncp), ctx = FUI.ctx();
+      for (var s = 0; s < 2; s++) {
+        ctx.font = FUI.weights[s] + ' 100px ' + FUI.font;
+        ranges[s].forEach(function (r) {
+          for (var c = r[0]; c < Math.min(r[1], ncp); c++) {
+            t[s * ncp + c] = ctx.measureText(String.fromCodePoint(c)).width / 100;
+          }
+        });
+      }
+      return t;
+    },
+    // Measures in slices of about 10 ms between frames, then installs.
+    measureLater: function (ncp, ranges, key) {
+      var t = FUI.table(ncp), ctx = FUI.ctx(), jobs = [];
+      for (var s = 0; s < 2; s++) {
+        ranges[s].forEach(function (r) { jobs.push([s, r[0], Math.min(r[1], ncp)]); });
+      }
+      var j = 0, c = jobs.length ? jobs[0][1] : 0;
+      function slice() {
+        var end = performance.now() + 10;
+        while (j < jobs.length && performance.now() < end) {
+          var s = jobs[j][0];
+          ctx.font = FUI.weights[s] + ' 100px ' + FUI.font;
+          for (var k = 0; k < 32 && c < jobs[j][2]; k++, c++) {
+            t[s * ncp + c] = ctx.measureText(String.fromCodePoint(c)).width / 100;
+          }
+          if (c >= jobs[j][2]) { j++; if (j < jobs.length) c = jobs[j][1]; }
+        }
+        if (j < jobs.length) { setTimeout(slice, 0); return; }
+        FUI.metrics = t;
+        FUI.metricsChanged = true;
+        try {
+          var str = '', u8 = new Uint8Array(t.buffer);
+          for (var i = 0; i < u8.length; i += 0x8000) {
+            str += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+          }
+          localStorage.setItem(key, btoa(str));
+        } catch (x) {}
+        FUI.wakeUp();
+      }
+      setTimeout(slice, 0);
+    },
     // Ends an idle wait without input, for asynchronous results that other
     // libraries deliver (they list '$FUI' in their __deps). The application
     // then composes a frame and can look at the result.
@@ -267,51 +329,43 @@ addToLibrary({
   },
 
   // Measuring a code point the page font lacks makes the browser search its
-  // fallback fonts, about a millisecond each, so only the ranges ordinary
-  // text uses are measured; the others advance like '?' (wide scripts from
-  // U+2E80 by one em). The table is kept per font and device in
-  // localStorage, so later visits skip the measuring.
+  // fallback fonts, about a millisecond each. So the first frame gets a quick
+  // table (Latin and Greek regular, ASCII bold; '?' for the rest, one em from
+  // U+2E80), and the full table of the ranges ordinary text uses is measured
+  // in short slices while the browser is idle. When it is ready, poll
+  // installs it and the page is laid out again. The full table is kept per
+  // font and device in localStorage, so later visits use it at once.
   fortui_web_measure__deps: ['$FUI'],
   fortui_web_measure: function (advPtr, ncp, fallbackPtr, linePtr) {
-    var ranges = [[0x20, 0x250], [0x370, 0x530], [0x2000, 0x20D0],
-      [0x2100, 0x2400], [0x2500, 0x2600]];
-    var key = 'fortui-metrics-v1:' + FUI.font + ':' + (window.devicePixelRatio || 1);
-    var base = advPtr >> 2, n = 2 * ncp;
-    var table = null;
-    try {
-      var saved = localStorage.getItem(key);
-      if (saved) {
-        var bytes = Uint8Array.from(atob(saved), function (c) { return c.charCodeAt(0); });
-        if (bytes.length === 4 * (n + 2)) table = new Float32Array(bytes.buffer);
-      }
-    } catch (x) { table = null; }
+    var n = 2 * ncp, table = FUI.metrics;
+    var key = 'fortui-metrics-v2:' + FUI.font + ':' + (window.devicePixelRatio || 1);
     if (!table) {
-      table = new Float32Array(n + 2);
-      var ctx = document.createElement('canvas').getContext('2d');
-      var ref = 100, weights = ['400', '600'];
-      for (var s = 0; s < 2; s++) {
-        ctx.font = weights[s] + ' ' + ref + 'px ' + FUI.font;
-        var q = ctx.measureText('?').width / ref;
-        table[n + s] = q;
-        for (var cp = 0; cp < ncp; cp++) table[s * ncp + cp] = cp >= 0x2E80 ? 1 : q;
-        for (var r = 0; r < ranges.length; r++) {
-          for (var c = ranges[r][0]; c < Math.min(ranges[r][1], ncp); c++) {
-            table[s * ncp + c] = ctx.measureText(String.fromCodePoint(c)).width / ref;
-          }
-        }
-        for (var z = 0; z < 32; z++) table[s * ncp + z] = 0;
-      }
       try {
-        var str = '', u8 = new Uint8Array(table.buffer);
-        for (var i = 0; i < u8.length; i += 0x8000) {
-          str += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+        var saved = localStorage.getItem(key);
+        if (saved) {
+          var bytes = Uint8Array.from(atob(saved), function (c) { return c.charCodeAt(0); });
+          if (bytes.length === 4 * (n + 2)) table = FUI.metrics = new Float32Array(bytes.buffer);
         }
-        localStorage.setItem(key, btoa(str));
-      } catch (x) {}
+      } catch (x) { table = null; }
     }
-    HEAPF32.set(table.subarray(0, n), base);
+    if (!table) {
+      var quick = [[[0x20, 0x180], [0x370, 0x400]], [[0x20, 0x7F]]];
+      table = FUI.measure(ncp, quick);
+      var full = [[0x20, 0x250], [0x370, 0x530], [0x2000, 0x20D0], [0x2100, 0x2400],
+        [0x2500, 0x2600]];
+      FUI.measureLater(ncp, [full, full], key);
+    }
+    HEAPF32.set(table.subarray(0, n), advPtr >> 2);
     HEAPF32[fallbackPtr >> 2] = table[n];
     HEAPF32[(fallbackPtr >> 2) + 1] = table[n + 1];
     HEAPF32[linePtr >> 2] = 1.25;
+  },
+
+  // 1 once after the full table became ready, so poll installs it.
+  fortui_web_metrics_changed__deps: ['$FUI'],
+  fortui_web_metrics_changed: function () {
+    if (!FUI.metricsChanged) return 0;
+    FUI.metricsChanged = false;
+    return 1;
   },
 });
