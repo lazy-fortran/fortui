@@ -21,9 +21,9 @@ contains
         !! The root container with everything in it.
         type(ui_frame_t), intent(in) :: frame
         character(len=:), allocatable :: html
-        character(len=:), allocatable :: keys(:)
-        integer, allocatable :: anon(:)
-        integer :: i
+        character(len=:), allocatable :: keys(:), buf
+        integer, allocatable :: anon(:), node_first(:), node_next(:), box_first(:), box_next(:)
+        integer :: i, p, used
 
         ! Keys as the host makes them: kind:id, or kind:~n for the n-th node
         ! without id of that kind.
@@ -40,33 +40,71 @@ contains
                 end if
             end associate
         end do
-        html = '<div class="fui-root fui-box fui-col">'//children(0)//'</div>'
+        ! Nodes and boxes of each container in composition order, as linked lists.
+        allocate (node_first(0:frame%box_count), node_next(frame%count))
+        allocate (box_first(0:frame%box_count), box_next(frame%box_count))
+        node_first = 0
+        box_first = 0
+        do i = frame%count, 1, -1
+            p = frame%nodes(i)%box
+            node_next(i) = node_first(p)
+            node_first(p) = i
+        end do
+        do i = frame%box_count, 1, -1
+            p = frame%boxes(i)%parent
+            box_next(i) = box_first(p)
+            box_first(p) = i
+        end do
+        ! The page grows in one buffer that doubles, so its length costs linear time.
+        allocate (character(len=4096) :: buf)
+        used = 0
+        call put('<div class="fui-root fui-box fui-col">')
+        call children(0)
+        call put('</div>')
+        html = buf(1:used)
 
     contains
 
-        recursive function children(parent) result(s)
+        subroutine put(s)
+            character(len=*), intent(in) :: s
+            character(len=:), allocatable :: grown
+            if (used + len(s) > len(buf)) then
+                allocate (character(len=max(2 * len(buf), used + len(s))) :: grown)
+                grown(1:used) = buf(1:used)
+                call move_alloc(grown, buf)
+            end if
+            buf(used + 1:used + len(s)) = s
+            used = used + len(s)
+        end subroutine put
+
+        recursive subroutine children(parent)
             !! Boxes and nodes of `parent` in composition order: a box opened after
             !! node c comes between node c and node c + 1.
             integer, intent(in) :: parent
-            character(len=:), allocatable :: s
-            integer :: b, k, c
+            integer :: b, k
 
-            s = ''
-            ! Boxes opened before any node of this parent.
-            do b = 1, frame%box_count
-                if (frame%boxes(b)%parent == parent .and. frame%boxes(b)%after == 0) &
-                    s = s//box_html(b)
+            b = box_first(parent)
+            k = node_first(parent)
+            do while (b > 0 .or. k > 0)
+                if (b > 0 .and. k > 0) then
+                    if (frame%boxes(b)%after < k) then
+                        call box_html(b)
+                        b = box_next(b)
+                    else
+                        call put(node_html(k, in_row(parent)))
+                        k = node_next(k)
+                    end if
+                else if (b > 0) then
+                    call box_html(b)
+                    b = box_next(b)
+                else
+                    call put(node_html(k, in_row(parent)))
+                    k = node_next(k)
+                end if
             end do
-            do k = 1, frame%count
-                if (frame%nodes(k)%box == parent) s = s//node_html(k, in_row(parent))
-                do b = 1, frame%box_count
-                    c = frame%boxes(b)%after
-                    if (frame%boxes(b)%parent == parent .and. c == k) s = s//box_html(b)
-                end do
-            end do
-        end function children
+        end subroutine children
 
-        recursive function box_html(b) result(s)
+        recursive subroutine box_html(b)
             integer, intent(in) :: b
             character(len=:), allocatable :: s, style, cls
 
@@ -81,8 +119,10 @@ contains
             s = '<div data-key="b'//ui_str(b)//'" class="'//cls//'"'
             if (len_trim(frame%boxes(b)%id) > 0) s = s//' data-box="'// &
                 html_escape(trim(frame%boxes(b)%id))//'"'
-            s = s//' style="'//style//'">'//children(b)//'</div>'
-        end function box_html
+            call put(s//' style="'//style//'">')
+            call children(b)
+            call put('</div>')
+        end subroutine box_html
 
         logical function in_row(b)
             integer, intent(in) :: b
