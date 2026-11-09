@@ -1,30 +1,30 @@
 module fortui_web
-    !! Browser backend. The application runs as WebAssembly; ordinary controls are
-    !! realized as DOM elements by the JavaScript host `fortui_web.js`, which also
-    !! measures text and queues browser events.
+    !! Browser backend. The application runs as WebAssembly; the browser lays
+    !! out ordinary controls itself: containers become flex boxes and controls
+    !! native elements, created and updated by the JavaScript host
+    !! `fortui_web.js`. Native elements report what happened to them (activated,
+    !! focused, edited, submitted), so no pointer routing or text measuring is
+    !! needed; only canvases get pointer coordinates.
     !!
-    !! The application keeps its ordinary frame loop: `poll` yields to the browser
-    !! (Asyncify) until the next animation frame, or with `wait` until the next
-    !! event, so the page stays responsive between frames.
-    !!
-    !! Only `c_int`, `c_float` and `c_double` cross the JavaScript boundary: the
-    !! size of `c_long` and `c_size_t` depends on the compiler's wasm32 support.
+    !! The browser drives the frames: `ui_run` returns at once, and the host
+    !! calls `fortui_web_step` when there is something to show.
     use, intrinsic :: iso_c_binding, only: c_int, c_float, c_double, c_char
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t
     use fortui_frame, only: ui_frame_t, ui_node_t
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
-        input_set_key, input_type_text, input_set_time
+        input_set_key, input_set_time, input_host_event
     use fortui_canvas, only: canvas_store_t
-    use fortui_text, only: text_set_metrics, text_set_mono_metrics, TEXT_MAX_CODEPOINT
+    use fortui_text, only: text_use_fixed_metrics, ui_str
+    use fortui_core, only: ui_run_step
     implicit none
     private
 
     public :: web_backend_t
 
     integer, parameter :: MAX_EVENTS = 256
-    integer, parameter :: TEXT_CAP = 1024
+    integer, parameter :: TEXT_CAP = 65536
     integer, parameter :: EV_POINTER = 1, EV_KEY = 2, EV_WHEEL = 3, EV_RESIZE = 4, &
-        EV_TEXT = 5
+        EV_HOST = 5
     character(len=1), parameter :: RS = achar(30), US = achar(31)
 
     type, extends(ui_backend_t) :: web_backend_t
@@ -42,6 +42,7 @@ module fortui_web
         procedure :: should_close => web_should_close
         procedure :: install_text_metrics => web_metrics
         procedure :: capabilities => web_caps
+        procedure :: hand_over => web_hand_over
     end type web_backend_t
 
     interface
@@ -54,10 +55,8 @@ module fortui_web
         subroutine js_shutdown() bind(C, name="fortui_web_shutdown")
         end subroutine js_shutdown
 
-        subroutine js_wait(for_event) bind(C, name="fortui_web_wait")
-            import :: c_int
-            integer(c_int), value :: for_event
-        end subroutine js_wait
+        subroutine js_exit_live() bind(C, name="emscripten_exit_with_live_runtime")
+        end subroutine js_exit_live
 
         integer(c_int) function js_events(ev, cap, text, text_cap) &
                 bind(C, name="fortui_web_events")
@@ -68,10 +67,6 @@ module fortui_web
             integer(c_int), value :: text_cap
         end function js_events
 
-        integer(c_int) function js_metrics_changed() bind(C, name="fortui_web_metrics_changed")
-            import :: c_int
-        end function js_metrics_changed
-
         real(c_double) function js_now() bind(C, name="fortui_web_now")
             import :: c_double
         end function js_now
@@ -81,17 +76,16 @@ module fortui_web
             character(kind=c_char), intent(in) :: frame(*)
             integer(c_int), value :: n
         end subroutine js_present
-
-        subroutine js_measure(advances, ncodepoints, fallback, line_factor, mono) &
-                bind(C, name="fortui_web_measure")
-            import :: c_int, c_float
-            real(c_float), intent(out) :: advances(*)
-            integer(c_int), value :: ncodepoints
-            real(c_float), intent(out) :: fallback(2), line_factor, mono
-        end subroutine js_measure
     end interface
 
 contains
+
+    integer(c_int) function fortui_web_step() bind(C, name="fortui_web_step")
+        !! One frame, called by the host; 1 when the next frame should follow
+        !! without waiting for an event.
+        fortui_web_step = 0
+        if (ui_run_step()) fortui_web_step = 1
+    end function fortui_web_step
 
     function web_name(self) result(name)
         class(web_backend_t), intent(in) :: self
@@ -109,6 +103,15 @@ contains
         web_init = self%active
     end function web_init
 
+    subroutine web_hand_over(self)
+        !! Leaves main without ending the program: an ordinary return would run
+        !! the program's end (deallocating module data) while the browser still
+        !! calls the frames. The stack is unwound by an exception the runtime
+        !! expects; nothing after this call runs.
+        class(web_backend_t), intent(inout) :: self
+        if (self%active) call js_exit_live()
+    end subroutine web_hand_over
+
     subroutine web_shutdown(self)
         class(web_backend_t), intent(inout) :: self
         if (self%active) call js_shutdown()
@@ -116,34 +119,18 @@ contains
     end subroutine web_shutdown
 
     subroutine web_poll(self, input, wait)
-        !! Yield to the browser, then replay the queued events in arrival order.
+        !! Replays the events the host queued since the last frame. Never waits:
+        !! the host calls the next frame when there is something to do.
         class(web_backend_t), intent(inout) :: self
         type(input_state_t), intent(inout) :: input
         logical, intent(in) :: wait
+        real(c_float) :: ev(4, MAX_EVENTS)
+        character(kind=c_char), allocatable :: text(:)
+        integer :: n, i, first, nbytes, sep
 
         if (.not. self%active) return
-        if (wait) then
-            self%waits = self%waits + 1
-            call js_wait(1_c_int)
-        else
-            call js_wait(0_c_int)
-        end if
-        call read_events(input)
-        call input_set_time(input, real(js_now(), kind(1.0d0)))
-        ! The full text metrics arrive after the first frames; lay out again.
-        if (js_metrics_changed() /= 0) then
-            call self%install_text_metrics()
-            input%resized = .true.
-        end if
-    end subroutine web_poll
-
-    subroutine read_events(input)
-        type(input_state_t), intent(inout) :: input
-        real(c_float) :: ev(4, MAX_EVENTS)
-        character(kind=c_char) :: text(TEXT_CAP)
-        character(len=TEXT_CAP) :: chunk
-        integer :: n, i, k, first, nbytes
-
+        if (wait) self%waits = self%waits + 1
+        allocate (text(TEXT_CAP))
         n = int(js_events(ev, int(MAX_EVENTS, c_int), text, int(TEXT_CAP, c_int)))
         do i = 1, n
             select case (nint(ev(1, i)))
@@ -159,21 +146,33 @@ contains
                 input%height = max(1, nint(ev(3, i)))
                 input%scale = max(real(ev(4, i)), 0.25)
                 input%resized = .true.
-            case (EV_TEXT)
-                first = nint(ev(2, i))
-                nbytes = nint(ev(3, i))
-                if (first < 0 .or. nbytes <= 0 .or. first + nbytes > TEXT_CAP) cycle
-                do k = 1, nbytes
-                    chunk(k:k) = text(first + k)
-                end do
-                call input_type_text(input, chunk(1:nbytes))
+            case (EV_HOST)
+                ! Kind, then "id<US>value" in the text buffer.
+                first = nint(ev(3, i))
+                nbytes = nint(ev(4, i))
+                if (first < 0 .or. nbytes < 0 .or. first + nbytes > TEXT_CAP) cycle
+                block
+                    character(len=nbytes) :: rec
+                    integer :: k
+                    do k = 1, nbytes
+                        rec(k:k) = text(first + k)
+                    end do
+                    sep = index(rec, US)
+                    if (sep == 0) then
+                        call input_host_event(input, nint(ev(2, i)), rec)
+                    else
+                        call input_host_event(input, nint(ev(2, i)), rec(1:sep - 1), &
+                            rec(sep + 1:))
+                    end if
+                end block
             end select
         end do
-    end subroutine read_events
+        call input_set_time(input, real(js_now(), kind(1.0d0)))
+    end subroutine web_poll
 
     subroutine web_present(self, frame, store)
-        !! Send the semantic frame as records of fields; the host reconciles DOM
-        !! elements by node id. Canvas layers are not realized yet.
+        !! Sends the containers, then the nodes, as records of fields; the host
+        !! reconciles DOM elements by key and places them in their containers.
         class(web_backend_t), intent(inout) :: self
         type(ui_frame_t), intent(in) :: frame
         type(canvas_store_t), intent(in), target :: store
@@ -181,14 +180,19 @@ contains
         integer :: i, used
 
         if (.not. self%active) return
-        ! Grows by doubling: a page of thousands of code lines stays linear.
+        ! Grows by doubling: a page of thousands of lines stays linear.
         allocate (character(len=65536) :: buf)
         used = 0
+        do i = 1, frame%box_count
+            associate (b => frame%boxes(i))
+                rec = 'B'//US//ui_str(b%kind)//US//ui_str(b%parent)//US//ui_str(b%after)// &
+                    US//ui_str(nint(b%gap))//US//ui_str(nint(b%cross))//US// &
+                    ui_str(nint(b%width))//RS
+            end associate
+            call add(rec)
+        end do
         do i = 1, frame%count
-            rec = node_record(frame%nodes(i)) // RS
-            if (used + len(rec) > len(buf)) call grow(buf, used + len(rec))
-            buf(used + 1:used + len(rec)) = rec
-            used = used + len(rec)
+            call add(node_record(frame%nodes(i))//RS)
         end do
         self%presents = self%presents + 1
         if (allocated(self%last)) then
@@ -198,19 +202,27 @@ contains
         end if
         call js_present(buf, int(used, c_int))
         self%last = buf(1:used)
+
+    contains
+
+        subroutine add(s)
+            character(len=*), intent(in) :: s
+            character(len=:), allocatable :: bigger
+
+            if (used + len(s) > len(buf)) then
+                allocate (character(len=max(used + len(s), 2 * len(buf))) :: bigger)
+                bigger(1:used) = buf(1:used)
+                call move_alloc(bigger, buf)
+            end if
+            buf(used + 1:used + len(s)) = s
+            used = used + len(s)
+        end subroutine add
+
     end subroutine web_present
 
-    subroutine grow(buf, need)
-        character(len=:), allocatable, intent(inout) :: buf
-        integer, intent(in) :: need
-        character(len=:), allocatable :: bigger
-
-        allocate (character(len=max(need, 2 * len(buf))) :: bigger)
-        bigger(1:len(buf)) = buf
-        call move_alloc(bigger, buf)
-    end subroutine grow
-
     function node_record(n) result(r)
+        !! Kind, id, x, y, width, height (logical units), flags, value, min,
+        !! max, style, text size, box, width mode, tone, text, body.
         type(ui_node_t), intent(in) :: n
         character(len=:), allocatable :: r
         integer :: flags
@@ -218,20 +230,17 @@ contains
         flags = 0
         if (n%focusable) flags = ior(flags, 1)
         if (n%disabled) flags = ior(flags, 2)
-        if (n%hovered) flags = ior(flags, 4)
         if (n%focused) flags = ior(flags, 8)
-        if (n%active) flags = ior(flags, 16)
         if (n%checked) flags = ior(flags, 32)
         if (n%ellipsis) flags = ior(flags, 64)
         if (n%markdown) flags = ior(flags, 128)
-        r = itoa(n%kind) // US // clean(trim(n%id)) // US // &
-            ftoa(n%x) // US // ftoa(n%y) // US // ftoa(n%width) // US // &
-            ftoa(n%height) // US // itoa(flags) // US // ftoa(n%value) // US // &
-            ftoa(n%min_value) // US // ftoa(n%max_value) // US // itoa(n%style) // US // &
-            ftoa(n%text_size) // US // itoa(n%caret) // US // ftoa(n%scroll) // US // &
-            clean(trim(n%text)) // US
-        if (allocated(n%body)) r = r // clean(n%body)
-        r = r // US // itoa(n%tone)
+        r = ui_str(n%kind)//US//clean(trim(n%id))//US// &
+            ui_str(nint(n%x))//US//ui_str(nint(n%y))//US//ui_str(nint(n%width))//US// &
+            ui_str(nint(n%height))//US//ui_str(flags)//US//ui_str(n%value, 4)//US// &
+            ui_str(n%min_value, 4)//US//ui_str(n%max_value, 4)//US//ui_str(n%style)//US// &
+            ui_str(nint(n%text_size))//US//ui_str(n%box)//US//ui_str(n%width_mode)//US// &
+            ui_str(n%tone)//US//clean(trim(n%text))//US
+        if (allocated(n%body)) r = r//clean(n%body)
     end function node_record
 
     function clean(s) result(r)
@@ -246,24 +255,6 @@ contains
         end do
     end function clean
 
-    function itoa(v) result(s)
-        integer, intent(in) :: v
-        character(len=:), allocatable :: s
-        character(len=16) :: b
-
-        write (b, "(i0)") v
-        s = trim(b)
-    end function itoa
-
-    function ftoa(v) result(s)
-        real, intent(in) :: v
-        character(len=:), allocatable :: s
-        character(len=24) :: b
-
-        write (b, "(f0.2)") v
-        s = trim(adjustl(b))
-    end function ftoa
-
     logical function web_should_close(self)
         !! A page is closed by the browser, which ends the program with it.
         class(web_backend_t), intent(in) :: self
@@ -271,15 +262,10 @@ contains
     end function web_should_close
 
     subroutine web_metrics(self)
-        !! Advances measured by the browser in the font the DOM renders with.
+        !! The browser lays text out itself; widths computed in Fortran only
+        !! place canvases, so cheap fixed metrics suffice.
         class(web_backend_t), intent(inout) :: self
-        real(c_float), allocatable :: table(:, :)
-        real(c_float) :: fallback(2), line_factor, mono
-
-        allocate (table(0:TEXT_MAX_CODEPOINT, 2))
-        call js_measure(table, int(TEXT_MAX_CODEPOINT + 1, c_int), fallback, line_factor, mono)
-        call text_set_metrics(real(table), real(fallback), real(line_factor))
-        call text_set_mono_metrics(real(mono))
+        call text_use_fixed_metrics(0.55, 1.25)
     end subroutine web_metrics
 
     function web_caps(self) result(caps)
@@ -292,6 +278,7 @@ contains
         caps%high_dpi = .true.
         caps%pointer = .true.
         caps%text_entry = .true.
+        caps%host_driven = .true.
     end function web_caps
 
 end module fortui_web

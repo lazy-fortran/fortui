@@ -1,0 +1,19 @@
+/* Base styles of the fortui browser backend. Pages include this in <head>, so
+   a page rendered by the server is laid out before any script runs. Colours
+   and fonts belong to the page. */
+.fui-box { display: flex; box-sizing: border-box; min-width: 0; }
+.fui-col { flex-direction: column; align-items: flex-start; }
+.fui-row { flex-direction: row; align-items: center; }
+.fui-root { width: 100%; }
+.fui { box-sizing: border-box; margin: 0; font: inherit; line-height: 1.25; min-width: 0; }
+.fui-k1 { overflow-wrap: anywhere; }
+.fui-k1.fui-ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fui[data-style="3"], .fui[data-style="4"] { font-weight: 600; }
+.fui[data-style="5"] {
+  font-family: ui-monospace, "SF Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+  white-space: pre;
+}
+.fui-k2, .fui-k5 { white-space: nowrap; }
+.fui-k4 { display: inline-flex; align-items: center; gap: 6px; }
+.fui-k7 { overflow: auto; white-space: pre-wrap; }
+.fui-k8 { min-height: 32px; }

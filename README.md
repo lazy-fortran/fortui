@@ -18,8 +18,11 @@ use fortui
 use fortui_backends, only: ui_init          ! optional: backends by name
 
 call ui_init("auto", 900, 640, "Settings", stat=stat)
-do while (.not. ui_should_close())
-    call ui_frame_begin()
+call ui_run(settings)        ! loops natively; the browser calls it per frame
+
+contains
+
+subroutine settings()
     if (ui_key_pressed(KEY_ESCAPE)) call ui_request_quit()
     call text("Settings", style=UI_TITLE)
     call row_begin(8.0)
@@ -30,10 +33,13 @@ do while (.not. ui_should_close())
     do k = 1, size(options)
         if (checkbox("option", enabled(k), options(k), key=k)) call preferences_changed()
     end do
-    call ui_present()
-end do
-call ui_shutdown()
+end subroutine settings
 ```
+
+The frame procedure composes one frame. Native hosts loop in `ui_run`; in the
+browser `ui_run` returns and the browser calls the frame when something happened,
+so state the frame uses belongs in a module. The explicit loop with
+`ui_frame_begin` and `ui_present` still works on native hosts.
 
 Applications can also inject a backend value without the registry, for example
 `call ui_init(headless_backend_t(), 800, 600, "test")` in tests or

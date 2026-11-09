@@ -1,27 +1,24 @@
-program web_demo
-    !! The same semantic controls as the terminal and GUI demos, realized as DOM
-    !! elements in a browser.
+module web_demo_app
+    !! The demo's state and its frame. State lives in a module: the browser calls
+    !! the frame after the main program has returned.
     use fortui
-    use fortui_web, only: web_backend_t
     implicit none
+    private
 
-    logical :: checked, submitted
-    integer :: value, tab, stat, clicks, k
+    public :: compose
+
+    logical :: checked = .false., submitted = .false.
+    integer :: value = 25, tab = 1, clicks = 0
     character(len=:), allocatable :: name
     character(len=16), parameter :: tab_labels(3) = [character(len=16) :: "Controls", &
         "Text", "About"]
 
-    checked = .false.
-    value = 25
-    tab = 1
-    clicks = 0
-    name = ""
+contains
 
-    call ui_init(web_backend_t(root_id="app"), 900, 640, "FortUI web demo", stat=stat)
-    if (stat /= 0) error stop "No browser document available"
+    subroutine compose()
+        integer :: k
 
-    do while (.not. ui_should_close())
-        call ui_frame_begin()
+        if (.not. allocated(name)) name = ""
         call text("FortUI in the browser", style=UI_TITLE)
         if (tabs("tabs", tab_labels, tab)) continue
         select case (tab)
@@ -54,8 +51,20 @@ program web_demo
                 end select
             end do
         end select
-        call ui_present()
-    end do
+    end subroutine compose
 
-    call ui_shutdown()
+end module web_demo_app
+
+program web_demo
+    !! The same semantic controls as the terminal and GUI demos, realized as DOM
+    !! elements in a browser.
+    use fortui, only: ui_init, ui_run
+    use fortui_web, only: web_backend_t
+    use web_demo_app, only: compose
+    implicit none
+    integer :: stat
+
+    call ui_init(web_backend_t(root_id="app"), 900, 640, "FortUI web demo", stat=stat)
+    if (stat /= 0) error stop "No browser document available"
+    call ui_run(compose)
 end program web_demo

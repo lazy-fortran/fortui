@@ -8,7 +8,7 @@ import { join, extname } from 'node:path';
 
 const dir = process.argv[2];
 const shot = process.argv[3];
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.css': 'text/css' };
 const server = createServer(async (req, res) => {
   try {
     const body = await readFile(join(dir, req.url === '/' ? 'index.html' : req.url));
@@ -42,7 +42,7 @@ ws.addEventListener('message', (e) => {
   const msg = JSON.parse(e.data);
   if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); }
   if (msg.method === 'Runtime.consoleAPICalled') consoleLines.push(msg.params.args.map((a) => a.value).join(' '));
-  if (msg.method === 'Runtime.exceptionThrown') consoleLines.push('exception: ' + msg.params.exceptionDetails.text);
+  if (msg.method === 'Runtime.exceptionThrown') consoleLines.push('exception: ' + msg.params.exceptionDetails.text + ' ' + (msg.params.exceptionDetails.exception?.description || '').slice(0, 1200));
 });
 const send = (method, params = {}) => new Promise((resolve) => {
   const id = ++seq;
@@ -90,8 +90,6 @@ try {
   await until(`!!document.querySelector('[data-id="count"]')`, 'first frame');
   check(await evaluate(`[...document.querySelectorAll('.fui-k1')].some((e) => e.textContent === 'FortUI in the browser')`),
     'static texts without id are realized separately');
-  await until(`Object.keys(localStorage).some((k) => k.startsWith('fortui-metrics-v2:'))`, 'full metrics');
-  check(true, 'the full text metrics are measured after start-up and stored');
   check((await text('[data-id="count"]')) === 'Clicked 0', 'buttons are DOM buttons with their labels');
   check(await evaluate(`document.querySelector('[data-id="count"]').tagName === 'BUTTON'`), 'button element');
   check(await evaluate(`getComputedStyle(document.querySelector('[data-id="count"]')).fontFamily === getComputedStyle(document.querySelector('.fui-root')).fontFamily`),
@@ -109,11 +107,10 @@ try {
   await type('Ada');
   await until(`[...document.querySelectorAll('.fui-k1')].some((e) => e.textContent === 'Hello, Ada!')`, 'typed text');
   check(true, 'typing reaches the text field');
-  await evaluate(`(() => { const dt = new DataTransfer(); dt.setData('text/plain', ' Lovelace\\n');
-    document.querySelector('[data-id="name"]').dispatchEvent(new ClipboardEvent('paste',
-      { clipboardData: dt, bubbles: true, cancelable: true })); })()`);
+  // The field is native: text arrives as the browser inserts it, as on paste.
+  await send('Input.insertText', { text: ' Lovelace' });
   await until(`[...document.querySelectorAll('.fui-k1')].some((e) => e.textContent === 'Hello, Ada Lovelace!')`, 'pasted text');
-  check(true, 'pasted text reaches the runtime without its line break');
+  check(true, 'inserted text reaches the runtime');
   await click('[data-id$="#3"]');
   await until(`!!document.querySelector('[data-style="5"]')`, 'code lines');
   check(await evaluate(`getComputedStyle(document.querySelector('[data-style="5"]')).fontFamily.includes('mono')`) &&

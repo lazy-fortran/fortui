@@ -1,6 +1,7 @@
 module fortui_frame
 !! Backend-neutral semantic frame produced by the FortUI composition DSL.
 use iso_fortran_env, only: int32, int64
+use fortui_layout, only: layout_box_t
 use fortui_text, only: text_line_t, TEXT_DEFAULT_SIZE, TEXT_STYLE_REGULAR, &
     TEXT_STYLE_BOLD, TEXT_STYLE_MONO
 implicit none
@@ -34,6 +35,8 @@ integer, parameter, public :: UI_TONE_POSITIVE = 1
 integer, parameter, public :: UI_TONE_NEGATIVE = 2
 integer, parameter, public :: UI_TONE_MUTED = 3
 integer, parameter, public :: UI_TONE_ACCENT = 4
+
+integer, parameter, public :: WIDTH_NATURAL = 0, WIDTH_FIXED = 1, WIDTH_FILL = 2
 
 ! Width that fills the remaining space of the current container.
 real, parameter, public :: UI_FILL = -1.0
@@ -97,6 +100,10 @@ type, public :: ui_node_t
     logical :: checked = .false.
     integer :: style = UI_BODY
     integer :: tone = UI_TONE_NORMAL
+    ! Container the node was composed in (index into boxes; 0: page root).
+    integer :: box = 0
+    ! How the width was asked for: WIDTH_NATURAL, WIDTH_FIXED or WIDTH_FILL.
+    integer :: width_mode = 0
     real :: text_size = TEXT_DEFAULT_SIZE
     logical :: ellipsis = .false.
     character(len=:), allocatable :: body
@@ -117,6 +124,9 @@ end type ui_node_t
 type, public :: ui_frame_t
     type(ui_node_t), allocatable :: nodes(:)
     integer :: count = 0
+    ! Containers of the composition, for hosts that lay out themselves.
+    type(layout_box_t), allocatable :: boxes(:)
+    integer :: box_count = 0
     type(ui_layer_ref_t), allocatable :: layers(:)
     integer :: layer_count = 0
     type(ui_label_t), allocatable :: labels(:)
@@ -161,6 +171,7 @@ subroutine frame_reset(self)
     if (.not. allocated(self%nodes)) allocate(self%nodes(64))
     if (.not. allocated(self%buckets)) allocate(self%buckets(256))
     self%count = 0
+    self%box_count = 0
     self%layer_count = 0
     self%label_count = 0
     self%buckets = 0

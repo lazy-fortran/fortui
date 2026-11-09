@@ -67,9 +67,13 @@ LFortran 0.67.0-460 native build of all sources running `test_fortui` and
 - [x] Follow-up frame only after consumed input (activation, toggle, changed
       value, canvas click, handled shortcut); previous frame swapped, not copied.
 - [x] `fortui_testing` holds injection, statistics and frame queries.
-- [ ] Semantic host events (`input_state_t%events(:)` routed through widgets),
-      realized-geometry feedback from hosts that lay out controls, and a
-      non-blocking frame driver for browser hosts (#149, review F1).
+- [x] Semantic host events (activate, focus, blur, value, submit) from hosts
+      whose controls handle input themselves, applied before pointer routing;
+      `ui_run(frame)` with host-driven frames (`ui_run_step`); containers
+      recorded in the frame as boxes (kind, gap, row height, pane width,
+      position) for hosts that lay out themselves (#149, review F1).
+- [ ] Realized-geometry feedback from hosts that lay out controls (needed for
+      canvases inside host-laid-out pages beyond their own coordinates).
 - [ ] `measure(text, size, style)` backend binding replacing the global metric
       table (#149, review F3).
 - [ ] Text field draft session or documented commit-per-edit policy in
@@ -210,14 +214,15 @@ bounded work for a large collection, and no unsupported performance claims.
       `--realloc-lhs-arrays` (off by default in LFortran) and then passes natively.
       Flang 23.1 cannot target wasm (`Target.cpp: target not implemented`, no
       wasm32 intrinsic modules or runtime). Callbacks are not yet probed.
-- [x] Browser `web` backend implementing `ui_backend_t` (`web/`): ordinary
-      controls as DOM elements reconciled by node id at the runtime's geometry,
-      browser events replayed into the input snapshot, text metrics measured by
-      the browser in the rendered font, and `poll` yielding to the browser
-      through Asyncify (next animation frame, or next event when idle). Checked
-      in headless Chromium with real pointer and key events
+- [x] Browser `web` backend implementing `ui_backend_t` (`web/`): containers
+      as flex boxes and controls as native elements laid out by the browser;
+      native fields and sliders edit themselves and report values; frames
+      driven by the browser through `ui_run` (no Asyncify, no text measuring);
+      `web/fortui.css` as the page's base styles; stable `data-key`s so a
+      server-rendered page is adopted. Checked in headless Chromium
       (`test/web_browser_test.mjs`). Evidence 2026-11-09: LFortran
-      0.68.0-222-gf25f8f8542, emscripten 6.0.13, Chromium 156.
+      0.68.0-222-gf25f8f8542, emscripten 6.0.13, Chromium 156; LFortran keeps
+      main-program variables on the stack, so frame state belongs in modules.
 - [ ] Web backend: canvas layers (WebGPU through emscripten `webgpu.h`, or 2-D
       canvas first), DOM-realized geometry fed back to the runtime, IME through
       composition events, URL/history integration, and a CI job.

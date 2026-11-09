@@ -1,7 +1,7 @@
 module fortui_context
 !! Runtime state retained behind the immediate composition API.
 use fortui_frame, only: ui_frame_t
-use fortui_input, only: input_state_t
+use fortui_input, only: input_state_t, host_event_t, MAX_HOST_EVENTS
 use fortui_canvas, only: canvas_store_t
 use fortui_text, only: text_line_t
 use fortui_backend, only: ui_backend_t
@@ -68,6 +68,8 @@ type, public :: fortui_context_t
     integer :: inject_keys(32) = 0
     character(len=256) :: inject_text = ""
     integer :: inject_text_len = 0
+    integer :: inject_host_count = 0
+    type(host_event_t) :: inject_host(MAX_HOST_EVENTS)
     double precision :: inject_time = -1.0d0
     logical :: inject_resize = .false.
     integer :: inject_width = 0

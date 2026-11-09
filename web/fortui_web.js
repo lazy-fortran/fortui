@@ -1,200 +1,128 @@
 // Browser host for the fortui web backend (fortui_web.f90), linked with
-// emcc --js-library. It owns the DOM: one absolutely positioned element per
-// semantic node, reconciled by node id. Browser events are queued here and
-// replayed into the runtime's input snapshot by poll.
+// emcc --js-library. Containers become flex boxes and controls native
+// elements; the browser lays them out. Elements report what happens to them
+// (activated, focused, edited, submitted) as semantic events, and the host
+// calls the Fortran frame step only when something happened.
+//
+// Every element carries a stable data-key, so a page rendered by the server
+// is adopted rather than rebuilt (no flash when the WebAssembly starts).
 addToLibrary({
-  $FUI__deps: ['$UTF8ToString', '$stringToUTF8Array'],
+  $FUI__deps: ['$UTF8ToString'],
   $FUI: {
     root: null,
     els: new Map(),
     events: [],
-    wake: null,
-    font: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-    mono: 'ui-monospace, "SF Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace',
-    keys: {
-      Enter: 1, Escape: 2, Tab: 3, Backspace: 4, Delete: 5, Home: 6, End: 7,
-      ArrowLeft: 8, ArrowRight: 9, ArrowUp: 10, ArrowDown: 11, PageUp: 12,
-      PageDown: 13, ' ': 14, Insert: 15,
+    scheduled: false,
+    started: false,
+    HOST: { activate: 1, focus: 2, blur: 3, value: 4, submit: 5 },
+    // Frame scheduling: one animation frame per burst of events.
+    request: function () {
+      if (FUI.scheduled || !FUI.started) return;
+      FUI.scheduled = true;
+      requestAnimationFrame(FUI.step);
     },
-    push: function (ev) {
-      FUI.events.push(ev);
-      FUI.wakeUp();
+    step: function () {
+      FUI.scheduled = false;
+      if (Module._fortui_web_step()) FUI.request();
     },
-    metrics: null,
-    metricsChanged: false,
-    // A table of advances per unit size: regular, then bold, then the two
-    // fallbacks; ranges[style] are measured, the rest get the fallback.
-    table: function (ncp) {
-      var t = new Float32Array(2 * ncp + 2), ctx = FUI.ctx();
-      for (var s = 0; s < 2; s++) {
-        ctx.font = FUI.weights[s] + ' 100px ' + FUI.font;
-        var q = ctx.measureText('?').width / 100;
-        t[2 * ncp + s] = q;
-        for (var cp = 32; cp < ncp; cp++) t[s * ncp + cp] = cp >= 0x2E80 ? 1 : q;
-      }
-      return t;
-    },
-    weights: ['400', '600'],
-    ctx: function () {
-      if (!FUI.ctx2d) FUI.ctx2d = document.createElement('canvas').getContext('2d');
-      return FUI.ctx2d;
-    },
-    measure: function (ncp, ranges) {
-      var t = FUI.table(ncp), ctx = FUI.ctx();
-      for (var s = 0; s < 2; s++) {
-        ctx.font = FUI.weights[s] + ' 100px ' + FUI.font;
-        ranges[s].forEach(function (r) {
-          for (var c = r[0]; c < Math.min(r[1], ncp); c++) {
-            t[s * ncp + c] = ctx.measureText(String.fromCodePoint(c)).width / 100;
-          }
-        });
-      }
-      return t;
-    },
-    // Measures in slices of about 10 ms between frames, then installs.
-    measureLater: function (ncp, ranges, key) {
-      var t = FUI.table(ncp), ctx = FUI.ctx(), jobs = [];
-      for (var s = 0; s < 2; s++) {
-        ranges[s].forEach(function (r) { jobs.push([s, r[0], Math.min(r[1], ncp)]); });
-      }
-      var j = 0, c = jobs.length ? jobs[0][1] : 0;
-      function slice() {
-        var end = performance.now() + 10;
-        while (j < jobs.length && performance.now() < end) {
-          var s = jobs[j][0];
-          ctx.font = FUI.weights[s] + ' 100px ' + FUI.font;
-          for (var k = 0; k < 32 && c < jobs[j][2]; k++, c++) {
-            t[s * ncp + c] = ctx.measureText(String.fromCodePoint(c)).width / 100;
-          }
-          if (c >= jobs[j][2]) { j++; if (j < jobs.length) c = jobs[j][1]; }
-        }
-        if (j < jobs.length) { setTimeout(slice, 0); return; }
-        FUI.metrics = t;
-        FUI.metricsChanged = true;
-        try {
-          var str = '', u8 = new Uint8Array(t.buffer);
-          for (var i = 0; i < u8.length; i += 0x8000) {
-            str += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
-          }
-          localStorage.setItem(key, btoa(str));
-        } catch (x) {}
-        FUI.wakeUp();
-      }
-      setTimeout(slice, 0);
-    },
-    // Ends an idle wait without input, for asynchronous results that other
-    // libraries deliver (they list '$FUI' in their __deps). The application
-    // then composes a frame and can look at the result.
-    wakeUp: function () {
-      if (FUI.wake) { var w = FUI.wake; FUI.wake = null; w(); }
-    },
-    pointer: function (e, down) {
-      var r = FUI.root.getBoundingClientRect();
-      FUI.push([1, e.clientX - r.left, e.clientY - r.top, down ? 1 : 0]);
+    push: function (ev) { FUI.events.push(ev); FUI.request(); },
+    // For other libraries delivering asynchronous results (fetch): compose a
+    // frame so the application can look at them.
+    wakeUp: function () { FUI.request(); },
+    host: function (kind, el, value) {
+      var id = el && el.dataset.id;
+      if (!id) return;
+      FUI.push([5, kind, id + (value === undefined ? '' : '\x1f' + value)]);
     },
     resize: function () {
-      // The window height, not the page's: the page grows with its content.
-      var r = FUI.root.getBoundingClientRect();
-      FUI.push([4, r.width, window.innerHeight, window.devicePixelRatio || 1]);
+      FUI.push([4, FUI.root.clientWidth, window.innerHeight, window.devicePixelRatio || 1]);
     },
     install: function () {
-      var root = FUI.root, down = false;
-      root.addEventListener('pointerdown', function (e) {
-        // The runtime owns focus, values and activation of controls; native
-        // defaults would change them behind its back. Text stays selectable.
-        if (e.target.closest('button, input, label, canvas')) e.preventDefault();
-        down = true;
-        root.classList.remove('fui-keyboard');
-        try { root.setPointerCapture(e.pointerId); } catch (x) {}
-        FUI.pointer(e, true);
-      }, true);
-      root.addEventListener('pointermove', function (e) { FUI.pointer(e, down); }, true);
-      root.addEventListener('pointerup', function (e) {
-        down = false;
-        FUI.pointer(e, false);
-      }, true);
-      root.addEventListener('click', function (e) { e.preventDefault(); }, true);
+      var root = FUI.root, H = FUI.HOST;
+      root.addEventListener('click', function (e) {
+        var el = e.target.closest('[data-id]');
+        if (!el || !root.contains(el)) return;
+        if (el.tagName === 'BUTTON') FUI.host(H.activate, el);
+      });
+      root.addEventListener('change', function (e) {
+        var el = e.target.closest('[data-id]');
+        if (el && e.target.type === 'checkbox') FUI.host(H.activate, el);
+      });
+      root.addEventListener('input', function (e) {
+        var t = e.target, el = t.closest('[data-id]');
+        if (!el || (t.tagName !== 'INPUT' && t.tagName !== 'TEXTAREA')) return;
+        if (t.type === 'checkbox') return;
+        t._reported = t.value;
+        FUI.host(H.value, el, t.value);
+      });
+      root.addEventListener('keydown', function (e) {
+        var t = e.target;
+        if (e.key === 'Enter' && t.tagName === 'INPUT' && t.type === 'text') {
+          FUI.host(H.submit, t.closest('[data-id]'));
+        }
+      });
+      root.addEventListener('focusin', function (e) {
+        FUI.host(H.focus, e.target.closest('[data-id]'));
+      });
+      root.addEventListener('focusout', function (e) {
+        FUI.host(H.blur, e.target.closest('[data-id]'));
+      });
+      window.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') FUI.push([2, 2, 0, 0]);
+      });
+      // Canvases are drawn by the application: they get pointer coordinates
+      // in the runtime's own layout units.
+      ['pointerdown', 'pointermove', 'pointerup'].forEach(function (type) {
+        root.addEventListener(type, function (e) {
+          var c = e.target.closest('canvas[data-id]');
+          if (!c) return;
+          var r = c.getBoundingClientRect();
+          FUI.push([1, c._x + e.clientX - r.left, c._y + e.clientY - r.top,
+            (type === 'pointerup' ? 0 : (e.buttons & 1))]);
+        });
+      });
       root.addEventListener('wheel', function (e) {
-        // Only scrolling text and canvases take the wheel; elsewhere the
-        // browser scrolls the page.
-        if (!e.target.closest('.fui-k6, .fui-k7')) return;
+        if (!e.target.closest('canvas[data-id]')) return;
         e.preventDefault();
         var steps = e.deltaY / (e.deltaMode === 1 ? 3 : 100);
         FUI.push([3, Math.round(-steps), -steps, 0]);
-      }, { passive: false, capture: true });
-      window.addEventListener('keydown', function (e) {
-        // Focus rings matter after keyboard navigation, not after a click.
-        if (e.key === 'Tab' || e.key.indexOf('Arrow') === 0) root.classList.add('fui-keyboard');
-        if (e.ctrlKey || e.metaKey || e.altKey) return;
-        var k = FUI.keys[e.key];
-        if (k) FUI.push([2, k, 0, 0]);
-        if (e.key.length === 1) FUI.text(e.key);
-        if (k || e.key.length === 1) e.preventDefault();
-      });
-      // Text that does not arrive as a key press (paste, phone keyboards,
-      // autofill, drop) would change a DOM field behind the runtime's back;
-      // it goes to the runtime instead. Line breaks at the ends of pasted
-      // text are dropped, inner ones become spaces.
-      root.addEventListener('paste', function (e) {
-        var t = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
-        e.preventDefault();
-        t = t.replace(/^[\r\n]+|[\r\n]+$/g, '').replace(/[\r\n]+/g, ' ');
-        if (t) FUI.text(t);
-      }, true);
-      root.addEventListener('beforeinput', function (e) {
-        if (e.inputType === 'insertCompositionText') return;
-        e.preventDefault();
-        if (e.inputType === 'deleteContentBackward') FUI.push([2, 4, 0, 0]);
-        else if (e.inputType === 'deleteContentForward') FUI.push([2, 5, 0, 0]);
-        else if (e.data) FUI.text(e.data);
-        else if (e.dataTransfer) FUI.text(e.dataTransfer.getData('text/plain'));
-      }, true);
+      }, { passive: false });
       window.addEventListener('resize', FUI.resize);
     },
-    text: function (s) { FUI.push([5, s]); },
-    create: function (kind) {
-      var el;
-      switch (kind) {
-        case 2: case 5:
-          el = document.createElement('button');
-          if (kind === 5) el.setAttribute('role', 'tab');
-          break;
-        case 3:
-          el = document.createElement('input'); el.type = 'range'; el.step = 'any';
-          break;
-        case 4:
-          el = document.createElement('label');
-          var box = document.createElement('input'); box.type = 'checkbox';
-          el.appendChild(box); el.appendChild(document.createElement('span'));
-          break;
-        case 6: el = document.createElement('canvas'); break;
-        case 8: el = document.createElement('input'); el.type = 'text'; break;
-        default: el = document.createElement('div');
+    tags: { 2: 'button', 3: 'input', 4: 'label', 5: 'button', 6: 'canvas', 8: 'input' },
+    create: function (kind, key) {
+      var el = document.createElement(FUI.tags[kind] || 'div');
+      if (kind === 3) { el.type = 'range'; el.step = 'any'; }
+      if (kind === 8) el.type = 'text';
+      if (kind === 5) el.setAttribute('role', 'tab');
+      if (kind === 4) {
+        var box = document.createElement('input'); box.type = 'checkbox';
+        el.appendChild(box); el.appendChild(document.createElement('span'));
       }
+      if (kind === 2 || kind === 5) el.type = 'button';
       el.className = 'fui fui-k' + kind;
-      el.style.position = 'absolute';
-      el.style.boxSizing = 'border-box';
-      el.style.font = 'inherit';
-      el.style.margin = '0';
+      el.dataset.key = key;
       return el;
     },
-    update: function (el, f) {
-      var kind = +f[0], flags = +f[6], text = f[14], body = f[15] || '';
+    // Width modes: 0 natural, 1 fixed, 2 fill the container.
+    size: function (s, mode, width, inRow) {
+      if (mode === 1) { s.width = width + 'px'; s.flex = '0 0 auto'; s.alignSelf = ''; }
+      else if (mode === 2) {
+        s.width = ''; s.minWidth = '0';
+        if (inRow) { s.flex = '1 1 0'; s.alignSelf = ''; } else { s.flex = ''; s.alignSelf = 'stretch'; }
+      } else { s.width = ''; s.flex = '0 0 auto'; s.alignSelf = ''; }
+    },
+    update: function (el, f, inRow) {
+      var kind = +f[0], flags = +f[6], style = f[10], text = f[15], body = f[16] || '';
       var s = el.style;
-      s.left = f[2] + 'px'; s.top = f[3] + 'px';
-      s.width = f[4] + 'px'; s.height = f[5] + 'px';
-      s.fontSize = f[11] + 'px';
-      s.fontWeight = (+f[10] === 3 || +f[10] === 4) ? '600' : '';
-      s.fontFamily = +f[10] === 5 ? FUI.mono : 'inherit';
-      if (+f[10] === 5) s.whiteSpace = 'pre';
-      var tone = f[16] || '0';
-      if (el.dataset.tone !== tone) el.dataset.tone = tone;
-      // The style token (1 body, 2 caption, 3 heading, 4 title) for page CSS.
-      if (el.dataset.style !== f[10]) el.dataset.style = f[10];
-      el.classList.toggle('fui-hover', (flags & 4) !== 0);
-      el.classList.toggle('fui-focus', (flags & 8) !== 0);
-      el.classList.toggle('fui-active', (flags & 16) !== 0);
+      if (el.dataset.id !== f[1]) { if (f[1]) el.dataset.id = f[1]; else delete el.dataset.id; }
+      if (el.dataset.style !== style) el.dataset.style = style;
+      if (el.dataset.tone !== f[14]) el.dataset.tone = f[14];
+      var px = f[11] + 'px';
+      if (s.fontSize !== px) s.fontSize = px;
+      FUI.size(s, +f[13], +f[4], inRow);
       if ('disabled' in el) el.disabled = (flags & 2) !== 0;
+      if (kind === 2 || kind === 5 || kind === 6 || kind === 7) s.height = f[5] + 'px';
       switch (kind) {
         case 2:
           if (el.textContent !== text) el.textContent = text;
@@ -204,72 +132,67 @@ addToLibrary({
           el.setAttribute('aria-selected', (flags & 32) ? 'true' : 'false');
           break;
         case 3:
-          el.min = f[8]; el.max = f[9]; el.value = f[7];
+          el.min = f[8]; el.max = f[9];
+          if (+f[7] !== +el._reported && +el.value !== +f[7]) el.value = f[7];
           break;
         case 4:
           el.firstChild.checked = (flags & 32) !== 0;
           if (el.lastChild.textContent !== text) el.lastChild.textContent = text;
           break;
+        case 6:
+          el._x = +f[2]; el._y = +f[3];
+          el.width = +f[4]; el.height = +f[5];
+          break;
         case 7:
           if (el.textContent !== body) el.textContent = body;
-          s.whiteSpace = 'pre-wrap'; s.overflow = 'hidden';
-          el.scrollTop = +f[13];
           break;
         case 8:
-          if (el.value !== body) el.value = body;
-          el.placeholder = text;
-          break;
-        case 6:
+          // The field edits natively; the runtime's value is shown only when
+          // the application changed it (it differs from what the field said).
+          if (body !== el._reported && el.value !== body) { el.value = body; el._reported = body; }
+          if (el.placeholder !== text) el.placeholder = text;
           break;
         default:
           if (el.textContent !== text) el.textContent = text;
-          if (+f[10] !== 5) s.whiteSpace = 'nowrap';
-          s.overflow = 'hidden';
-          s.textOverflow = (flags & 64) ? 'ellipsis' : 'clip';
+          el.classList.toggle('fui-ellipsis', (flags & 64) !== 0);
       }
-      if ((flags & 8) && document.activeElement !== el) {
+      if ((flags & 8) && document.activeElement !== el && kind !== 1 && kind !== 7) {
         var target = kind === 4 ? el.firstChild : el;
-        if (target.focus) target.focus({ preventScroll: true });
-        if (kind === 8) {
-          var c = utf16Index(body, +f[12]);
-          try { el.setSelectionRange(c, c); } catch (x) {}
-        }
-      } else if (kind === 8 && (flags & 8)) {
-        var c2 = utf16Index(body, +f[12]);
-        try { el.setSelectionRange(c2, c2); } catch (x) {}
+        if (target.focus && document.hasFocus()) target.focus({ preventScroll: true });
       }
-      function utf16Index(str, bytes) {
-        // The runtime counts UTF-8 bytes; the DOM counts UTF-16 units.
-        var enc = new TextEncoder(), n = 0, i = 0;
-        for (const ch of str) {
-          n += enc.encode(ch).length;
-          if (n > bytes) break;
-          i += ch.length;
-        }
-        return i;
-      }
+    },
+    box: function (el, b) {
+      var kind = +b[1], s = el.style;
+      el.className = 'fui-box ' + (kind === 2 || kind === 3 ? 'fui-row' : 'fui-col');
+      var gap = b[4] + 'px';
+      if (s.gap !== gap) s.gap = gap;
+      s.minHeight = +b[5] > 0 ? b[5] + 'px' : '';
+      if (kind === 4 && +b[6] >= 0) { s.width = b[6] + 'px'; s.flex = '0 0 auto'; }
     },
   },
 
-  fortui_web_init__deps: ['$FUI'],
+  fortui_web_init__deps: ['$FUI', '$runtimeKeepalivePush'],
   fortui_web_init: function (ptr, n) {
     if (typeof document === 'undefined') return 1;
     var id = n > 0 ? UTF8ToString(ptr, n) : '';
     var host = id ? document.getElementById(id) : document.body;
     if (!host) return 1;
-    var root = document.createElement('div');
-    root.className = 'fui-root';
-    root.style.position = 'relative';
-    root.style.width = '100%';
-    // The page grows with the content, and the browser scrolls it.
-    root.style.minHeight = '100%';
-    root.style.overflow = 'hidden';
-    root.style.fontFamily = FUI.font;
-    root.style.touchAction = 'none';
-    host.appendChild(root);
+    // A page rendered by the server already holds the root and its elements.
+    var root = host.querySelector(':scope > .fui-root');
+    if (!root) {
+      root = document.createElement('div');
+      root.className = 'fui-root fui-box fui-col';
+      host.appendChild(root);
+    }
+    root.querySelectorAll('[data-key]').forEach(function (el) { FUI.els.set(el.dataset.key, el); });
+    // The program's main returns (and calls exit) once it has registered the
+    // application; the runtime stays for the frames the browser drives.
+    runtimeKeepalivePush();
     FUI.root = root;
     FUI.install();
     FUI.resize();
+    // The first frame runs once main has registered the application.
+    setTimeout(function () { FUI.started = true; FUI.request(); }, 0);
     return 0;
   },
 
@@ -280,28 +203,16 @@ addToLibrary({
     FUI.els.clear();
   },
 
-  fortui_web_wait__deps: ['$FUI'],
-  fortui_web_wait__async: true,
-  fortui_web_wait: function (forEvent) {
-    return Asyncify.handleSleep(function (wakeUp) {
-      if (forEvent && FUI.events.length === 0) {
-        FUI.wake = wakeUp;
-      } else {
-        requestAnimationFrame(function () { wakeUp(); });
-      }
-    });
-  },
-
   fortui_web_events__deps: ['$FUI'],
   fortui_web_events: function (evPtr, cap, textPtr, textCap) {
-    var n = 0, used = 0, base = evPtr >> 2;
+    var n = 0, used = 0, base = evPtr >> 2, enc = new TextEncoder();
     while (FUI.events.length > 0 && n < cap) {
       var e = FUI.events[0];
       if (e[0] === 5) {
-        var bytes = new TextEncoder().encode(e[1]);
+        var bytes = enc.encode(e[2]);
         if (used + bytes.length > textCap) break;
         HEAPU8.set(bytes, textPtr + used);
-        e = [5, used, bytes.length, 0];
+        e = [5, e[1], used, bytes.length];
         used += bytes.length;
       }
       FUI.events.shift();
@@ -315,77 +226,44 @@ addToLibrary({
 
   fortui_web_present__deps: ['$FUI'],
   fortui_web_present: function (ptr, n) {
-    var data = UTF8ToString(ptr, n);
-    var seen = new Set(), anon = {};
-    var records = data.split('\x1e');
+    var records = UTF8ToString(ptr, n).split('\x1e');
+    var boxes = [null], nodes = [], anon = {};
     for (var i = 0; i < records.length; i++) {
       if (records[i] === '') continue;
       var f = records[i].split('\x1f');
-      // Static text has no id; its order among id-less nodes keys it.
-      var key = f[0] + ':' + f[1];
-      if (f[1] === '') { anon[f[0]] = (anon[f[0]] || 0) + 1; key += '~' + anon[f[0]]; }
-      var el = FUI.els.get(key);
-      if (!el) {
-        el = FUI.create(+f[0]);
-        el.dataset.id = f[1];
-        FUI.els.set(key, el);
-        FUI.root.appendChild(el);
-      }
-      FUI.update(el, f);
+      if (f[0] === 'B') boxes.push(f); else nodes.push(f);
+    }
+    var seen = new Set(), children = boxes.map(function () { return []; });
+    var boxEl = [FUI.root];
+    for (var b = 1; b < boxes.length; b++) {
+      var key = 'b' + b, el = FUI.els.get(key);
+      if (!el) { el = document.createElement('div'); el.dataset.key = key; FUI.els.set(key, el); }
+      FUI.box(el, boxes[b]);
+      boxEl.push(el);
       seen.add(key);
+      children[+boxes[b][2]].push([2 * +boxes[b][3] + 1, b, el]);
     }
-    var bottom = 0;
-    for (var j = 0; j < records.length; j++) {
-      var g = records[j].split('\x1f', 6);
-      if (g.length === 6) bottom = Math.max(bottom, +g[3] + +g[5]);
+    for (var k = 0; k < nodes.length; k++) {
+      var f2 = nodes[k], nkey = f2[0] + ':' + f2[1];
+      if (f2[1] === '') { anon[f2[0]] = (anon[f2[0]] || 0) + 1; nkey += '~' + anon[f2[0]]; }
+      var nel = FUI.els.get(nkey);
+      if (!nel) { nel = FUI.create(+f2[0], nkey); FUI.els.set(nkey, nel); }
+      var parent = +f2[12], pkind = parent > 0 ? +boxes[parent][1] : 1;
+      FUI.update(nel, f2, pkind === 2 || pkind === 3);
+      seen.add(nkey);
+      children[parent].push([2 * (k + 1), 0, nel]);
     }
-    FUI.root.style.height = Math.ceil(bottom + 16) + 'px';
+    // Place every element in its container, in composition order; moving
+    // only what is out of place keeps focus and selection where they are.
+    for (var p = 0; p < children.length; p++) {
+      var list = children[p].sort(function (a, c) { return a[0] - c[0] || a[1] - c[1]; });
+      var host = boxEl[p];
+      for (var q = 0; q < list.length; q++) {
+        if (host.children[q] !== list[q][2]) host.insertBefore(list[q][2], host.children[q] || null);
+      }
+    }
     FUI.els.forEach(function (el, key) {
       if (!seen.has(key)) { el.remove(); FUI.els.delete(key); }
     });
-  },
-
-  // Measuring a code point the page font lacks makes the browser search its
-  // fallback fonts, about a millisecond each. So the first frame gets a quick
-  // table (Latin and Greek regular, ASCII bold; '?' for the rest, one em from
-  // U+2E80), and the full table of the ranges ordinary text uses is measured
-  // in short slices while the browser is idle. When it is ready, poll
-  // installs it and the page is laid out again. The full table is kept per
-  // font and device in localStorage, so later visits use it at once.
-  fortui_web_measure__deps: ['$FUI'],
-  fortui_web_measure: function (advPtr, ncp, fallbackPtr, linePtr, monoPtr) {
-    var n = 2 * ncp, table = FUI.metrics;
-    var key = 'fortui-metrics-v2:' + FUI.font + ':' + (window.devicePixelRatio || 1);
-    if (!table) {
-      try {
-        var saved = localStorage.getItem(key);
-        if (saved) {
-          var bytes = Uint8Array.from(atob(saved), function (c) { return c.charCodeAt(0); });
-          if (bytes.length === 4 * (n + 2)) table = FUI.metrics = new Float32Array(bytes.buffer);
-        }
-      } catch (x) { table = null; }
-    }
-    if (!table) {
-      var quick = [[[0x20, 0x180], [0x370, 0x400]], [[0x20, 0x7F]]];
-      table = FUI.measure(ncp, quick);
-      var full = [[0x20, 0x250], [0x370, 0x530], [0x2000, 0x20D0], [0x2100, 0x2400],
-        [0x2500, 0x2600]];
-      FUI.measureLater(ncp, [full, full], key);
-    }
-    HEAPF32.set(table.subarray(0, n), advPtr >> 2);
-    HEAPF32[fallbackPtr >> 2] = table[n];
-    HEAPF32[(fallbackPtr >> 2) + 1] = table[n + 1];
-    HEAPF32[linePtr >> 2] = 1.25;
-    var mc = FUI.ctx();
-    mc.font = '400 100px ' + FUI.mono;
-    HEAPF32[monoPtr >> 2] = mc.measureText('M').width / 100;
-  },
-
-  // 1 once after the full table became ready, so poll installs it.
-  fortui_web_metrics_changed__deps: ['$FUI'],
-  fortui_web_metrics_changed: function () {
-    if (!FUI.metricsChanged) return 0;
-    FUI.metricsChanged = false;
-    return 1;
   },
 });

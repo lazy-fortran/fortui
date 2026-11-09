@@ -5,8 +5,8 @@ use fortui_context, only: fortui_context_t, create_context, destroy_context, &
     get_default_context, set_default_context
 use fortui_input, only: input_begin_frame, input_route, input_update_pointer, &
     input_scroll, input_set_key, input_type_text, input_set_time, input_key_arrived, &
-    KEY_ESCAPE
-use fortui_layout, only: layout_reset, layout_check_balance
+    KEY_ESCAPE, input_apply_host, input_host_event
+use fortui_layout, only: layout_reset, layout_check_balance, layout_boxes
 use fortui_frame, only: UI_TEXT_INPUT, style_weight
 use fortui_backend, only: ui_backend_t, ui_backend_caps_t, ui_window_config_t
 use fortui_text, only: text_use_fixed_metrics, text_width
@@ -23,7 +23,16 @@ public :: ui_init, ui_init_backend, ui_shutdown, ui_frame_begin, ui_present
 public :: ui_should_close, ui_request_quit, ui_is_initialized, ui_get_backend
 public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale
 public :: ui_key_pressed, ui_text_width, ui_backend_capabilities, ui_backend_caps_t
-public :: ui_backend_description
+public :: ui_backend_description, ui_run, ui_run_step, ui_frame_proc
+
+abstract interface
+    subroutine ui_frame_proc()
+        !! Composes one frame: the body of the frame loop.
+    end subroutine ui_frame_proc
+end interface
+
+! The application's frame procedure while a host drives the frames.
+procedure(ui_frame_proc), pointer, save :: driven_frame => null()
 
 contains
 
@@ -90,6 +99,7 @@ subroutine ui_frame_begin()
     ! Synthetic events (automation/tests) are normalized input for any backend.
     call apply_injected(ctx)
 
+    call input_apply_host(ctx%input)
     call input_route(ctx%input, ctx%previous_frame)
     ctx%text_focused = focused_kind(ctx) == UI_TEXT_INPUT
     ! Escape leaves a focused text field; otherwise it is an ordinary key.
@@ -118,6 +128,7 @@ subroutine ui_present()
         ctx%canvas_node = 0
     end if
     call layout_check_balance()
+    call layout_boxes(ctx%current_frame%boxes, ctx%current_frame%box_count)
     call ctx%canvas%collect(ctx%frame_count)
     call ctx%collect_states()
     ctx%wait_next = .not. (ctx%continuous .or. ctx%frame_requested .or. ctx%followup)
@@ -213,6 +224,11 @@ subroutine apply_injected(ctx)
     end do
     if (ctx%inject_text_len > 0) call input_type_text(ctx%input, &
         ctx%inject_text(1:ctx%inject_text_len))
+    do k = 1, ctx%inject_host_count
+        call input_host_event(ctx%input, ctx%inject_host(k)%kind, &
+            trim(ctx%inject_host(k)%id), ctx%inject_host(k)%value)
+    end do
+    ctx%inject_host_count = 0
     ctx%inject_pointer = .false.
     ctx%inject_wheel = 0.0
     ctx%inject_key_count = 0
@@ -252,6 +268,8 @@ subroutine ui_shutdown()
 
     ctx => get_default_context()
     if (.not. associated(ctx)) return
+    ! A host-driven application keeps running after ui_run returned.
+    if (associated(driven_frame)) return
 
     if (allocated(ctx%backend)) call ctx%backend%shutdown()
     call text_use_fixed_metrics()
@@ -294,5 +312,48 @@ function ui_backend_description() result(text)
     if (.not. associated(ctx)) return
     if (allocated(ctx%backend)) text = ctx%backend%describe()
 end function ui_backend_description
+
+
+subroutine ui_run(frame)
+    !! Runs the application: `frame` composes one frame (widgets only, between
+    !! the frame begin and present that ui_run supplies). Native hosts loop
+    !! here until the application quits. A browser host calls the frame itself
+    !! when there is something to show, so ui_run returns at once and the
+    !! program must not shut FortUI down after it.
+    procedure(ui_frame_proc) :: frame
+    type(fortui_context_t), pointer :: ctx
+    type(ui_backend_caps_t) :: caps
+
+    ctx => get_default_context()
+    if (.not. associated(ctx)) then
+        call report_error("fortui_core", "ui_run", "FortUI is not initialized")
+        return
+    end if
+    caps = ctx%backend%capabilities()
+    if (caps%host_driven) then
+        driven_frame => frame
+        call ctx%backend%hand_over()
+        return
+    end if
+    do while (.not. ui_should_close())
+        call ui_frame_begin()
+        call frame()
+        call ui_present()
+    end do
+end subroutine ui_run
+
+logical function ui_run_step() result(again)
+    !! One frame for a host that drives the frames; true when the next frame
+    !! should follow without waiting for input.
+    type(fortui_context_t), pointer :: ctx
+
+    again = .false.
+    ctx => get_default_context()
+    if (.not. associated(ctx) .or. .not. associated(driven_frame)) return
+    call ui_frame_begin()
+    call driven_frame()
+    call ui_present()
+    again = .not. ctx%wait_next
+end function ui_run_step
 
 end module fortui_core
