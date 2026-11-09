@@ -19,6 +19,8 @@ character(len=*), parameter :: KIND_NAMES(0:4) = [character(len=6) :: "root", &
 
 type :: layout_entry_t
     integer :: kind = KIND_ROOT
+    ! Index of this container in the frame's box list (0: the page root).
+    integer :: box = 0
     integer :: direction = DIR_COLUMN
     real :: gap = 0.0
     real :: origin_x = 0.0
@@ -42,13 +44,31 @@ type :: layout_entry_t
     character(len=:), allocatable :: scope
 end type layout_entry_t
 
+type, public :: layout_box_t
+    !! A container as hosts that lay out themselves (the browser) need it.
+    integer :: kind = KIND_COLUMN
+    integer :: parent = 0
+    !! Nodes emitted before the container opened: its place among its
+    !! parent's nodes.
+    integer :: after = 0
+    real :: gap = 0.0
+    !! Fixed cross size of a row that centres its items (0: none).
+    real :: cross = 0.0
+    !! Fixed width of a pane (negative: none).
+    real :: width = -1.0
+end type layout_box_t
+
 type(layout_entry_t), save :: layout_stack(MAX_LAYOUT_DEPTH)
+type(layout_box_t), allocatable, save :: boxes(:)
+integer, save :: box_count = 0, nodes_emitted = 0
 integer, save :: stack_depth = 0
 
 public :: layout_reset, layout_get_cursor, layout_advance, layout_depth, layout_place
 public :: column_begin, column_end, row_begin, row_end
 public :: layout_available, split_begin, split_next, split_end
 public :: layout_scope, layout_fill_width, layout_check_balance
+public :: layout_boxes, layout_note_node
+public :: KIND_COLUMN, KIND_ROW, KIND_SPLIT, KIND_PANE
 
 contains
 
@@ -57,6 +77,8 @@ subroutine layout_reset(width, height)
 
     stack_depth = 1
     layout_stack(1) = layout_entry_t(direction=DIR_COLUMN, scope="")
+    box_count = 0
+    nodes_emitted = 0
     if (present(width)) layout_stack(1)%region_w = max(0.0, width)
     if (present(height)) layout_stack(1)%region_h = max(0.0, height)
 end subroutine layout_reset
@@ -139,6 +161,7 @@ subroutine split_begin(id, first, last, gap)
         call set_pane(1, x, a)
         call set_pane(2, x + a + g, max(0.0, w - a - g))
     end if
+    boxes(layout_stack(stack_depth)%box)%gap = g
     layout_stack(stack_depth)%pane_count = n
     call open_pane(1)
 
@@ -243,10 +266,16 @@ subroutine push_region(kind, direction, gap, x, y, w, h, id)
             scope = trim(id)
         end if
     end if
+    if (.not. allocated(boxes)) allocate (boxes(64))
+    if (box_count >= size(boxes)) boxes = [boxes, boxes]
+    box_count = box_count + 1
+    boxes(box_count) = layout_box_t(kind=kind, parent=layout_stack(stack_depth)%box, &
+        after=nodes_emitted, gap=gap)
+    if (kind == KIND_PANE) boxes(box_count)%width = w
     stack_depth = stack_depth + 1
     layout_stack(stack_depth) = layout_entry_t(kind=kind, direction=direction, &
         gap=gap, origin_x=x, origin_y=y, cursor_x=x, cursor_y=y, region_x=x, &
-        region_y=y, region_w=w, region_h=h, scope=scope)
+        region_y=y, region_w=w, region_h=h, scope=scope, box=box_count)
 end subroutine push_region
 
 subroutine column_begin(gap, id)
@@ -263,6 +292,7 @@ subroutine row_begin(gap, id, height)
     character(*), intent(in), optional :: id
     call push_layout(KIND_ROW, DIR_ROW, gap, id)
     if (present(height)) layout_stack(stack_depth)%cross_size = max(0.0, height)
+    if (present(height)) boxes(layout_stack(stack_depth)%box)%cross = max(0.0, height)
 end subroutine row_begin
 
 subroutine column_end()
@@ -363,5 +393,26 @@ end subroutine layout_advance
 integer function layout_depth()
     layout_depth = stack_depth
 end function layout_depth
+
+
+integer function layout_note_node() result(box)
+    !! The container of the node being emitted; counts it for box ordering.
+    if (stack_depth == 0) call layout_reset()
+    box = layout_stack(stack_depth)%box
+    nodes_emitted = nodes_emitted + 1
+end function layout_note_node
+
+subroutine layout_boxes(list, count)
+    !! The containers opened in the current composition.
+    type(layout_box_t), allocatable, intent(inout) :: list(:)
+    integer, intent(out) :: count
+
+    count = box_count
+    if (allocated(list)) then
+        if (size(list) < count) deallocate (list)
+    end if
+    if (.not. allocated(list)) allocate (list(max(16, count)))
+    if (count > 0) list(1:count) = boxes(1:count)
+end subroutine layout_boxes
 
 end module fortui_layout

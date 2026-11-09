@@ -14,12 +14,13 @@ use fortui_context, only: fortui_context_t, get_default_context
 use fortui_frame, only: ui_node_t, canvas_view_t, ui_label_t, UI_TEXT, UI_BUTTON, &
     UI_SLIDER, UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, &
     LAYER_VERTICES, SCROLL_PADDING, SCROLLBAR_WIDTH, INPUT_PADDING, CONTROL_PADDING, &
-    style_size, style_weight
+    style_size, style_weight, WIDTH_NATURAL, WIDTH_FIXED, WIDTH_FILL
 use fortui_layout, only: layout_get_cursor, layout_advance, layout_available, &
-    layout_scope, layout_fill_width, layout_place
+    layout_scope, layout_fill_width, layout_place, layout_note_node, row_begin, row_end
 use fortui_input, only: input_activated, input_focused, input_active, input_hovered, &
     input_wheel_for, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_ARROW_UP, KEY_ARROW_DOWN, &
-    KEY_BACKSPACE, KEY_DELETE, KEY_HOME, KEY_END, KEY_ENTER, KEY_PAGE_UP, KEY_PAGE_DOWN
+    KEY_BACKSPACE, KEY_DELETE, KEY_HOME, KEY_END, KEY_ENTER, KEY_PAGE_UP, KEY_PAGE_DOWN, &
+    input_host_value, input_host_submitted
 use fortui_canvas, only: canvas_events_t, canvas_to_world
 use fortui_text, only: text_width, text_line_height, text_wrap, text_caret_from_x, &
     utf8_boundary, utf8_prev, utf8_next, ui_str, TEXT_DEFAULT_SIZE
@@ -101,6 +102,76 @@ real function resolve_width(width, natural) result(w)
     end if
 end function resolve_width
 
+pure real function parse_number(s, fallback) result(v)
+    !! A decimal number as browsers write it ("-12.5", "3e-2"); `fallback` when
+    !! it is not one. Written out, so no formatted I/O is needed.
+    character(*), intent(in) :: s
+    real, intent(in) :: fallback
+    integer :: i, n, e, esign, digits
+    real :: sign, scale
+    character :: ch
+
+    v = 0.0
+    sign = 1.0
+    scale = 0.0
+    e = 0
+    esign = 1
+    digits = 0
+    n = len_trim(s)
+    i = 1
+    if (i <= n) then
+        if (s(i:i) == '-' .or. s(i:i) == '+') then
+            if (s(i:i) == '-') sign = -1.0
+            i = i + 1
+        end if
+    end if
+    do while (i <= n)
+        ch = s(i:i)
+        if (ch >= '0' .and. ch <= '9') then
+            digits = digits + 1
+            if (scale > 0.0) then
+                v = v + scale * real(iachar(ch) - 48)
+                scale = scale * 0.1
+            else
+                v = 10.0 * v + real(iachar(ch) - 48)
+            end if
+        else if (ch == '.' .and. scale == 0.0) then
+            scale = 0.1
+        else if (ch == 'e' .or. ch == 'E') then
+            i = i + 1
+            if (i <= n) then
+                if (s(i:i) == '-' .or. s(i:i) == '+') then
+                    if (s(i:i) == '-') esign = -1
+                    i = i + 1
+                end if
+            end if
+            do while (i <= n)
+                if (s(i:i) < '0' .or. s(i:i) > '9') exit
+                e = 10 * e + iachar(s(i:i)) - 48
+                i = i + 1
+            end do
+            exit
+        else
+            v = fallback
+            return
+        end if
+        i = i + 1
+    end do
+    if (digits == 0 .or. i <= n) then
+        v = fallback
+        return
+    end if
+    v = sign * v * 10.0**(esign * e)
+end function parse_number
+
+pure integer function width_mode(width)
+    real, intent(in), optional :: width
+    width_mode = WIDTH_NATURAL
+    if (.not. present(width)) return
+    width_mode = WIDTH_FIXED
+    if (width < 0.0) width_mode = WIDTH_FILL
+end function width_mode
+
 ! --- static and simple controls ------------------------------------------------
 
 subroutine text(value, style, size, width, ellipsis, id, tone)
@@ -134,6 +205,7 @@ subroutine text(value, style, size, width, ellipsis, id, tone)
     if (present(size)) node%text_size = max(1.0, size)
     node%width = resolve_width(width, &
         text_width(value, node%text_size, style_weight(node%style)))
+    node%width_mode = width_mode(width)
     if (present(ellipsis)) node%ellipsis = ellipsis
     if (node%ellipsis .and. .not. present(width)) &
         node%width = min(node%width, layout_fill_width())
@@ -166,6 +238,7 @@ logical function button(id, label, key, width, height, enabled, ellipsis, size) 
     if (present(size)) node%text_size = max(1.0, size)
     node%width = resolve_width(width, max(72.0, text_width(trim(node%text), &
         node%text_size) + 2.0 * CONTROL_PADDING))
+    node%width_mode = width_mode(width)
     node%height = CONTROL_HEIGHT
     if (present(height)) node%height = max(0.0, height)
     if (present(ellipsis)) node%ellipsis = ellipsis
@@ -265,6 +338,7 @@ logical function slider_core(id, lo_in, hi_in, value, step, key, width, enabled)
     type(ui_node_t) :: node
     real :: lo, hi, old_value, fraction, key_step
     integer :: k
+    character(len=:), allocatable :: reported
 
     changed = .false.
     ctx => get_default_context()
@@ -279,12 +353,18 @@ logical function slider_core(id, lo_in, hi_in, value, step, key, width, enabled)
     node%id = scoped_id(id, key)
     if (.not. claim(ctx, trim(node%id), "slider")) return
     node%width = resolve_width(width, 200.0)
+    node%width_mode = width_mode(width)
     node%height = CONTROL_HEIGHT
     call set_enabled(node, enabled)
     call decorate_from_input(ctx, node)
 
     old_value = value
     value = max(lo, min(hi, value))
+    if (.not. node%disabled .and. input_host_value(ctx%input, trim(node%id), reported)) then
+        value = parse_number(reported, value)
+        if (step > 0.0) value = lo + real(nint((value - lo) / step)) * step
+        value = max(lo, min(hi, value))
+    end if
     associate(inp => ctx%input)
         if (.not. node%disabled .and. node%active .and. inp%pointer_down) then
             fraction = (inp%pointer_x - node%x) / max(node%width, 1.0)
@@ -324,7 +404,7 @@ logical function tabs(id, labels, selected, width, size) result(changed)
 
     type(fortui_context_t), pointer :: ctx
     type(ui_node_t) :: node
-    real :: x0, y0, total, w
+    real :: total, w
     integer :: k, n, old, j
 
     changed = .false.
@@ -334,11 +414,12 @@ logical function tabs(id, labels, selected, width, size) result(changed)
     if (n == 0) return
     old = selected
     selected = max(1, min(n, selected))
-    call layout_get_cursor(x0, y0)
     total = layout_fill_width()
     if (present(width)) total = max(0.0, width)
     w = total / real(n)
 
+    ! A row of its own, so hosts that lay out themselves keep the tabs together.
+    call row_begin(0.0)
     do k = 1, n
         node = ui_node_t()
         node%kind = UI_TAB
@@ -346,9 +427,11 @@ logical function tabs(id, labels, selected, width, size) result(changed)
         if (.not. claim(ctx, trim(node%id), "tabs")) cycle
         node%text = trim(labels(k))
         if (present(size)) node%text_size = max(1.0, size)
-        node%x = x0 + real(k - 1) * w
-        node%y = y0
+        call layout_place(CONTROL_HEIGHT, node%x, node%y)
         node%width = w
+        ! Without a width the tabs share their container (the host may resize it).
+        node%width_mode = WIDTH_FILL
+        if (present(width)) node%width_mode = WIDTH_FIXED
         node%height = CONTROL_HEIGHT
         node%focusable = .true.
         node%hovered = input_hovered(ctx%input, node%x, node%y, node%width, node%height)
@@ -363,13 +446,15 @@ logical function tabs(id, labels, selected, width, size) result(changed)
                 end select
             end do
         end if
+        node%box = layout_note_node()
         j = ctx%current_frame%append(node)
+        call layout_advance(w, CONTROL_HEIGHT)
     end do
+    call row_end()
     do k = 1, n
         j = ctx%current_frame%find(scoped_id(id, k))
         if (j > 0) ctx%current_frame%nodes(j)%checked = k == selected
     end do
-    call layout_advance(total, CONTROL_HEIGHT)
     changed = selected /= old
     if (changed) ctx%followup = .true.
 end function tabs
@@ -452,6 +537,7 @@ subroutine canvas_begin(id, view_state, events, width, height, fill)
 
     node%layer_first = ctx%current_frame%layer_count + 1
     node%label_first = ctx%current_frame%label_count + 1
+    node%box = layout_note_node()
     ctx%canvas_node = ctx%current_frame%append(node)
     call layout_advance(node%width, node%height)
 end subroutine canvas_begin
@@ -731,6 +817,7 @@ subroutine scroll_text(id, value, size, markdown, width, height, scroll_to)
     node%width = aw
     node%height = ah
     if (present(width)) node%width = resolve_width(width, aw)
+    node%width_mode = width_mode(width)
     if (present(height)) node%height = max(1.0, height)
     call decorate_from_input(ctx, node)
 
@@ -813,7 +900,7 @@ logical function text_input(id, value, placeholder, submitted, width, enabled, k
 
     type(fortui_context_t), pointer :: ctx
     type(ui_node_t) :: node
-    character(len=:), allocatable :: old
+    character(len=:), allocatable :: old, typed
     integer :: st, k, c, i, done
     logical :: did_submit
 
@@ -830,11 +917,17 @@ logical function text_input(id, value, placeholder, submitted, width, enabled, k
     call set_enabled(node, enabled)
     if (present(placeholder)) node%text = placeholder
     node%width = max(40.0, resolve_width(width, layout_fill_width()))
+    node%width_mode = WIDTH_FILL
+    if (present(width)) node%width_mode = width_mode(width)
     node%height = CONTROL_HEIGHT
     if (present(size)) node%text_size = max(1.0, size)
     call decorate_from_input(ctx, node)
 
     old = value
+    ! A host with native fields (the browser) reports the edited value itself.
+    if (.not. node%disabled .and. input_host_value(ctx%input, trim(node%id), typed)) &
+        value = typed
+    if (input_host_submitted(ctx%input, trim(node%id))) did_submit = .true.
     st = ctx%state(trim(node%id))
     associate(s => ctx%states(st), inp => ctx%input)
         c = utf8_boundary(value, s%caret)
@@ -924,9 +1017,12 @@ end subroutine place_and_emit
 subroutine emit_at_current_position(ctx, node)
     type(fortui_context_t), intent(inout) :: ctx
     type(ui_node_t), intent(in) :: node
+    type(ui_node_t) :: stamped
     integer :: ignored
 
-    ignored = ctx%current_frame%append(node)
+    stamped = node
+    stamped%box = layout_note_node()
+    ignored = ctx%current_frame%append(stamped)
     call layout_advance(node%width, node%height)
 end subroutine emit_at_current_position
 

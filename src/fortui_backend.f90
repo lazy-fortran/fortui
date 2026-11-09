@@ -23,6 +23,8 @@ type, public :: ui_backend_caps_t
     logical :: canvas_layers = .false.
     logical :: proportional_text = .false.
     logical :: event_waiting = .false.
+    !! The host calls the application once per frame (ui_run returns at once).
+    logical :: host_driven = .false.
     logical :: high_dpi = .false.
     logical :: pointer = .false.
     logical :: text_entry = .false.
@@ -63,6 +65,7 @@ contains
     procedure(backend_metrics_i), deferred :: install_text_metrics
     procedure(backend_caps_i), deferred :: capabilities
     procedure :: stats => backend_stats
+    procedure :: hand_over => backend_hand_over
     procedure :: describe => backend_describe
 end type ui_backend_t
 
@@ -126,6 +129,12 @@ abstract interface
 end interface
 
 contains
+
+subroutine backend_hand_over(self)
+    !! Called by ui_run when the host drives the frames, after the application
+    !! is registered; a host may leave the program's main here for good.
+    class(ui_backend_t), intent(inout) :: self
+end subroutine backend_hand_over
 
 function backend_stats(self) result(stats)
     class(ui_backend_t), intent(in) :: self

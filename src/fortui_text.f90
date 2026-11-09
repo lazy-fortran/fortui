@@ -4,6 +4,7 @@ module fortui_text
 !! Widgets measure through the active metric table. Headless uses fixed metrics
 !! (advance = factor * size per code point); a graphical backend installs a
 !! measured per-code-point advance table for the font it actually draws with.
+use iso_fortran_env, only: int64, real64
 implicit none
 private
 
@@ -470,33 +471,67 @@ function text_fit(s, size, max_width, style) result(r)
 end function text_fit
 
 pure function str_int(value) result(s)
+    !! Decimal digits, written out so that no formatted I/O is linked in.
     integer, intent(in) :: value
     character(len=:), allocatable :: s
-    character(len=24) :: buf
-    write(buf, '(i0)') value
-    s = trim(buf)
+
+    s = digits_of(abs(int(value, int64)))
+    if (value < 0) s = '-' // s
 end function str_int
+
+pure function digits_of(v) result(s)
+    integer(int64), intent(in) :: v
+    character(len=:), allocatable :: s
+    character(len=20) :: buf
+    integer(int64) :: r
+    integer :: p
+
+    r = v
+    p = len(buf)
+    do
+        buf(p:p) = achar(48 + int(mod(r, 10_int64)))
+        r = r / 10_int64
+        if (r == 0) exit
+        p = p - 1
+    end do
+    s = buf(p:)
+end function digits_of
 
 pure function str_real(value, decimals) result(s)
     !! Fixed-point text with `decimals` digits after the point (default 2).
     real, intent(in) :: value
     integer, intent(in), optional :: decimals
     character(len=:), allocatable :: s
-    character(len=64) :: buf
-    character(len=16) :: fmt
+    integer(int64) :: scaled, unit
+    character(len=:), allocatable :: frac
     integer :: d
+    real(real64) :: v
 
     d = 2
     if (present(decimals)) d = max(0, min(12, decimals))
-    write(fmt, '(a,i0,a)') '(f0.', d, ')'
-    write(buf, fmt) value
-    s = trim(adjustl(buf))
-    if (len(s) > 0) then
-        if (s(1:1) == '.') s = '0' // s
+    if (value /= value) then
+        s = 'NaN'
+        return
     end if
-    if (len(s) > 1) then
-        if (s(1:2) == '-.') s = '-0' // s(2:)
+    if (abs(value) > huge(value)) then
+        s = 'Infinity'
+        if (value < 0.0) s = '-' // s
+        return
     end if
+    unit = 10_int64**d
+    v = abs(real(value, real64)) * real(unit, real64)
+    if (v >= 9.0e18_real64) then
+        ! Beyond 64-bit integers: the digits before the point only.
+        s = digits_of(int(abs(real(value, real64)) / 1.0e9_real64, int64)) // '000000000'
+    else
+        scaled = nint(v, int64)
+        s = digits_of(scaled / unit)
+        if (d > 0) then
+            frac = digits_of(mod(scaled, unit))
+            s = s // '.' // repeat('0', d - len(frac)) // frac
+        end if
+    end if
+    if (value < 0.0) s = '-' // s
 end function str_real
 
 end module fortui_text

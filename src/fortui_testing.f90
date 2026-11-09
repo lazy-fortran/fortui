@@ -4,6 +4,7 @@ module fortui_testing
 !! and queries of the last presented semantic frame. Not needed by applications.
 use fortui_context, only: fortui_context_t, get_default_context
 use fortui_backend, only: ui_backend_stats_t
+use fortui_layout, only: layout_box_t
 implicit none
 private
 
@@ -25,7 +26,7 @@ end type ui_stats_t
 public :: ui_inject_pointer, ui_inject_wheel, ui_inject_key, ui_inject_text
 public :: ui_inject_time, ui_inject_resize
 public :: ui_stats, ui_layer_uploads, ui_node_rect, ui_node_text, ui_node_count
-public :: ui_focused_id, ui_node_scroll
+public :: ui_focused_id, ui_node_scroll, ui_inject_host, ui_frame_boxes
 
 contains
 
@@ -216,5 +217,44 @@ function ui_focused_id() result(id)
     ctx => get_default_context()
     if (associated(ctx)) id = trim(ctx%input%focus_id)
 end function ui_focused_id
+
+
+subroutine ui_inject_host(kind, id, value)
+    !! A semantic host event (HOST_* from fortui_input) before the next frame.
+    integer, intent(in) :: kind
+    character(*), intent(in) :: id
+    character(*), intent(in), optional :: value
+    type(fortui_context_t), pointer :: ctx
+
+    ctx => get_default_context()
+    if (.not. associated(ctx)) return
+    if (ctx%inject_host_count >= size(ctx%inject_host)) return
+    ctx%inject_host_count = ctx%inject_host_count + 1
+    ctx%inject_host(ctx%inject_host_count)%kind = kind
+    ctx%inject_host(ctx%inject_host_count)%id = id
+    ctx%inject_host(ctx%inject_host_count)%value = ""
+    if (present(value)) ctx%inject_host(ctx%inject_host_count)%value = value
+end subroutine ui_inject_host
+
+subroutine ui_frame_boxes(boxes, count, node_id, node_box)
+    !! Containers of the last presented frame, and the box of node `node_id`.
+    type(layout_box_t), allocatable, intent(out) :: boxes(:)
+    integer, intent(out) :: count, node_box
+    character(*), intent(in) :: node_id
+    type(fortui_context_t), pointer :: ctx
+    integer :: j
+
+    count = 0
+    node_box = -1
+    allocate (boxes(0))
+    ctx => get_default_context()
+    if (.not. associated(ctx)) return
+    associate(f => ctx%previous_frame)
+        count = f%box_count
+        if (count > 0) boxes = f%boxes(1:count)
+        j = f%find(node_id)
+        if (j > 0) node_box = f%nodes(j)%box
+    end associate
+end subroutine ui_frame_boxes
 
 end module fortui_testing

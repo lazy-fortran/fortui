@@ -13,6 +13,8 @@ private
 
 type, extends(ui_backend_t), public :: headless_backend_t
     logical :: running = .false.
+    !! Behave like a host that calls the application per frame (tests of ui_run).
+    logical :: host_driven = .false.
 contains
     procedure :: name => headless_name
     procedure :: init => headless_init
@@ -78,6 +80,7 @@ function headless_caps(self) result(caps)
     caps%canvas_layers = .true.
     caps%pointer = .true.
     caps%text_entry = .true.
+    caps%host_driven = self%host_driven
 end function headless_caps
 
 end module fortui_backend_headless

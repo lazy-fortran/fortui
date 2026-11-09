@@ -6,7 +6,7 @@
 # emscripten SDK in EMSDK_PATH (the one LFortran itself uses).
 # FORTUI_WEB_SOURCES: further Fortran sources of the application, in dependency
 # order, compiled before PROGRAM. FORTUI_WEB_JS: further emscripten JavaScript
-# libraries.
+# libraries. FORTUI_WEB_LDFLAGS: further emcc link flags (e.g. --profiling-funcs).
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 top=$(dirname "$here")
@@ -36,9 +36,10 @@ js="--js-library $here/fortui_web.js"
 for lib in ${FORTUI_WEB_JS:-}; do js="$js --js-library $lib"; done
 name=$(basename "$prog" .f90)
 "$lf" -c $flags "$prog" -o "$name.o"
-"$emcc" --target=wasm32-unknown-emscripten -O2 -sASYNCIFY -sALLOW_MEMORY_GROWTH \
-    -sSTACK_SIZE=8mb $js \
+"$emcc" --target=wasm32-unknown-emscripten -O2 -sALLOW_MEMORY_GROWTH \
+    -sSTACK_SIZE=8mb -sEXPORTED_FUNCTIONS=_main,_fortui_web_step $js ${FORTUI_WEB_LDFLAGS:-} \
     -o "$out/$name.js" ./*.o "$runtime"
 html=$(dirname "$prog")/index.html
 if [ -f "$html" ]; then cp "$html" "$out/index.html"; fi
+cp "$here/fortui.css" "$out/fortui.css"
 echo "$out/$name.js"

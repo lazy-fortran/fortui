@@ -23,6 +23,17 @@ integer, parameter, public :: KEY_SPACE = 14
 integer, parameter, public :: KEY_INSERT = 15
 integer, parameter, public :: MAX_FRAME_KEYS = 32
 integer, parameter, public :: MAX_FRAME_TEXT = 256
+! Semantic events from hosts whose controls handle input themselves (the
+! browser): the element they concern is known, so no pointer routing is needed.
+integer, parameter, public :: HOST_ACTIVATE = 1, HOST_FOCUS = 2, HOST_BLUR = 3, &
+    HOST_VALUE = 4, HOST_SUBMIT = 5
+integer, parameter, public :: MAX_HOST_EVENTS = 16
+
+type, public :: host_event_t
+    integer :: kind = 0
+    character(len=96) :: id = ""
+    character(len=:), allocatable :: value
+end type host_event_t
 real, parameter, public :: DRAG_THRESHOLD = 4.0
 real, parameter, public :: DOUBLE_CLICK_SECONDS = 0.4
 real, parameter, public :: DOUBLE_CLICK_DISTANCE = 6.0
@@ -65,12 +76,15 @@ type, public :: input_state_t
     character(len=96) :: active_id = ""
     character(len=96) :: activated_id = ""
     character(len=96) :: scroll_id = ""
+    integer :: host_count = 0
+    type(host_event_t) :: host(MAX_HOST_EVENTS)
 end type input_state_t
 
 public :: input_begin_frame, input_update_pointer, input_scroll, input_set_key
 public :: input_route, input_activated, input_focused, input_active
 public :: input_hovered, input_key_arrived
 public :: input_type_text, input_set_time, input_wheel_for, input_has_events
+public :: input_host_event, input_apply_host, input_host_value, input_host_submitted
 
 contains
 
@@ -90,6 +104,7 @@ subroutine input_begin_frame(input)
     input%scroll_id = ""
     input%click_id = ""
     input%double_click_id = ""
+    input%host_count = 0
 end subroutine input_begin_frame
 
 logical function input_has_events(input)
@@ -98,7 +113,8 @@ logical function input_has_events(input)
     input_has_events = abs(input%pointer_dx) > 0.0 .or. &
         abs(input%pointer_dy) > 0.0 .or. input%pointer_pressed .or. &
         input%pointer_released .or. abs(input%wheel) > 0.0 .or. &
-        input%key_count > 0 .or. input%text_len > 0 .or. input%resized
+        input%key_count > 0 .or. input%text_len > 0 .or. input%resized .or. &
+        input%host_count > 0
 end function input_has_events
 
 subroutine input_type_text(input, utf8)
@@ -325,5 +341,70 @@ logical function input_key_arrived(input, key)
     integer, intent(in) :: key
     input_key_arrived = any(input%keys(1:input%key_count) == key)
 end function input_key_arrived
+
+
+subroutine input_host_event(input, kind, id, value)
+    !! Record a semantic host event (HOST_*); extra events in one frame are dropped.
+    type(input_state_t), intent(inout) :: input
+    integer, intent(in) :: kind
+    character(*), intent(in) :: id
+    character(*), intent(in), optional :: value
+
+    if (input%host_count >= MAX_HOST_EVENTS) return
+    input%host_count = input%host_count + 1
+    input%host(input%host_count)%kind = kind
+    input%host(input%host_count)%id = id
+    input%host(input%host_count)%value = ""
+    if (present(value)) input%host(input%host_count)%value = value
+end subroutine input_host_event
+
+subroutine input_apply_host(input)
+    !! Activation and focus from host events; values stay for their widgets.
+    type(input_state_t), intent(inout) :: input
+    integer :: i
+
+    do i = 1, input%host_count
+        associate(e => input%host(i))
+            select case (e%kind)
+            case (HOST_ACTIVATE)
+                input%activated_id = e%id
+                input%focus_id = e%id
+            case (HOST_FOCUS)
+                input%focus_id = e%id
+            case (HOST_BLUR)
+                if (trim(input%focus_id) == trim(e%id)) input%focus_id = ""
+            end select
+        end associate
+    end do
+end subroutine input_apply_host
+
+logical function input_host_value(input, id, value) result(found)
+    !! The last value the host reported for `id` in this frame.
+    type(input_state_t), intent(in) :: input
+    character(*), intent(in) :: id
+    character(len=:), allocatable, intent(inout) :: value
+    integer :: i
+
+    found = .false.
+    do i = input%host_count, 1, -1
+        if (input%host(i)%kind == HOST_VALUE .and. trim(input%host(i)%id) == trim(id)) then
+            value = input%host(i)%value
+            found = .true.
+            return
+        end if
+    end do
+end function input_host_value
+
+logical function input_host_submitted(input, id) result(found)
+    type(input_state_t), intent(in) :: input
+    character(*), intent(in) :: id
+    integer :: i
+
+    found = .false.
+    do i = 1, input%host_count
+        if (input%host(i)%kind == HOST_SUBMIT .and. trim(input%host(i)%id) == trim(id)) &
+            found = .true.
+    end do
+end function input_host_submitted
 
 end module fortui_input
