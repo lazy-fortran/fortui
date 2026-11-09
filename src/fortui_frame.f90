@@ -2,7 +2,7 @@ module fortui_frame
 !! Backend-neutral semantic frame produced by the FortUI composition DSL.
 use iso_fortran_env, only: int32, int64
 use fortui_text, only: text_line_t, TEXT_DEFAULT_SIZE, TEXT_STYLE_REGULAR, &
-    TEXT_STYLE_BOLD
+    TEXT_STYLE_BOLD, TEXT_STYLE_MONO
 implicit none
 private
 
@@ -25,6 +25,15 @@ integer, parameter, public :: UI_BODY = 1
 integer, parameter, public :: UI_CAPTION = 2
 integer, parameter, public :: UI_HEADING = 3
 integer, parameter, public :: UI_TITLE = 4
+! Monospaced text for code, logs and diffs; spaces are kept.
+integer, parameter, public :: UI_CODE = 5
+
+! Semantic tones of text (backends choose the colours).
+integer, parameter, public :: UI_TONE_NORMAL = 0
+integer, parameter, public :: UI_TONE_POSITIVE = 1
+integer, parameter, public :: UI_TONE_NEGATIVE = 2
+integer, parameter, public :: UI_TONE_MUTED = 3
+integer, parameter, public :: UI_TONE_ACCENT = 4
 
 ! Width that fills the remaining space of the current container.
 real, parameter, public :: UI_FILL = -1.0
@@ -87,6 +96,7 @@ type, public :: ui_node_t
     real :: max_value = 1.0
     logical :: checked = .false.
     integer :: style = UI_BODY
+    integer :: tone = UI_TONE_NORMAL
     real :: text_size = TEXT_DEFAULT_SIZE
     logical :: ellipsis = .false.
     character(len=:), allocatable :: body
@@ -132,15 +142,17 @@ pure real function style_size(style) result(size)
     case (UI_CAPTION); size = 15.0
     case (UI_HEADING); size = 17.0
     case (UI_TITLE); size = 26.0
+    case (UI_CODE); size = 15.0
     case default; size = TEXT_DEFAULT_SIZE
     end select
 end function style_size
 
 pure integer function style_weight(style) result(weight)
-    !! Font weight (TEXT_STYLE_REGULAR or TEXT_STYLE_BOLD) of a style token.
+    !! Font (TEXT_STYLE_REGULAR, TEXT_STYLE_BOLD or TEXT_STYLE_MONO) of a style token.
     integer, intent(in) :: style
     weight = TEXT_STYLE_REGULAR
     if (style == UI_HEADING .or. style == UI_TITLE) weight = TEXT_STYLE_BOLD
+    if (style == UI_CODE) weight = TEXT_STYLE_MONO
 end function style_weight
 
 subroutine frame_reset(self)

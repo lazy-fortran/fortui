@@ -15,7 +15,7 @@ module fortui_web
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
         input_set_key, input_type_text, input_set_time
     use fortui_canvas, only: canvas_store_t
-    use fortui_text, only: text_set_metrics, TEXT_MAX_CODEPOINT
+    use fortui_text, only: text_set_metrics, text_set_mono_metrics, TEXT_MAX_CODEPOINT
     implicit none
     private
 
@@ -82,12 +82,12 @@ module fortui_web
             integer(c_int), value :: n
         end subroutine js_present
 
-        subroutine js_measure(advances, ncodepoints, fallback, line_factor) &
+        subroutine js_measure(advances, ncodepoints, fallback, line_factor, mono) &
                 bind(C, name="fortui_web_measure")
             import :: c_int, c_float
             real(c_float), intent(out) :: advances(*)
             integer(c_int), value :: ncodepoints
-            real(c_float), intent(out) :: fallback(2), line_factor
+            real(c_float), intent(out) :: fallback(2), line_factor, mono
         end subroutine js_measure
     end interface
 
@@ -177,19 +177,38 @@ contains
         class(web_backend_t), intent(inout) :: self
         type(ui_frame_t), intent(in) :: frame
         type(canvas_store_t), intent(in), target :: store
-        character(len=:), allocatable :: buf
-        integer :: i
+        character(len=:), allocatable :: buf, rec
+        integer :: i, used
 
         if (.not. self%active) return
-        buf = ""
+        ! Grows by doubling: a page of thousands of code lines stays linear.
+        allocate (character(len=65536) :: buf)
+        used = 0
         do i = 1, frame%count
-            buf = buf // node_record(frame%nodes(i)) // RS
+            rec = node_record(frame%nodes(i)) // RS
+            if (used + len(rec) > len(buf)) call grow(buf, used + len(rec))
+            buf(used + 1:used + len(rec)) = rec
+            used = used + len(rec)
         end do
         self%presents = self%presents + 1
-        if (buf == self%last) return
-        call js_present(buf, int(len(buf), c_int))
-        self%last = buf
+        if (allocated(self%last)) then
+            if (len(self%last) == used) then
+                if (self%last == buf(1:used)) return
+            end if
+        end if
+        call js_present(buf, int(used, c_int))
+        self%last = buf(1:used)
     end subroutine web_present
+
+    subroutine grow(buf, need)
+        character(len=:), allocatable, intent(inout) :: buf
+        integer, intent(in) :: need
+        character(len=:), allocatable :: bigger
+
+        allocate (character(len=max(need, 2 * len(buf))) :: bigger)
+        bigger(1:len(buf)) = buf
+        call move_alloc(bigger, buf)
+    end subroutine grow
 
     function node_record(n) result(r)
         type(ui_node_t), intent(in) :: n
@@ -212,6 +231,7 @@ contains
             ftoa(n%text_size) // US // itoa(n%caret) // US // ftoa(n%scroll) // US // &
             clean(trim(n%text)) // US
         if (allocated(n%body)) r = r // clean(n%body)
+        r = r // US // itoa(n%tone)
     end function node_record
 
     function clean(s) result(r)
@@ -254,11 +274,12 @@ contains
         !! Advances measured by the browser in the font the DOM renders with.
         class(web_backend_t), intent(inout) :: self
         real(c_float), allocatable :: table(:, :)
-        real(c_float) :: fallback(2), line_factor
+        real(c_float) :: fallback(2), line_factor, mono
 
         allocate (table(0:TEXT_MAX_CODEPOINT, 2))
-        call js_measure(table, int(TEXT_MAX_CODEPOINT + 1, c_int), fallback, line_factor)
+        call js_measure(table, int(TEXT_MAX_CODEPOINT + 1, c_int), fallback, line_factor, mono)
         call text_set_metrics(real(table), real(fallback), real(line_factor))
+        call text_set_mono_metrics(real(mono))
     end subroutine web_metrics
 
     function web_caps(self) result(caps)

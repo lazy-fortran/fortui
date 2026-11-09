@@ -10,6 +10,7 @@ addToLibrary({
     events: [],
     wake: null,
     font: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+    mono: 'ui-monospace, "SF Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace',
     keys: {
       Enter: 1, Escape: 2, Tab: 3, Backspace: 4, Delete: 5, Home: 6, End: 7,
       ArrowLeft: 8, ArrowRight: 9, ArrowUp: 10, ArrowDown: 11, PageUp: 12,
@@ -92,8 +93,9 @@ addToLibrary({
       FUI.push([1, e.clientX - r.left, e.clientY - r.top, down ? 1 : 0]);
     },
     resize: function () {
+      // The window height, not the page's: the page grows with its content.
       var r = FUI.root.getBoundingClientRect();
-      FUI.push([4, r.width, r.height, window.devicePixelRatio || 1]);
+      FUI.push([4, r.width, window.innerHeight, window.devicePixelRatio || 1]);
     },
     install: function () {
       var root = FUI.root, down = false;
@@ -113,6 +115,9 @@ addToLibrary({
       }, true);
       root.addEventListener('click', function (e) { e.preventDefault(); }, true);
       root.addEventListener('wheel', function (e) {
+        // Only scrolling text and canvases take the wheel; elsewhere the
+        // browser scrolls the page.
+        if (!e.target.closest('.fui-k6, .fui-k7')) return;
         e.preventDefault();
         var steps = e.deltaY / (e.deltaMode === 1 ? 3 : 100);
         FUI.push([3, Math.round(-steps), -steps, 0]);
@@ -179,7 +184,11 @@ addToLibrary({
       s.left = f[2] + 'px'; s.top = f[3] + 'px';
       s.width = f[4] + 'px'; s.height = f[5] + 'px';
       s.fontSize = f[11] + 'px';
-      s.fontWeight = (+f[10] >= 3) ? '600' : '';
+      s.fontWeight = (+f[10] === 3 || +f[10] === 4) ? '600' : '';
+      s.fontFamily = +f[10] === 5 ? FUI.mono : 'inherit';
+      if (+f[10] === 5) s.whiteSpace = 'pre';
+      var tone = f[16] || '0';
+      if (el.dataset.tone !== tone) el.dataset.tone = tone;
       // The style token (1 body, 2 caption, 3 heading, 4 title) for page CSS.
       if (el.dataset.style !== f[10]) el.dataset.style = f[10];
       el.classList.toggle('fui-hover', (flags & 4) !== 0);
@@ -214,7 +223,8 @@ addToLibrary({
           break;
         default:
           if (el.textContent !== text) el.textContent = text;
-          s.whiteSpace = 'nowrap'; s.overflow = 'hidden';
+          if (+f[10] !== 5) s.whiteSpace = 'nowrap';
+          s.overflow = 'hidden';
           s.textOverflow = (flags & 64) ? 'ellipsis' : 'clip';
       }
       if ((flags & 8) && document.activeElement !== el) {
@@ -251,7 +261,8 @@ addToLibrary({
     root.className = 'fui-root';
     root.style.position = 'relative';
     root.style.width = '100%';
-    root.style.height = '100%';
+    // The page grows with the content, and the browser scrolls it.
+    root.style.minHeight = '100%';
     root.style.overflow = 'hidden';
     root.style.fontFamily = FUI.font;
     root.style.touchAction = 'none';
@@ -323,6 +334,12 @@ addToLibrary({
       FUI.update(el, f);
       seen.add(key);
     }
+    var bottom = 0;
+    for (var j = 0; j < records.length; j++) {
+      var g = records[j].split('\x1f', 6);
+      if (g.length === 6) bottom = Math.max(bottom, +g[3] + +g[5]);
+    }
+    FUI.root.style.height = Math.ceil(bottom + 16) + 'px';
     FUI.els.forEach(function (el, key) {
       if (!seen.has(key)) { el.remove(); FUI.els.delete(key); }
     });
@@ -336,7 +353,7 @@ addToLibrary({
   // installs it and the page is laid out again. The full table is kept per
   // font and device in localStorage, so later visits use it at once.
   fortui_web_measure__deps: ['$FUI'],
-  fortui_web_measure: function (advPtr, ncp, fallbackPtr, linePtr) {
+  fortui_web_measure: function (advPtr, ncp, fallbackPtr, linePtr, monoPtr) {
     var n = 2 * ncp, table = FUI.metrics;
     var key = 'fortui-metrics-v2:' + FUI.font + ':' + (window.devicePixelRatio || 1);
     if (!table) {
@@ -359,6 +376,9 @@ addToLibrary({
     HEAPF32[fallbackPtr >> 2] = table[n];
     HEAPF32[(fallbackPtr >> 2) + 1] = table[n + 1];
     HEAPF32[linePtr >> 2] = 1.25;
+    var mc = FUI.ctx();
+    mc.font = '400 100px ' + FUI.mono;
+    HEAPF32[monoPtr >> 2] = mc.measureText('M').width / 100;
   },
 
   // 1 once after the full table became ready, so poll installs it.

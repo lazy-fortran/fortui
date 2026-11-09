@@ -94,6 +94,8 @@ try {
   check(true, 'the full text metrics are measured after start-up and stored');
   check((await text('[data-id="count"]')) === 'Clicked 0', 'buttons are DOM buttons with their labels');
   check(await evaluate(`document.querySelector('[data-id="count"]').tagName === 'BUTTON'`), 'button element');
+  check(await evaluate(`getComputedStyle(document.querySelector('[data-id="count"]')).fontFamily === getComputedStyle(document.querySelector('.fui-root')).fontFamily`),
+    'controls use the page font the metrics were measured in');
   await click('[data-id="count"]');
   await until(`document.querySelector('[data-id="count"]')?.textContent === 'Clicked 1'`, 'click');
   check(true, 'a pointer click activates the button');
@@ -112,6 +114,15 @@ try {
       { clipboardData: dt, bubbles: true, cancelable: true })); })()`);
   await until(`[...document.querySelectorAll('.fui-k1')].some((e) => e.textContent === 'Hello, Ada Lovelace!')`, 'pasted text');
   check(true, 'pasted text reaches the runtime without its line break');
+  await click('[data-id$="#3"]');
+  await until(`!!document.querySelector('[data-style="5"]')`, 'code lines');
+  check(await evaluate(`getComputedStyle(document.querySelector('[data-style="5"]')).fontFamily.includes('mono')`) &&
+    await evaluate(`getComputedStyle(document.querySelector('[data-style="5"]')).whiteSpace === 'pre'`),
+    'code is monospaced and keeps its spaces');
+  check(await evaluate(`!!document.querySelector('[data-tone="1"]') && !!document.querySelector('[data-tone="2"]')`),
+    'text carries its tone');
+  check(await evaluate(`document.documentElement.scrollHeight > window.innerHeight + 200`),
+    'a long page grows and the browser scrolls it');
   if (shot) {
     const png = await send('Page.captureScreenshot', { format: 'png' });
     await writeFile(shot, Buffer.from(png.result.data, 'base64'));
