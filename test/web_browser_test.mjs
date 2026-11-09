@@ -90,6 +90,8 @@ try {
   await until(`!!document.querySelector('[data-id="count"]')`, 'first frame');
   check(await evaluate(`[...document.querySelectorAll('.fui-k1')].some((e) => e.textContent === 'FortUI in the browser')`),
     'static texts without id are realized separately');
+  await until(`Object.keys(localStorage).some((k) => k.startsWith('fortui-metrics-v2:'))`, 'full metrics');
+  check(true, 'the full text metrics are measured after start-up and stored');
   check((await text('[data-id="count"]')) === 'Clicked 0', 'buttons are DOM buttons with their labels');
   check(await evaluate(`document.querySelector('[data-id="count"]').tagName === 'BUTTON'`), 'button element');
   await click('[data-id="count"]');

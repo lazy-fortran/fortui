@@ -68,6 +68,10 @@ module fortui_web
             integer(c_int), value :: text_cap
         end function js_events
 
+        integer(c_int) function js_metrics_changed() bind(C, name="fortui_web_metrics_changed")
+            import :: c_int
+        end function js_metrics_changed
+
         real(c_double) function js_now() bind(C, name="fortui_web_now")
             import :: c_double
         end function js_now
@@ -126,6 +130,11 @@ contains
         end if
         call read_events(input)
         call input_set_time(input, real(js_now(), kind(1.0d0)))
+        ! The full text metrics arrive after the first frames; lay out again.
+        if (js_metrics_changed() /= 0) then
+            call self%install_text_metrics()
+            input%resized = .true.
+        end if
     end subroutine web_poll
 
     subroutine read_events(input)
