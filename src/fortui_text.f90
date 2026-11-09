@@ -9,6 +9,7 @@ private
 
 integer, parameter, public :: TEXT_STYLE_REGULAR = 1
 integer, parameter, public :: TEXT_STYLE_BOLD = 2
+integer, parameter, public :: TEXT_STYLE_MONO = 3
 integer, parameter, public :: TEXT_MAX_CODEPOINT = 12287
 real, parameter, public :: TEXT_DEFAULT_SIZE = 20.0
 integer, parameter :: REPLACEMENT = 65533
@@ -27,6 +28,8 @@ real, save :: fixed_advance = 0.5
 real, save :: line_factor = 1.25
 real, save :: advance_table(0:TEXT_MAX_CODEPOINT, 2) = 0.5
 real, save :: fallback_advance(2) = 0.5
+! Advance of every code point in monospaced text, per unit size.
+real, save :: mono_advance = 0.6
 ! Character-cell metrics (terminals): every code point and line has the size of
 ! one cell whatever the requested text size (0 = off).
 real, save :: cell_advance = 0.0
@@ -34,7 +37,7 @@ real, save :: cell_height = 0.0
 
 public :: utf8_decode, utf8_encode, utf8_length, utf8_prev, utf8_next
 public :: utf8_boundary
-public :: text_use_fixed_metrics, text_set_metrics, text_metrics_fixed
+public :: text_use_fixed_metrics, text_set_metrics, text_metrics_fixed, text_set_mono_metrics
 public :: text_use_cell_metrics
 public :: text_advance, text_width, text_line_height, text_caret_from_x
 public :: text_wrap, text_fit, ui_str
@@ -213,6 +216,12 @@ subroutine text_set_metrics(advances, fallback, height_factor)
     line_factor = height_factor
 end subroutine text_set_metrics
 
+subroutine text_set_mono_metrics(advance)
+    !! Install the advance of monospaced text per unit font size.
+    real, intent(in) :: advance
+    mono_advance = max(0.05, advance)
+end subroutine text_set_mono_metrics
+
 logical function text_metrics_fixed()
     text_metrics_fixed = fixed_metrics
 end function text_metrics_fixed
@@ -232,7 +241,12 @@ real function text_advance(cp, size, style) result(adv)
         return
     end if
     st = TEXT_STYLE_REGULAR
-    if (present(style)) st = max(1, min(2, style))
+    if (present(style)) st = style
+    if (st == TEXT_STYLE_MONO) then
+        adv = mono_advance * size
+        return
+    end if
+    st = max(1, min(2, st))
     if (cp >= 0 .and. cp <= TEXT_MAX_CODEPOINT) then
         adv = advance_table(cp, st) * size
     else

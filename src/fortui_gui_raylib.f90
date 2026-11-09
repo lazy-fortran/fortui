@@ -1178,7 +1178,8 @@ subroutine draw_node(rl, frame, store, node)
         fill = color(70, 95, 130, 255)
     end if
     ty = node%y + 0.5 * (node%height - node%text_size)
-    weight = style_weight(node%style)
+    ! Raylib draws monospaced text with the regular font.
+    weight = min(style_weight(node%style), 2)
 
     select case (node%kind)
     case (UI_TEXT)

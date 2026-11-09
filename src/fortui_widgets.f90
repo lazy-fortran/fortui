@@ -103,16 +103,18 @@ end function resolve_width
 
 ! --- static and simple controls ------------------------------------------------
 
-subroutine text(value, style, size, width, ellipsis, id)
+subroutine text(value, style, size, width, ellipsis, id, tone)
     !! Static text. `style` is a token (UI_BODY default, UI_CAPTION, UI_HEADING,
-    !! UI_TITLE); `size` overrides its logical size. With `ellipsis`, text wider
-    !! than `width` (default: the remaining container width) is shortened with
-    !! an ellipsis by the backend. `id` is only needed for later reference.
+    !! UI_TITLE, UI_CODE); `tone` a UI_TONE_* token for its colour; `size`
+    !! overrides its logical size. With `ellipsis`, text wider than `width`
+    !! (default: the remaining container width) is shortened with an ellipsis by
+    !! the backend. `id` is only needed for later reference.
     character(*), intent(in) :: value
     integer, intent(in), optional :: style
     real, intent(in), optional :: size, width
     logical, intent(in), optional :: ellipsis
     character(*), intent(in), optional :: id
+    integer, intent(in), optional :: tone
 
     type(fortui_context_t), pointer :: ctx
     type(ui_node_t) :: node
@@ -121,6 +123,7 @@ subroutine text(value, style, size, width, ellipsis, id)
     if (.not. composing(ctx)) return
 
     node%kind = UI_TEXT
+    if (present(tone)) node%tone = tone
     if (present(id)) then
         node%id = scoped_id(id)
         if (.not. claim(ctx, trim(node%id), "text")) return

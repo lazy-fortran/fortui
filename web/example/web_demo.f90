@@ -6,7 +6,7 @@ program web_demo
     implicit none
 
     logical :: checked, submitted
-    integer :: value, tab, stat, clicks
+    integer :: value, tab, stat, clicks, k
     character(len=:), allocatable :: name
     character(len=16), parameter :: tab_labels(3) = [character(len=16) :: "Controls", &
         "Text", "About"]
@@ -42,6 +42,17 @@ program web_demo
             call scroll_text("about", "Fortran compiled to WebAssembly with LFortran. " // &
                 "Ordinary controls are DOM elements; the frame loop yields to the " // &
                 "browser between frames.", height=120.0)
+            ! A listing longer than the window: the browser scrolls the page.
+            do k = 1, 60
+                select case (mod(k, 3))
+                case (1)
+                    call text("+ added line " // ui_str(k), style=UI_CODE, tone=UI_TONE_POSITIVE)
+                case (2)
+                    call text("- removed line " // ui_str(k), style=UI_CODE, tone=UI_TONE_NEGATIVE)
+                case default
+                    call text("  context    " // ui_str(k), style=UI_CODE)
+                end select
+            end do
         end select
         call ui_present()
     end do

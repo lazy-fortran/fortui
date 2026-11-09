@@ -8,7 +8,8 @@ use fortui_backend_headless, only: headless_backend_t
 use fortui_backends, only: ui_init
 use fortui_testing, only: ui_inject_pointer, ui_inject_key, ui_stats, ui_stats_t, &
     ui_node_rect, ui_node_text, ui_node_count, ui_focused_id
-use fortui_text, only: text_fit, text_width, utf8_length
+use fortui_text, only: text_fit, text_width, utf8_length, text_set_metrics, &
+    text_set_mono_metrics, text_use_fixed_metrics, TEXT_STYLE_MONO, TEXT_MAX_CODEPOINT
 use fortui_tui, only: tui_map_key
 use fortui_input, only: KEY_NONE
 implicit none
@@ -252,6 +253,15 @@ subroutine test_text_fit()
     call check(r == ell, "only the ellipsis when nothing fits")
     call check(ui_str(42) == "42" .and. ui_str(-7) == "-7", "ui_str integers")
     call check(ui_str(3.14159, 2) == "3.14" .and. ui_str(0.5) == "0.50", "ui_str reals")
+    block
+        real :: table(0:TEXT_MAX_CODEPOINT, 2)
+        table = 0.5
+        call text_set_metrics(table, [0.5, 0.55], 1.25)
+        call text_set_mono_metrics(0.6)
+        call check(abs(text_width("abc", 10.0, TEXT_STYLE_MONO) - 18.0) < 1e-4 .and. &
+            abs(text_width("abc", 10.0) - 15.0) < 1e-4, "monospaced text has its own advance")
+        call text_use_fixed_metrics()
+    end block
 end subroutine test_text_fit
 
 subroutine test_tui_keys()

@@ -16,7 +16,8 @@ use fortui_widgets, only: text, button, slider, checkbox, tabs, scroll_text, &
     canvas_lines, canvas_label
 use fortui_canvas, only: canvas_view_t, canvas_events_t, ui_rgba, canvas_to_world, &
     canvas_to_local, canvas_zoom_at
-use fortui_frame, only: UI_BODY, UI_CAPTION, UI_HEADING, UI_TITLE, UI_FILL
+use fortui_frame, only: UI_BODY, UI_CAPTION, UI_HEADING, UI_TITLE, UI_FILL, UI_CODE, &
+    UI_TONE_NORMAL, UI_TONE_POSITIVE, UI_TONE_NEGATIVE, UI_TONE_MUTED, UI_TONE_ACCENT
 use fortui_text, only: ui_str
 use fortui_input, only: KEY_ENTER, KEY_ESCAPE, KEY_TAB, KEY_BACKSPACE, KEY_DELETE, &
     KEY_HOME, KEY_END, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_ARROW_UP, KEY_ARROW_DOWN, &
@@ -35,7 +36,8 @@ public :: text, button, slider, checkbox, tabs, scroll_text, text_input
 public :: canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_lines
 public :: canvas_label, canvas_view_t, canvas_events_t, ui_rgba
 public :: canvas_to_world, canvas_to_local, canvas_zoom_at
-public :: UI_BODY, UI_CAPTION, UI_HEADING, UI_TITLE, UI_FILL
+public :: UI_BODY, UI_CAPTION, UI_HEADING, UI_TITLE, UI_FILL, UI_CODE
+public :: UI_TONE_NORMAL, UI_TONE_POSITIVE, UI_TONE_NEGATIVE, UI_TONE_MUTED, UI_TONE_ACCENT
 public :: KEY_ENTER, KEY_ESCAPE, KEY_TAB, KEY_BACKSPACE, KEY_DELETE, KEY_HOME
 public :: KEY_END, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_ARROW_UP, KEY_ARROW_DOWN
 public :: KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_SPACE, KEY_INSERT
