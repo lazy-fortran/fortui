@@ -39,6 +39,7 @@ contains
             call scroll_text("about", "Fortran compiled to WebAssembly with LFortran. " // &
                 "Ordinary controls are DOM elements; the frame loop yields to the " // &
                 "browser between frames.", height=120.0)
+            call text("long line: "//repeat("abcdefghij ", 30), style=UI_CODE, id="longcode")
             ! A listing longer than the window: the browser scrolls the page.
             do k = 1, 60
                 select case (mod(k, 3))

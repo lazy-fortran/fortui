@@ -4,14 +4,17 @@
 .fui-box { display: flex; box-sizing: border-box; min-width: 0; }
 .fui-col { flex-direction: column; align-items: flex-start; }
 .fui-row { flex-direction: row; align-items: center; }
+/* Containers span the width available to them, as in fortui's own layout. */
+.fui-col > .fui-box { align-self: stretch; }
 .fui-root { width: 100%; }
 .fui { box-sizing: border-box; margin: 0; font: inherit; line-height: 1.25; min-width: 0; }
 .fui-k1 { overflow-wrap: anywhere; }
 .fui-k1.fui-ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fui[data-style="3"], .fui[data-style="4"] { font-weight: 600; }
+/* Code keeps its spaces and wraps at the container's edge instead of widening the page. */
 .fui[data-style="5"] {
   font-family: ui-monospace, "SF Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
-  white-space: pre;
+  white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .fui-k2, .fui-k5 { white-space: nowrap; }
 .fui-k4 { display: inline-flex; align-items: center; gap: 6px; }
