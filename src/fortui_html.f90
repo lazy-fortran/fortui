@@ -4,7 +4,7 @@ module fortui_html
     !! first frame of a page (with the headless backend) and sends this HTML, so
     !! the page shows before any script runs; the browser backend then adopts the
     !! elements by key instead of rebuilding them.
-    use fortui_frame, only: ui_frame_t, ui_node_t, UI_TEXT, UI_BUTTON, UI_SLIDER, &
+    use fortui_frame, only: ui_frame_t, ui_node_t, UI_TEXT, UI_BUTTON, UI_LINK, UI_SLIDER, &
         UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, WIDTH_FIXED, &
         WIDTH_FILL
     use fortui_layout, only: KIND_ROW, KIND_SPLIT, KIND_PANE
@@ -101,7 +101,7 @@ contains
                 body = ''
                 if (allocated(n%body)) body = html_escape(n%body)
                 a = ' class="fui fui-k'//ui_str(n%kind)
-                if (n%kind == UI_TEXT .and. n%ellipsis) a = a//' fui-ellipsis'
+                if ((n%kind == UI_TEXT .or. n%kind == UI_LINK) .and. n%ellipsis) a = a//' fui-ellipsis'
                 a = a//'" data-key="'//html_escape(trim(keys(k)))//'"'
                 if (len_trim(n%id) > 0) a = a//' data-id="'//html_escape(trim(n%id))//'"'
                 a = a//' data-style="'//ui_str(n%style)//'" data-tone="'//ui_str(n%tone)//'"'
@@ -115,6 +115,8 @@ contains
                 select case (n%kind)
                 case (UI_BUTTON)
                     s = '<button type="button"'//a//'>'//text//'</button>'
+                case (UI_LINK)
+                    s = '<a href="'//body//'"'//a//'>'//text//'</a>'
                 case (UI_TAB)
                     if (n%checked) then
                         s = '<button type="button" role="tab" aria-selected="true"'

@@ -15,7 +15,7 @@ module fortui_gui_raylib
 ! sources without -D flags); everything else needs -DENABLE_GUI=1.
 use iso_c_binding
 use iso_fortran_env, only: int32
-use fortui_frame, only: ui_frame_t, ui_node_t, ui_layer_ref_t, UI_TEXT, UI_BUTTON, &
+use fortui_frame, only: ui_frame_t, ui_node_t, ui_layer_ref_t, UI_TEXT, UI_BUTTON, UI_LINK, &
     UI_SLIDER, UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, &
     UI_CAPTION, LAYER_POINTS, LAYER_LINES, SCROLL_PADDING, SCROLLBAR_WIDTH, &
     INPUT_PADDING, CONTROL_PADDING, style_weight
@@ -1182,7 +1182,7 @@ subroutine draw_node(rl, frame, store, node)
     weight = min(style_weight(node%style), 2)
 
     select case (node%kind)
-    case (UI_TEXT)
+    case (UI_TEXT, UI_LINK)
         if (node%style == UI_CAPTION) fg = color(160, 166, 178, 255)
         call draw_utf8(rl, shown(node, node%width, weight), node%x, ty, &
             node%text_size, weight, fg)

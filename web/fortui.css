@@ -9,7 +9,9 @@
 .fui-root { width: 100%; }
 .fui { box-sizing: border-box; margin: 0; font: inherit; line-height: 1.25; min-width: 0; }
 .fui-k1 { overflow-wrap: anywhere; }
-.fui-k1.fui-ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fui-k9 { color: inherit; text-decoration: none; }
+.fui-k9:hover { text-decoration: underline; }
+.fui-k1.fui-ellipsis, .fui-k9.fui-ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fui[data-style="3"], .fui[data-style="4"] { font-weight: 600; }
 /* Code keeps its spaces and wraps at the container's edge instead of widening the page. */
 .fui[data-style="5"] {

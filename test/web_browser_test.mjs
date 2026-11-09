@@ -109,6 +109,11 @@ try {
   await click('[data-id="count"]');
   await until(`document.querySelector('[data-id="count"]')?.textContent === 'Clicked 1'`, 'click');
   check(true, 'a pointer click activates the button');
+  check(await evaluate(`document.querySelector('[data-id="more"]').tagName === 'A' && document.querySelector('[data-id="more"]').getAttribute('href') === '#more'`),
+    'a link is an anchor with its location');
+  await click('[data-id="more"]');
+  await until(`document.querySelector('[data-id="count"]')?.textContent === 'Clicked 101'`, 'link');
+  check(await evaluate(`location.hash === ''`), 'a plain click on a link goes to the application, not the browser');
   await click('[data-id="check"]');
   await until(`document.querySelector('[data-id="check"] input')?.checked === true`, 'checkbox');
   check(true, 'a click toggles the checkbox through the runtime');

@@ -208,7 +208,7 @@ integration. Judge their responsibilities and dependencies, not ideological puri
 | Area | Implemented base | Design target |
 |---|---|---|
 | Composition | Explicit begin/present frame loop | Event-driven, single composition per transaction |
-| Semantics | Text/button/slider/checkbox/tabs/text field/scroll text/canvas nodes | Roles, commands, owned variable-length data, relationships |
+| Semantics | Text/button/link/slider/checkbox/tabs/text field/scroll text/canvas nodes | Roles, commands, owned variable-length data, relationships |
 | Identity/input | Container-scoped ids and loop keys with duplicate reports; previous-frame routing | Generations, capture/focus/edit lifecycle |
 | Layout | Logical rows/columns, fill widths, two/three-pane splits | Intrinsic/adaptive layout and virtualization |
 | Backends | Headless, termbox2 TUI, optional raylib | Native/hybrid, DOM, mobile and additional renderers |
