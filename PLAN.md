@@ -78,8 +78,9 @@ LFortran 0.67.0-460 native build of all sources running `test_fortui` and
       table (#149, review F3).
 - [ ] Text field draft session or documented commit-per-edit policy in
       SEMANTIC_MODEL (review F5; `text_input` currently commits every edit).
-- [ ] Owned variable-length node text, ids and layer keys instead of 512/96/128
-      character fields (#149, review F7).
+- [x] Variable-length node text (labels, code lines, paragraphs are never cut).
+- [ ] Variable-length node ids and layer keys instead of 96/128 character
+      fields (#149, review F7).
 - [ ] Context-owned layout stack and text metrics instead of module state;
       `ui_shutdown` resetting all of it (#149, review F8).
 
