@@ -1,7 +1,7 @@
 module fortui_context
     !! Runtime state retained behind the immediate composition API.
     use fortui_frame, only: ui_frame_t
-    use fortui_input, only: input_state_t, host_event_t, MAX_HOST_EVENTS
+    use fortui_input, only: input_state_t, host_event_t, MAX_HOST_EVENTS, key_press_t
     use fortui_canvas, only: canvas_store_t
     use fortui_text, only: text_line_t
     use fortui_backend, only: ui_backend_t
@@ -34,6 +34,9 @@ module fortui_context
         logical :: should_quit = .false.
         ! Whether keys of the current frame went to a focused text field.
         logical :: text_focused = .false.
+        ! Identities asked for by ui_focus and ui_reveal, applied at present.
+        character(len=96) :: focus_request = ""
+        character(len=96) :: reveal_request = ""
         integer :: frame_count = 0
         class(ui_backend_t), allocatable :: backend
         character(len=32) :: backend_name = ""
@@ -70,6 +73,8 @@ module fortui_context
         integer :: inject_keys(32) = 0
         character(len=256) :: inject_text = ""
         integer :: inject_text_len = 0
+        integer :: inject_press_count = 0
+        type(key_press_t) :: inject_presses(16)
         integer :: inject_host_count = 0
         type(host_event_t) :: inject_host(MAX_HOST_EVENTS)
         double precision :: inject_time = -1.0d0

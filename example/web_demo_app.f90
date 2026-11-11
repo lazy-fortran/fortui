@@ -7,10 +7,10 @@ module web_demo_app
 
     public :: compose
 
-    logical :: checked = .false., submitted = .false.
-    integer :: value = 25, tab = 1, clicks = 0, ticks = 0
+    logical :: checked = .false., submitted = .false., to_name = .false., to_end = .false.
+    integer :: value = 25, tab = 1, clicks = 0, ticks = 0, presses = 0
     double precision :: next_tick = 0d0
-    character(len=:), allocatable :: name
+    character(len=:), allocatable :: name, notes, last_key
     character(len=16), parameter :: tab_labels(3) = [character(len=16) :: "Controls", &
         "Text", "About"]
 
@@ -20,6 +20,8 @@ contains
         integer :: k
 
         if (.not. allocated(name)) name = ""
+        if (.not. allocated(notes)) notes = ""
+        if (.not. allocated(last_key)) last_key = ""
         call text("FortUI in the browser", style=UI_TITLE)
         ! A clock driven only by timers: three ticks, 0.2 s apart, no input.
         if (ticks < 3) then
@@ -31,6 +33,26 @@ contains
             if (ticks < 3) call ui_wake_after(real(next_tick - ui_time()))
         end if
         call text("Ticks " // ui_str(ticks), id="ticks")
+        ! Shortcuts: "g o" shows the end of the listing, mod+k goes to the name.
+        if (ui_shortcut("j")) call pressed("j")
+        if (ui_shortcut("Escape")) call pressed("Escape")
+        if (ui_shortcut("o")) call pressed("o")
+        if (ui_shortcut("g o")) then
+            call pressed("g o")
+            tab = 3
+            to_end = .true.
+        end if
+        if (ui_shortcut("mod+k")) then
+            call pressed("mod+k")
+            tab = 2
+            to_name = .true.
+        end if
+        if (tab == 2) then
+            ! As a command palette has them: pressed while the name is typed.
+            if (ui_shortcut("ArrowDown")) call pressed("ArrowDown")
+            if (ui_shortcut("Enter")) call pressed("Enter")
+        end if
+        call text("Keys " // ui_str(presses) // " " // last_key, id="keys")
         if (tabs("tabs", tab_labels, tab)) continue
         select case (tab)
         case (1)
@@ -53,6 +75,9 @@ contains
             if (text_input("name", name, placeholder="Your name", submitted=submitted, &
                 width=320.0)) continue
             call text("Hello, " // name // "!")
+            if (to_name) call ui_focus("name")
+            to_name = .false.
+            if (text_input("notes", notes, placeholder="Notes", width=320.0, lines=3)) continue
         case default
             call scroll_text("about", "Fortran compiled to WebAssembly with LFortran. " // &
                 "Ordinary controls are DOM elements; the frame loop yields to the " // &
@@ -72,8 +97,17 @@ contains
                     call text("  context    " // ui_str(k), style=UI_CODE)
                 end select
             end do
+            call text("end of the listing", id="last")
+            if (to_end) call ui_reveal("last")
+            to_end = .false.
         end select
     end subroutine compose
+
+    subroutine pressed(chord)
+        character(*), intent(in) :: chord
+        presses = presses + 1
+        last_key = chord
+    end subroutine pressed
 
 end module web_demo_app
 

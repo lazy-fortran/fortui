@@ -92,6 +92,11 @@ async function type(text) {
     await send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch });
   }
 }
+// A key press; `more` holds modifiers (Alt 1, Ctrl 2, Meta 4, Shift 8), autoRepeat or text.
+async function press(key, code, vk, more = {}) {
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: vk, ...more });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk });
+}
 const text = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector)})?.textContent ?? null`);
 
 let failed = 0;
@@ -180,6 +185,74 @@ try {
     'text carries its tone');
   check(await evaluate(`document.documentElement.scrollHeight > window.innerHeight + 200`),
     'a long page grows and the browser scrolls it');
+  // Keys. A listener after the host's sees what the host prevented.
+  await evaluate(`window.__keys = []; window.addEventListener('keydown',
+    (e) => window.__keys.push(e.key + (e.defaultPrevented ? ' prevented' : ' default'))); document.activeElement.blur(); 1`);
+  const lastKey = () => evaluate(`window.__keys[window.__keys.length - 1]`);
+  const keys = () => text('[data-id="keys"]');
+  const settled = async () => { await sleep(150); return keys(); };
+  await press('j', 'KeyJ', 74);
+  await until(`document.querySelector('[data-id="keys"]').textContent === 'Keys 1 j'`, 'shortcut j');
+  check((await lastKey()) === 'j prevented', 'a registered key reaches the application and the browser does not act on it');
+  await press('x', 'KeyX', 88);
+  check((await settled()) === 'Keys 1 j' && (await lastKey()) === 'x default', 'a key nobody registered stays the browser\'s');
+  await press('j', 'KeyJ', 74, { autoRepeat: true });
+  await press('j', 'KeyJ', 74);
+  await until(`document.querySelector('[data-id="keys"]').textContent === 'Keys 2 j'`, 'second j');
+  check((await settled()) === 'Keys 2 j', 'a key repeat is not a second press');
+  await press('k', 'KeyK', 75, { modifiers: 2 });
+  await until(`document.activeElement.dataset.id === 'name'`, 'focus after mod+k');
+  check((await keys()) === 'Keys 3 mod+k' && (await lastKey()) === 'k prevented',
+    'Ctrl+K is the application\'s, and ui_focus moves the focus to the field it shows');
+  await type('j');
+  await until(`document.querySelector('[data-id="name"]').value === 'Ada Lovelacej'`, 'typing j');
+  check((await settled()) === 'Keys 3 mod+k' && (await lastKey()) === 'j default',
+    'in a text field a registered character is typed, not a shortcut');
+  await press('ArrowDown', 'ArrowDown', 40);
+  await until(`document.querySelector('[data-id="keys"]').textContent === 'Keys 4 ArrowDown'`, 'arrow in field');
+  check((await lastKey()) === 'ArrowDown prevented', 'a text field gives ArrowDown to the application');
+  await press('Enter', 'Enter', 13, { text: '\r' });
+  await until(`document.querySelector('[data-id="keys"]').textContent === 'Keys 5 Enter'`, 'enter in field');
+  check(true, 'a text field gives Enter to the application');
+  await evaluate(`document.querySelector('[data-id="name"]').dispatchEvent(
+    new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true })); 1`);
+  check((await settled()) === 'Keys 5 Enter' && (await lastKey()) === 'Enter default',
+    'Enter that ends an input method composition is not the application\'s');
+  await click('[data-id="notes"]');
+  await type('a');
+  await press('Enter', 'Enter', 13, { text: '\r' });
+  await type('b');
+  await press('ArrowDown', 'ArrowDown', 40);
+  await until(`document.querySelector('[data-id="notes"]').value === 'a\\nb'`, 'lines in the notes');
+  check((await settled()) === 'Keys 5 Enter' && (await lastKey()) === 'ArrowDown default',
+    'a field of several lines keeps Enter and the arrows');
+  await press('Escape', 'Escape', 27);
+  await until(`document.querySelector('[data-id="keys"]').textContent === 'Keys 6 Escape'`, 'escape in notes');
+  check((await lastKey()) === 'Escape default', 'Escape reaches the application from any field and keeps its default there');
+  await evaluate(`document.activeElement.blur(); window.scrollTo(0, 0); 1`);
+  await press('g', 'KeyG', 71);
+  await press('o', 'KeyO', 79);
+  await until(`document.querySelector('[data-id="keys"]').textContent === 'Keys 7 g o'`, 'chord of two keys');
+  await until(`!!document.querySelector('[data-id="last"]')`, 'end of the listing');
+  check(await evaluate(`(() => { const r = document.querySelector('[data-id="last"]').getBoundingClientRect();
+    return window.scrollY > 200 && r.top >= 0 && Math.abs(r.bottom - window.innerHeight) < 2; })()`),
+    'two keys in a row are one chord, and ui_reveal scrolls its element to the nearest edge');
+  await press('g', 'KeyG', 71);
+  await press('x', 'KeyX', 88);
+  await press('o', 'KeyO', 79);
+  await until(`document.querySelector('[data-id="keys"]').textContent === 'Keys 8 o'`, 'o after g x');
+  check((await settled()) === 'Keys 8 o', 'a key nobody registered between the two keys ends the chord');
+  await evaluate(`for (let i = 0; i < 3; i++) document.body.dispatchEvent(
+    new KeyboardEvent('keydown', { key: 'j', code: 'KeyJ', bubbles: true, cancelable: true })); 1`);
+  await until(`document.querySelector('[data-id="keys"]').textContent === 'Keys 11 j'`, 'three j before a frame');
+  check((await settled()) === 'Keys 11 j', 'presses of one chord that arrive before the next frame all count');
+  // A Cyrillic layout reports another character for the key K; the window is not focused.
+  check(await evaluate(`document.hasFocus = () => false; !document.body.dispatchEvent(
+    new KeyboardEvent('keydown', { key: 'л', code: 'KeyK', ctrlKey: true, bubbles: true, cancelable: true }))`),
+    'Ctrl with a key of another layout is prevented as the letter on the key');
+  await until(`document.querySelector('[data-id="keys"]').textContent === 'Keys 12 mod+k'`, 'mod+k by key code');
+  await until(`document.activeElement.dataset.id === 'name'`, 'focus in a window without focus');
+  check(true, 'ui_focus moves the focus also while the window does not have it');
   // A page the server rendered: the WebAssembly adopts its elements.
   await send('Page.navigate', { url: url + '?ssr' });
   await until(`window.__ssrCount > 0 && !!document.querySelector('[data-id="count"]')`, 'server page');

@@ -237,6 +237,21 @@ bounded work for a large collection, and no unsupported performance claims.
       lose control characters and are cut at whole characters; a second
       element with an anchor already given in the frame is reported and gets
       none. Checked in `test_html` and in headless Chromium.
+- [x] Keyboard shortcuts and focus requests: `ui_shortcut(chord)` per frame
+      ("j", "g o", "mod+k", "Enter"), `ui_focus(id)`, `ui_reveal(id)`. Key
+      presses are sorted once in `fortui_input` against the chords of the last
+      frame and against what the focused control uses itself; the browser host
+      has every key sorted there at the moment it is pressed and the frames
+      see that result, so it prevents the browser's action only for registered
+      chords and never takes a key from a field, a select or an input method.
+      A chord pressed again before a frame waits for the next frame. With a
+      modifier, a key whose layout gives no ASCII character is the letter on
+      the key (`KeyboardEvent.code`). Evidence: `test/test_keys_focus.f90` (headless) and
+      `test/web_browser_test.mjs` (Chromium 156, real key events). The
+      terminal presses unmodified keys and Ctrl with a letter, raylib
+      unmodified keys; `fortui_html` marks the focused control `autofocus`
+      and ignores reveal. Not yet run: Cmd on macOS, a real input method,
+      shortcuts in a real terminal.
 - [ ] Web backend: canvas layers (WebGPU through emscripten `webgpu.h`, or 2-D
       canvas first), DOM-realized geometry fed back to the runtime, IME through
       composition events, URL/history integration, and a CI job.

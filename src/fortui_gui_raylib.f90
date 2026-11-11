@@ -21,6 +21,7 @@ module fortui_gui_raylib
         INPUT_PADDING, CONTROL_PADDING, style_weight
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
         input_set_key, input_type_text, input_set_time, input_has_events, KEY_NONE, &
+        input_key_press, &
         KEY_ESCAPE, KEY_ENTER, KEY_TAB, KEY_SPACE, KEY_ARROW_UP, KEY_ARROW_DOWN, &
         KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_BACKSPACE, KEY_DELETE, KEY_HOME, KEY_END, &
         KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_INSERT
@@ -497,7 +498,8 @@ contains
         end do
         do k = 1, size(REPEAT_KEYS)
             if (rl_is_key_pressed_repeat(int(REPEAT_KEYS(k), c_int))) &
-                call input_set_key(input, map_key(REPEAT_KEYS(k)))
+                call input_key_press(input, map_key(REPEAT_KEYS(k)), 0, 0, repeat=.true., &
+                widgets=.true.)
         end do
         do
             cp = int(rl_get_char_pressed())

@@ -106,6 +106,8 @@ module fortui_frame
         logical :: hovered = .false.
         logical :: focused = .false.
         logical :: active = .false.
+        ! Asked into view in this frame (ui_reveal).
+        logical :: reveal = .false.
         real :: value = 0.0
         real :: min_value = 0.0
         real :: max_value = 1.0

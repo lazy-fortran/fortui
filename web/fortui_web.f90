@@ -12,7 +12,9 @@ module fortui_web
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t
     use fortui_frame, only: ui_frame_t, ui_node_t
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
-        input_set_key, input_set_time, input_host_event
+        input_set_time, input_host_event, input_widget_key, input_host_key, &
+        input_claims, KEY_ESCAPE
+    use fortui_context, only: fortui_context_t, get_default_context
     use fortui_canvas, only: canvas_store_t
     use fortui_text, only: text_use_fixed_metrics, ui_str
     use fortui_core, only: ui_run_step
@@ -92,6 +94,21 @@ contains
         if (ui_run_step()) fortui_web_step = 1
     end function fortui_web_step
 
+    integer(c_int) function fortui_web_key(key, flags, code) bind(C, name="fortui_web_key")
+        !! Asked by the host at a key press, before the browser's own action:
+        !! 1 the application wants the press, 2 the browser's action must not
+        !! happen (the arguments are those of input_host_key). The host asks
+        !! for every key and sends an event for those the application wants.
+        integer(c_int), value :: key, flags, code
+        type(fortui_context_t), pointer :: ctx
+
+        fortui_web_key = 0
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        fortui_web_key = int(input_claims(ctx%input, input_host_key(int(key), int(flags), &
+            int(code)), real(js_now(), kind(1.0d0))), c_int)
+    end function fortui_web_key
+
     function web_name(self) result(name)
         class(web_backend_t), intent(in) :: self
         character(len=:), allocatable :: name
@@ -143,7 +160,10 @@ contains
                 call input_update_pointer(input, real(ev(2, i)), real(ev(3, i)), &
                     ev(4, i) > 0.5)
             case (EV_KEY)
-                call input_set_key(input, nint(ev(2, i)))
+                ! The press is with the shortcuts since fortui_web_key. Escape
+                ! also goes to the widgets; the browser's own controls handle
+                ! every other key themselves.
+                if (nint(ev(2, i)) == KEY_ESCAPE) call input_widget_key(input, KEY_ESCAPE)
             case (EV_WHEEL)
                 call input_scroll(input, nint(ev(2, i)), real(ev(3, i)))
             case (EV_RESIZE)
@@ -233,7 +253,8 @@ contains
     end subroutine web_present
 
     function node_record(n) result(r)
-        !! Kind, id, x, y, width, height (logical units), flags, value, min,
+        !! Kind, id, x, y, width, height (logical units), flags (1 focusable,
+        !! 2 disabled, 8 focused, 32 checked, 64 ellipsis, 256 reveal), value, min,
         !! max, style, text size, box, width mode, tone, text, body, runs, look,
         !! anchor.
         type(ui_node_t), intent(in) :: n
@@ -247,6 +268,7 @@ contains
         if (n%checked) flags = ior(flags, 32)
         if (n%ellipsis) flags = ior(flags, 64)
         if (n%markdown) flags = ior(flags, 128)
+        if (n%reveal) flags = ior(flags, 256)
         r = ui_str(n%kind)//US//clean(trim(n%id))//US// &
             ui_str(nint(n%x))//US//ui_str(nint(n%y))//US//ui_str(nint(n%width))//US// &
             ui_str(nint(n%height))//US//ui_str(flags)//US//ui_str(n%value, 4)//US// &

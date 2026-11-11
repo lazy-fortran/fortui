@@ -52,7 +52,7 @@ module fortui_widgets
 
     public :: text, button, link, slider, checkbox, tabs
     public :: canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_lines
-    public :: canvas_label, scroll_text, text_input
+    public :: canvas_label, scroll_text, text_input, ui_focus, ui_reveal
 
 contains
 
@@ -1124,6 +1124,39 @@ contains
             at = min(c, len(s)) + at - 1
         end if
     end function line_end
+
+    ! --- focus ----------------------------------------------------------------------------
+
+    subroutine ui_focus(id, key)
+        !! Moves the keyboard focus to the control `id` of this frame, named as
+        !! the control was: by its id, with `key` in a loop, from the container
+        !! it is composed in (before or after it). Ignored when no enabled
+        !! control of this frame has that identity. The browser focuses the
+        !! element without scrolling; a page rendered by fortui_html marks it
+        !! `autofocus`.
+        character(*), intent(in) :: id
+        integer, intent(in), optional :: key
+        type(fortui_context_t), pointer :: ctx
+
+        ctx => get_default_context()
+        if (.not. composing(ctx)) return
+        ctx%focus_request = scoped_id(id, key)
+    end subroutine ui_focus
+
+    subroutine ui_reveal(id, key)
+        !! Scrolls the widget `id` of this frame (named as for ui_focus) into
+        !! view: by the least movement, at once, and not at all when it is
+        !! visible. Call it when something changed, such as a selection that
+        !! moved, not in every frame. Only the browser scrolls pages; other
+        !! backends and fortui_html ignore it.
+        character(*), intent(in) :: id
+        integer, intent(in), optional :: key
+        type(fortui_context_t), pointer :: ctx
+
+        ctx => get_default_context()
+        if (.not. composing(ctx)) return
+        ctx%reveal_request = scoped_id(id, key)
+    end subroutine ui_reveal
 
     ! --- helpers --------------------------------------------------------------------------
 

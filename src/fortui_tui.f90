@@ -20,7 +20,7 @@ module fortui_tui
         UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, UI_CAPTION, &
         UI_HEADING, UI_TITLE, SCROLL_PADDING
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
-        input_set_key, input_type_text, KEY_NONE, KEY_ENTER, KEY_ESCAPE, KEY_TAB, &
+        input_set_key, input_type_text, input_key_press, MOD_CTRL, KEY_NONE, KEY_ENTER, KEY_ESCAPE, KEY_TAB, &
         KEY_BACKSPACE, KEY_DELETE, KEY_HOME, KEY_END, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, &
         KEY_ARROW_UP, KEY_ARROW_DOWN, KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_INSERT, KEY_SPACE
     use fortui_text, only: utf8_decode, utf8_encode, utf8_length, text_use_cell_metrics
@@ -230,7 +230,7 @@ module fortui_tui
         procedure :: capabilities => tui_caps
     end type tui_backend_t
 
-    public :: tui_is_available, tui_map_key, tui_parse_replies, tui_cell_to_logical
+    public :: tui_is_available, tui_map_key, tui_ctrl_letter, tui_parse_replies, tui_cell_to_logical
     public :: tui_pixel_to_logical, tui_canvas_map
 
 contains
@@ -661,6 +661,8 @@ contains
                 ! Space is typed text and also the activation key.
                 if (event%ch == 32) call input_set_key(input, KEY_SPACE)
                 call input_type_text(input, utf8_encode(int(event%ch)))
+            else if (tui_ctrl_letter(key) > 0) then
+                call input_key_press(input, KEY_NONE, tui_ctrl_letter(key), MOD_CTRL)
             else
                 call input_set_key(input, tui_map_key(key))
             end if
@@ -703,6 +705,17 @@ contains
             end select
         end select
     end subroutine process_event
+
+    pure integer function tui_ctrl_letter(tb_key) result(code)
+        !! The letter of a termbox2 Ctrl+letter key code, or 0: Ctrl+H, Ctrl+I
+        !! and Ctrl+M are what terminals send for Backspace, Tab and Enter.
+        integer, intent(in) :: tb_key
+        code = 0
+        if (tb_key < 1 .or. tb_key > 26) return
+        if (tb_key == TB_KEY_BACKSPACE .or. tb_key == TB_KEY_TAB .or. &
+            tb_key == TB_KEY_ENTER) return
+        code = iachar('a') + tb_key - 1
+    end function tui_ctrl_letter
 
     pure integer function tui_map_key(tb_key) result(key)
         !! Backend-neutral KEY_* for a termbox2 key code (KEY_NONE if unnamed).

@@ -41,6 +41,13 @@ browser `ui_run` returns and the browser calls the frame when something happened
 so state the frame uses belongs in a module. The explicit loop with
 `ui_frame_begin` and `ui_present` still works on native hosts.
 
+Keyboard shortcuts are asked for while composing: `if (ui_shortcut("mod+k"))
+call open_palette()`, with chords such as `"j"`, `"?"`, `"Enter"` or `"g o"` (two
+keys in a row). A text field keeps what is typed into it and gives up only
+ArrowUp, ArrowDown, Enter and Escape, which is what a command palette needs.
+`ui_focus(id)` moves the keyboard focus to a control and `ui_reveal(id)` scrolls a
+widget into view in the browser.
+
 Applications can also inject a backend value without the registry, for example
 `call ui_init(headless_backend_t(), 800, 600, "test")` in tests or
 `call ui_init(raylib_backend_t(font_regular="Inter.ttf"), 1200, 800, "app")`.

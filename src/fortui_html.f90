@@ -149,6 +149,9 @@ contains
                 a = a//' data-style="'//ui_str(n%style)//'" data-tone="'//ui_str(n%tone)//'"'
                 a = a//marks(n%look, n%anchor)
                 if (n%disabled) a = a//' disabled'
+                ! The control with the focus (ui_focus) has it when the page loads.
+                if (n%focused .and. n%kind /= UI_CHECKBOX .and. n%kind /= UI_SCROLL_TEXT) &
+                    a = a//' autofocus'
                 style = 'font-size: '//ui_str(nint(n%text_size))//'px;'//width_style(n, row)
                 select case (n%kind)
                 case (UI_BUTTON, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT)
@@ -174,6 +177,7 @@ contains
                 case (UI_CHECKBOX)
                     s = '<label'//a//'><input type="checkbox"'
                     if (n%checked) s = s//' checked'
+                    if (n%focused) s = s//' autofocus'
                     s = s//'><span>'//text//'</span></label>'
                 case (UI_CANVAS)
                     s = '<canvas width="'//ui_str(nint(n%width))//'" height="'// &

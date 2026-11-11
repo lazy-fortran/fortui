@@ -15,6 +15,40 @@ addToLibrary({
     scheduled: false,
     started: false,
     HOST: { activate: 1, focus: 2, blur: 3, value: 4, submit: 5 },
+    // Named keys as the runtime numbers them (KEY_* in fortui_input).
+    KEYS: { Enter: 1, Escape: 2, Tab: 3, Backspace: 4, Delete: 5, Home: 6, End: 7, ArrowLeft: 8,
+      ArrowRight: 9, ArrowUp: 10, ArrowDown: 11, PageUp: 12, PageDown: 13, ' ': 14, Insert: 15 },
+    // A key press as [named key, flags, code point], or null for keys that are
+    // none of the application's (modifiers alone, function keys). Flags: Ctrl
+    // 1, Alt 2, Shift 4, Meta 8, 16 where Cmd is the command modifier, 32 a
+    // repeat, and 256 times what the element with the focus does with keys
+    // itself: 1 Enter and Space (a button), 2 also the navigation keys (a
+    // slider), 3 typing (a field of one line), 4 everything (several lines, a
+    // select, editable content).
+    key: function (e) {
+      var named = FUI.KEYS[e.key] || 0, code = 0;
+      if (!named) {
+        if (typeof e.key !== 'string' || Array.from(e.key).length !== 1) return null;
+        code = e.key.codePointAt(0);
+      }
+      // AltGr types a character; it is not Ctrl with Alt.
+      var typing = e.getModifierState && e.getModifierState('AltGraph');
+      var flags = (e.ctrlKey && !typing ? 1 : 0) | (e.altKey && !typing ? 2 : 0) |
+        (e.shiftKey ? 4 : 0) | (e.metaKey ? 8 : 0) | (e.repeat ? 32 : 0);
+      // With a modifier, a key whose layout gives no ASCII character (Cyrillic,
+      // Alt on macOS) is the letter or digit printed on it.
+      var at = (flags & 11) && code > 127 && /^(Key[A-Z]|Digit[0-9])$/.test(e.code || '');
+      if (at) code = e.code.slice(-1).toLowerCase().charCodeAt(0);
+      if (/Mac|iPhone|iPad/.test(navigator.platform)) flags |= 16;
+      var t = e.target, tag = t && t.tagName, uses = 0;
+      if (tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) uses = 4;
+      else if (tag === 'INPUT') {
+        if (/^(text|search|url|tel|email|password)$/.test(t.type)) uses = 3;
+        else if (/^(checkbox|button|submit|reset|image|file)$/.test(t.type)) uses = 1;
+        else uses = t.type === 'range' || t.type === 'radio' ? 2 : 4;
+      } else if (tag === 'BUTTON' || tag === 'SUMMARY' || (tag === 'A' && t.hasAttribute('href'))) uses = 1;
+      return [named, flags | (uses << 8), code];
+    },
     // Frame scheduling: one animation frame per burst of events.
     request: function () {
       if (FUI.scheduled || !FUI.started) return;
@@ -62,20 +96,28 @@ addToLibrary({
         t._reported = t.value;
         FUI.host(H.value, el, t.value);
       });
-      root.addEventListener('keydown', function (e) {
-        var t = e.target;
-        if (e.key === 'Enter' && t.tagName === 'INPUT' && t.type === 'text') {
-          FUI.host(H.submit, t.closest('[data-id]'));
-        }
-      });
       root.addEventListener('focusin', function (e) {
         FUI.host(H.focus, e.target.closest('[data-id]'));
       });
       root.addEventListener('focusout', function (e) {
         FUI.host(H.blur, e.target.closest('[data-id]'));
       });
+      // One path for keys. The runtime says whether the application wants a
+      // press and whether the browser's own action must not happen: that is so
+      // for the chords the last frame asked for (ui_shortcut), never for a key
+      // the element with the focus uses itself; Escape always arrives.
       window.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape') FUI.push([2, 2, 0, 0]);
+        // Keys of a composition belong to the input method.
+        if (e.isComposing || e.keyCode === 229) return;
+        var t = e.target;
+        if (e.key === 'Enter' && t.tagName === 'INPUT' && t.type === 'text' && root.contains(t)) {
+          FUI.host(H.submit, t.closest('[data-id]'));
+        }
+        var k = FUI.key(e);
+        if (!k) return;
+        var claim = Module._fortui_web_key(k[0], k[1], k[2]);
+        if (claim & 2) e.preventDefault();
+        if (claim & 1) FUI.push([2, k[0], k[1], k[2]]);
       });
       // Canvases are drawn by the application: they get pointer coordinates
       // in the runtime's own layout units.
@@ -171,10 +213,9 @@ addToLibrary({
           FUI.text(el, text, f[17] || '');
           el.classList.toggle('fui-ellipsis', (flags & 64) !== 0);
       }
-      if ((flags & 8) && document.activeElement !== el && kind !== 1 && kind !== 7) {
-        var target = kind === 4 ? el.firstChild : el;
-        if (target.focus && document.hasFocus()) target.focus({ preventScroll: true });
-      }
+      // Applied once the element is in the page (fortui_web_present).
+      if ((flags & 8) && kind !== 1 && kind !== 7) FUI.toFocus = kind === 4 ? el.firstChild : el;
+      if (flags & 256) FUI.toReveal = el;
     },
     // The style name as data-look and the page address as the element's id.
     mark: function (el, look, anchor) {
@@ -313,5 +354,12 @@ addToLibrary({
     FUI.els.forEach(function (el, key) {
       if (!seen.has(key)) { el.remove(); FUI.els.delete(key); }
     });
+    var focus = FUI.toFocus, reveal = FUI.toReveal;
+    FUI.toFocus = FUI.toReveal = null;
+    // Also in a window without the focus: the element then has it when the
+    // window gets it.
+    if (focus && document.activeElement !== focus && focus.focus) focus.focus({ preventScroll: true });
+    // ui_reveal: the least scrolling that shows the element, at once.
+    if (reveal) reveal.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
   },
 });

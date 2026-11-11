@@ -5,6 +5,7 @@ module fortui_testing
     use fortui_context, only: fortui_context_t, get_default_context
     use fortui_backend, only: ui_backend_stats_t
     use fortui_layout, only: layout_box_t
+    use fortui_input, only: key_press_t, input_host_key, input_claims
     implicit none
     private
 
@@ -29,6 +30,7 @@ module fortui_testing
     public :: ui_inject_time, ui_inject_resize
     public :: ui_stats, ui_layer_uploads, ui_node_rect, ui_node_text, ui_node_count
     public :: ui_focused_id, ui_node_scroll, ui_inject_host, ui_frame_boxes
+    public :: ui_inject_press, ui_host_key_claim, ui_node_revealed
 
 contains
 
@@ -62,6 +64,56 @@ contains
         ctx%inject_key_count = ctx%inject_key_count + 1
         ctx%inject_keys(ctx%inject_key_count) = key
     end subroutine ui_inject_key
+
+    subroutine ui_inject_press(key, code, mods, repeat, mac, focus)
+        !! A key press with modifiers for the next frame: a named key (KEY_*), or
+        !! KEY_NONE and the code point of a character; MOD_* and FOCUS_* are in
+        !! fortui_input.
+        integer, intent(in) :: key, code, mods
+        logical, intent(in), optional :: repeat, mac
+        integer, intent(in), optional :: focus
+        type(fortui_context_t), pointer :: ctx
+        type(key_press_t) :: p
+
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (ctx%inject_press_count >= size(ctx%inject_presses)) return
+        p%key = key
+        p%code = code
+        p%mods = mods
+        if (present(repeat)) p%repeat = repeat
+        if (present(mac)) p%mac = mac
+        if (present(focus)) p%focus = focus
+        ctx%inject_press_count = ctx%inject_press_count + 1
+        ctx%inject_presses(ctx%inject_press_count) = p
+    end subroutine ui_inject_press
+
+    integer function ui_host_key_claim(key, flags, code, time) result(claim)
+        !! What a host is told at the moment of a key, before its own default
+        !! action (CLAIM_* in fortui_input); the arguments are those of
+        !! input_host_key, `time` in seconds.
+        integer, intent(in) :: key, flags, code
+        double precision, intent(in) :: time
+        type(fortui_context_t), pointer :: ctx
+
+        claim = 0
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        claim = input_claims(ctx%input, input_host_key(key, flags, code), time)
+    end function ui_host_key_claim
+
+    logical function ui_node_revealed(id) result(revealed)
+        !! Whether node `id` was asked into view in the last presented frame.
+        character(*), intent(in) :: id
+        type(fortui_context_t), pointer :: ctx
+        integer :: i
+
+        revealed = .false.
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        i = ctx%previous_frame%find(id)
+        if (i > 0) revealed = ctx%previous_frame%nodes(i)%reveal
+    end function ui_node_revealed
 
     subroutine ui_inject_text(utf8)
         !! Committed UTF-8 text typed before the next frame.

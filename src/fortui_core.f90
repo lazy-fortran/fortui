@@ -6,9 +6,12 @@ module fortui_core
         get_default_context, set_default_context
     use fortui_input, only: input_begin_frame, input_route, input_update_pointer, &
         input_scroll, input_set_key, input_type_text, input_set_time, input_key_arrived, &
-        KEY_ESCAPE, input_apply_host, input_host_event
+        KEY_ESCAPE, input_apply_host, input_host_event, input_key_press, &
+        input_sort_presses, input_shortcut, input_commit_chords, input_presses_wait, FOCUS_PLAIN, &
+        FOCUS_CONTROL, FOCUS_RANGE, FOCUS_FIELD, FOCUS_EDITOR
     use fortui_layout, only: layout_reset, layout_check_balance, layout_boxes
-    use fortui_frame, only: UI_TEXT_INPUT, UI_TEXT_AREA, style_weight
+    use fortui_frame, only: UI_TEXT_INPUT, UI_TEXT_AREA, UI_NONE, UI_SLIDER, &
+        UI_SCROLL_TEXT, style_weight
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t, ui_window_config_t
     use fortui_text, only: text_use_fixed_metrics, text_width
     use fortui_error, only: report_error
@@ -25,6 +28,7 @@ module fortui_core
     public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale
     public :: ui_time, ui_wake_after
     public :: ui_key_pressed, ui_text_width, ui_backend_capabilities, ui_backend_caps_t
+    public :: ui_shortcut
     public :: ui_backend_description, ui_run, ui_run_step, ui_frame_proc
 
     abstract interface
@@ -85,6 +89,8 @@ contains
         !! Start one composition: poll the host (blocking only when the previous
         !! present allowed idle waiting), route input against the previous frame.
         type(fortui_context_t), pointer :: ctx
+        double precision :: press_time
+        integer :: focus_level
 
         ctx => get_default_context()
         if (.not. associated(ctx)) then
@@ -105,6 +111,19 @@ contains
         call input_route(ctx%input, ctx%previous_frame)
         ctx%text_focused = focused_kind(ctx) == UI_TEXT_INPUT .or. &
             focused_kind(ctx) == UI_TEXT_AREA
+        ! Shortcuts: what the focused control does with keys itself.
+        select case (focused_kind(ctx))
+        case (UI_NONE); focus_level = FOCUS_PLAIN
+        case (UI_TEXT_INPUT); focus_level = FOCUS_FIELD
+        case (UI_TEXT_AREA); focus_level = FOCUS_EDITOR
+        case (UI_SLIDER, UI_SCROLL_TEXT); focus_level = FOCUS_RANGE
+        case default; focus_level = FOCUS_CONTROL
+        end select
+        press_time = ui_time()
+        if (ctx%inject_time >= 0.0d0) press_time = ctx%inject_time
+        call input_sort_presses(ctx%input, focus_level, press_time)
+        ! A chord pressed again before this frame is pressed in the next one.
+        if (input_presses_wait(ctx%input)) ctx%followup = .true.
         ! Escape leaves a focused text field; otherwise it is an ordinary key.
         if (ctx%text_focused .and. input_key_arrived(ctx%input, KEY_ESCAPE)) &
             ctx%input%focus_id = ""
@@ -132,6 +151,8 @@ contains
         end if
         call layout_check_balance()
         call layout_boxes(ctx%current_frame%boxes, ctx%current_frame%box_count)
+        call apply_requests(ctx)
+        call input_commit_chords(ctx%input)
         call ctx%canvas%collect(ctx%frame_count)
         call ctx%collect_states()
         ctx%wait_next = .not. (ctx%continuous .or. ctx%frame_requested .or. ctx%followup)
@@ -205,6 +226,72 @@ contains
         if (pressed) ctx%followup = .true.
     end function ui_key_pressed
 
+    logical function ui_shortcut(chord, repeat) result(pressed)
+        !! Keyboard shortcut: asks for `chord` in this frame and is true in the
+        !! frame in which it was pressed (which schedules a follow-up frame).
+        !!
+        !! A chord is a key with optional modifiers, "j", "?", "Enter", "Escape",
+        !! "mod+k", "ctrl+shift+ArrowUp", or two keys pressed within a second,
+        !! "g o". Modifiers: mod (Cmd on macOS, Ctrl elsewhere), ctrl, alt, shift,
+        !! meta. Keys: one character, or Enter, Escape, Tab, Space, Backspace,
+        !! Delete, Insert, Home, End, PageUp, PageDown, ArrowLeft, ArrowRight,
+        !! ArrowUp, ArrowDown. A character alone is the character typed ("?" and
+        !! "G" need no shift); with ctrl, alt, meta or mod a letter ignores case
+        !! and shift is written out ("mod+shift+p"). A chord that cannot be read
+        !! is never pressed.
+        !!
+        !! Keys the control with the focus uses itself are not shortcuts: a text
+        !! field keeps everything typed into it and gives up only ArrowUp,
+        !! ArrowDown, Enter and Escape, a field of several lines only Escape; a
+        !! button keeps Enter and Space, a slider also the navigation keys. A
+        !! chord with ctrl, meta or mod is pressed wherever the focus is.
+        !!
+        !! A chord pressed several times before a frame is pressed in as many
+        !! frames, one after the other, so no press is lost.
+        !! Key repeats count only with `repeat`. A key that completes a chord of
+        !! two keys is not also that key alone. In the browser the page's own
+        !! reaction to a key (scrolling, quick find, the address bar) is
+        !! suppressed exactly for the chords of the last frame; hosts that do
+        !! not report modifiers or repeats (a terminal knows Ctrl with a letter
+        !! only) cannot press such chords.
+        character(*), intent(in) :: chord
+        logical, intent(in), optional :: repeat
+        type(fortui_context_t), pointer :: ctx
+
+        pressed = .false.
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (.not. ctx%in_frame) return
+        pressed = input_shortcut(ctx%input, chord, repeat)
+        if (pressed) ctx%followup = .true.
+    end function ui_shortcut
+
+    subroutine apply_requests(ctx)
+        !! Focus and reveal asked for during composition, wherever the control
+        !! was composed: the presented frame already shows them.
+        type(fortui_context_t), intent(inout) :: ctx
+        integer :: i, k
+
+        if (len_trim(ctx%focus_request) > 0) then
+            i = ctx%current_frame%find(trim(ctx%focus_request))
+            if (i > 0) then
+                if (ctx%current_frame%nodes(i)%focusable .and. &
+                    .not. ctx%current_frame%nodes(i)%disabled) then
+                    ctx%input%focus_id = ctx%focus_request
+                    do k = 1, ctx%current_frame%count
+                        ctx%current_frame%nodes(k)%focused = k == i
+                    end do
+                end if
+            end if
+            ctx%focus_request = ""
+        end if
+        if (len_trim(ctx%reveal_request) > 0) then
+            i = ctx%current_frame%find(trim(ctx%reveal_request))
+            if (i > 0) ctx%current_frame%nodes(i)%reveal = .true.
+            ctx%reveal_request = ""
+        end if
+    end subroutine apply_requests
+
     real function ui_text_width(value, size, style) result(width)
         !! Logical width of UTF-8 `value` at logical `size` with the active backend's
         !! metrics; `style` is a style token (UI_BODY, UI_HEADING, ...).
@@ -258,6 +345,13 @@ contains
         end do
         if (ctx%inject_text_len > 0) call input_type_text(ctx%input, &
             ctx%inject_text(1:ctx%inject_text_len))
+        do k = 1, ctx%inject_press_count
+            associate (p => ctx%inject_presses(k))
+                call input_key_press(ctx%input, p%key, p%code, p%mods, repeat=p%repeat, &
+                    focus=p%focus, mac=p%mac)
+            end associate
+        end do
+        ctx%inject_press_count = 0
         do k = 1, ctx%inject_host_count
             call input_host_event(ctx%input, ctx%inject_host(k)%kind, &
                 trim(ctx%inject_host(k)%id), ctx%inject_host(k)%value)
