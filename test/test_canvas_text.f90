@@ -1,420 +1,420 @@
 program test_canvas_text
-!! Headless behavioural tests: canvas store semantics (owned copies, vertex
-!! shrink with stale segments, empty arrays, duplicate keys, kind change, slot
-!! growth), retained layers with a shared vertex layer and backend upload
-!! counters, canvas pointer semantics, UTF-8 text input, wrapping with fixed
-!! metrics, scroll clamping and idle waiting.
-use iso_fortran_env, only: int32
-use fortui
-use fortui_backend_headless, only: headless_backend_t
-use fortui_testing, only: ui_inject_pointer, ui_inject_wheel, ui_inject_key, &
-    ui_inject_text, ui_inject_time, ui_inject_resize, ui_stats, ui_stats_t, &
-    ui_layer_uploads, ui_node_rect, ui_node_scroll, ui_focused_id
-use fortui_context, only: fortui_context_t, get_default_context
-use fortui_canvas, only: canvas_store_t, LAYER_LINES
-use fortui_text, only: text_wrap, text_line_t, utf8_prev, utf8_next, utf8_length, &
-    text_use_fixed_metrics
-implicit none
+    !! Headless behavioural tests: canvas store semantics (owned copies, vertex
+    !! shrink with stale segments, empty arrays, duplicate keys, kind change, slot
+    !! growth), retained layers with a shared vertex layer and backend upload
+    !! counters, canvas pointer semantics, UTF-8 text input, wrapping with fixed
+    !! metrics, scroll clamping and idle waiting.
+    use iso_fortran_env, only: int32
+    use fortui
+    use fortui_backend_headless, only: headless_backend_t
+    use fortui_testing, only: ui_inject_pointer, ui_inject_wheel, ui_inject_key, &
+        ui_inject_text, ui_inject_time, ui_inject_resize, ui_stats, ui_stats_t, &
+        ui_layer_uploads, ui_node_rect, ui_node_scroll, ui_focused_id
+    use fortui_context, only: fortui_context_t, get_default_context
+    use fortui_canvas, only: canvas_store_t, LAYER_LINES
+    use fortui_text, only: text_wrap, text_line_t, utf8_prev, utf8_next, utf8_length, &
+        text_use_fixed_metrics
+    implicit none
 
-type(fortui_context_t), pointer :: ctx
-type(canvas_view_t) :: cam
-type(canvas_events_t) :: ev
-type(ui_stats_t) :: st
-type(ui_backend_caps_t) :: caps
-character(len=:), allocatable :: query, doc
-real :: xy(2, 3), mxy(2, 1)
-integer(int32) :: colours(3)
-integer :: segs(2, 2), point_gen, seg_gen, mark_gen, stat, u, iu, i, nlines, wraps
-logical :: show_canvas, changed, submitted, esc_seen
-real :: bx, by, bw, bh, scroll, content
-double precision :: now
+    type(fortui_context_t), pointer :: ctx
+    type(canvas_view_t) :: cam
+    type(canvas_events_t) :: ev
+    type(ui_stats_t) :: st
+    type(ui_backend_caps_t) :: caps
+    character(len=:), allocatable :: query, doc
+    real :: xy(2, 3), mxy(2, 1)
+    integer(int32) :: colours(3)
+    integer :: segs(2, 2), point_gen, seg_gen, mark_gen, stat, u, iu, i, nlines, wraps
+    logical :: show_canvas, changed, submitted, esc_seen
+    real :: bx, by, bw, bh, scroll, content
+    double precision :: now
 
-call test_wrap()
-call test_store()
+    call test_wrap()
+    call test_store()
 
-call ui_init(headless_backend_t(), 800, 600, "canvas test", stat=stat)
-call check(stat == 0, "headless init")
-caps = ui_backend_capabilities()
-call check(caps%canvas_layers .and. .not. caps%graphical, "headless capabilities")
-ctx => get_default_context()
+    call ui_init(headless_backend_t(), 800, 600, "canvas test", stat=stat)
+    call check(stat == 0, "headless init")
+    caps = ui_backend_capabilities()
+    call check(caps%canvas_layers .and. .not. caps%graphical, "headless capabilities")
+    ctx => get_default_context()
 
-xy = reshape([0.0, 0.0, 10.0, 0.0, 0.0, 10.0], [2, 3])
-mxy = reshape([5.0, 5.0], [2, 1])
-colours = [ui_rgba(255, 0, 0), ui_rgba(0, 255, 0), ui_rgba(0, 0, 255, 128)]
-segs = reshape([1, 2, 2, 3], [2, 2])
-point_gen = 1
-seg_gen = 1
-mark_gen = 1
-show_canvas = .true.
-query = ""
-doc = ""
-cam = canvas_view_t(zoom=2.0, pan_x=10.0, pan_y=20.0)
-now = 10.0d0
+    xy = reshape([0.0, 0.0, 10.0, 0.0, 0.0, 10.0], [2, 3])
+    mxy = reshape([5.0, 5.0], [2, 1])
+    colours = [ui_rgba(255, 0, 0), ui_rgba(0, 255, 0), ui_rgba(0, 0, 255, 128)]
+    segs = reshape([1, 2, 2, 3], [2, 2])
+    point_gen = 1
+    seg_gen = 1
+    mark_gen = 1
+    show_canvas = .true.
+    query = ""
+    doc = ""
+    cam = canvas_view_t(zoom=2.0, pan_x=10.0, pan_y=20.0)
+    now = 10.0d0
 
-! --- retained layers: one shared vertex layer, backend upload counters -------------
-call frame()
-st = ui_stats()
-call check(st%vertex_uploads == 2 .and. st%attribute_uploads == 3 .and. &
-    st%index_uploads == 1, "first frame: shared + own vertices, three layers")
-call layer_uploads("pos", u, iu)
-call check(u == 1, "shared positions uploaded once for two layers")
-call frame()
-call frame()
-st = ui_stats()
-call check(st%vertex_uploads == 2 .and. st%attribute_uploads == 3 .and. &
-    st%index_uploads == 1, "unchanged generations upload nothing")
-point_gen = 2
-xy(1, 1) = 5.0
-call frame()
-call layer_uploads("pos", u, iu)
-call check(u == 2, "new vertex generation uploads positions once")
-call layer_uploads("nodes", u, iu)
-call check(u == 2, "points follow the vertex generation by default")
-call layer_uploads("edges", u, iu)
-call check(u == 1 .and. iu == 1, "lines with their own generation keep colours/indices")
-cam%zoom = 3.0
-call frame()
-st = ui_stats()
-call check(st%vertex_uploads == 3 .and. st%attribute_uploads == 4, &
-    "a view change uploads nothing")
-seg_gen = 2
-call frame()
-call layer_uploads("edges", u, iu)
-call check(u == 2 .and. iu == 2, "line generation re-uploads colours and segments once")
-call check(ctx%previous_frame%layer_count == 3, "frame records three drawable layers")
-call check(ctx%previous_frame%label_count == 1, "frame records canvas label")
-cam%zoom = 2.0
+    ! --- retained layers: one shared vertex layer, backend upload counters -------------
+    call frame()
+    st = ui_stats()
+    call check(st%vertex_uploads == 2 .and. st%attribute_uploads == 3 .and. &
+        st%index_uploads == 1, "first frame: shared + own vertices, three layers")
+    call layer_uploads("pos", u, iu)
+    call check(u == 1, "shared positions uploaded once for two layers")
+    call frame()
+    call frame()
+    st = ui_stats()
+    call check(st%vertex_uploads == 2 .and. st%attribute_uploads == 3 .and. &
+        st%index_uploads == 1, "unchanged generations upload nothing")
+    point_gen = 2
+    xy(1, 1) = 5.0
+    call frame()
+    call layer_uploads("pos", u, iu)
+    call check(u == 2, "new vertex generation uploads positions once")
+    call layer_uploads("nodes", u, iu)
+    call check(u == 2, "points follow the vertex generation by default")
+    call layer_uploads("edges", u, iu)
+    call check(u == 1 .and. iu == 1, "lines with their own generation keep colours/indices")
+    cam%zoom = 3.0
+    call frame()
+    st = ui_stats()
+    call check(st%vertex_uploads == 3 .and. st%attribute_uploads == 4, &
+        "a view change uploads nothing")
+    seg_gen = 2
+    call frame()
+    call layer_uploads("edges", u, iu)
+    call check(u == 2 .and. iu == 2, "line generation re-uploads colours and segments once")
+    call check(ctx%previous_frame%layer_count == 3, "frame records three drawable layers")
+    call check(ctx%previous_frame%label_count == 1, "frame records canvas label")
+    cam%zoom = 2.0
 
-! --- split layout and canvas geometry ---------------------------------------------
-call check(ui_node_rect("main/graph", bx, by, bw, bh), "canvas scoped by the split")
-call check(abs(bx - 200.0) < 1e-4 .and. abs(bw - 600.0) < 1e-4, "canvas fills width")
-call ui_inject_resize(1000, 500)
-call frame()
-call check(ui_node_rect("main/graph", bx, by, bw, bh) .and. abs(bw - 800.0) < 1e-4 &
-    .and. abs(bh - 500.0) < 1e-4, "canvas tracks resize")
+    ! --- split layout and canvas geometry ---------------------------------------------
+    call check(ui_node_rect("main/graph", bx, by, bw, bh), "canvas scoped by the split")
+    call check(abs(bx - 200.0) < 1e-4 .and. abs(bw - 600.0) < 1e-4, "canvas fills width")
+    call ui_inject_resize(1000, 500)
+    call frame()
+    call check(ui_node_rect("main/graph", bx, by, bw, bh) .and. abs(bw - 800.0) < 1e-4 &
+        .and. abs(bh - 500.0) < 1e-4, "canvas tracks resize")
 
-! --- pointer semantics in canvas coordinates ----------------------------------------
-call ui_inject_pointer(300.0, 120.0, .false.)
-call frame()
-call check(ev%hovered, "canvas hovered")
-call check(abs(ev%x - 45.0) < 1e-4 .and. abs(ev%y - 50.0) < 1e-4, "world coordinates")
-call check(abs(ev%local_x - 100.0) < 1e-4, "local coordinates")
-call click(300.0, 120.0)
-call check(ev%clicked .and. ev%released .and. .not. ev%double_clicked, "single click")
-st = ui_stats()
-call check(.not. st%last_present_waits, "canvas click schedules a follow-up frame")
-now = now + 0.2d0
-call click(301.0, 121.0)
-call check(ev%clicked .and. ev%double_clicked, "double click within interval")
-now = now + 1.0d0
-call click(300.0, 120.0)
-call check(ev%clicked .and. .not. ev%double_clicked, "slow second click is single")
+    ! --- pointer semantics in canvas coordinates ----------------------------------------
+    call ui_inject_pointer(300.0, 120.0, .false.)
+    call frame()
+    call check(ev%hovered, "canvas hovered")
+    call check(abs(ev%x - 45.0) < 1e-4 .and. abs(ev%y - 50.0) < 1e-4, "world coordinates")
+    call check(abs(ev%local_x - 100.0) < 1e-4, "local coordinates")
+    call click(300.0, 120.0)
+    call check(ev%clicked .and. ev%released .and. .not. ev%double_clicked, "single click")
+    st = ui_stats()
+    call check(.not. st%last_present_waits, "canvas click schedules a follow-up frame")
+    now = now + 0.2d0
+    call click(301.0, 121.0)
+    call check(ev%clicked .and. ev%double_clicked, "double click within interval")
+    now = now + 1.0d0
+    call click(300.0, 120.0)
+    call check(ev%clicked .and. .not. ev%double_clicked, "slow second click is single")
 
-now = now + 1.0d0
-call ui_inject_pointer(300.0, 120.0, .true.)
-call frame()
-call check(ev%pressed .and. ev%captured .and. .not. ev%dragging, "press captures")
-call check(abs(ev%press_x - 45.0) < 1e-4, "press position in world coordinates")
-call ui_inject_pointer(320.0, 120.0, .true.)
-call frame()
-call check(ev%dragging .and. ev%drag_started .and. abs(ev%drag_dx - 20.0) < 1e-4, &
-    "drag beyond threshold starts")
-call ui_inject_pointer(50.0, 130.0, .true.)
-call frame()
-call check(ev%dragging .and. .not. ev%drag_started .and. .not. ev%hovered, &
-    "capture keeps drag outside the canvas")
-call ui_inject_pointer(50.0, 130.0, .false.)
-call frame()
-call check(ev%drag_ended .and. ev%released .and. .not. ev%clicked, "release ends drag")
-call check(len_trim(ctx%input%active_id) == 0, "capture released on button up")
+    now = now + 1.0d0
+    call ui_inject_pointer(300.0, 120.0, .true.)
+    call frame()
+    call check(ev%pressed .and. ev%captured .and. .not. ev%dragging, "press captures")
+    call check(abs(ev%press_x - 45.0) < 1e-4, "press position in world coordinates")
+    call ui_inject_pointer(320.0, 120.0, .true.)
+    call frame()
+    call check(ev%dragging .and. ev%drag_started .and. abs(ev%drag_dx - 20.0) < 1e-4, &
+        "drag beyond threshold starts")
+    call ui_inject_pointer(50.0, 130.0, .true.)
+    call frame()
+    call check(ev%dragging .and. .not. ev%drag_started .and. .not. ev%hovered, &
+        "capture keeps drag outside the canvas")
+    call ui_inject_pointer(50.0, 130.0, .false.)
+    call frame()
+    call check(ev%drag_ended .and. ev%released .and. .not. ev%clicked, "release ends drag")
+    call check(len_trim(ctx%input%active_id) == 0, "capture released on button up")
 
-call ui_inject_pointer(300.0, 120.0, .true.)
-call frame()
-call check(ev%captured, "captured before removal")
-show_canvas = .false.
-call frame()
-call frame()
-call check(len_trim(ctx%input%active_id) == 0, "capture released on widget removal")
-st = ui_stats()
-call check(st%active_layers == 0, "layers released with their canvas")
-show_canvas = .true.
-call frame()
-call check(.not. ev%captured, "re-added canvas is not captured")
-call layer_uploads("nodes", u, iu)
-call check(u == 1, "re-created layer uploads afresh")
-call ui_inject_pointer(300.0, 120.0, .false.)
-call frame()
+    call ui_inject_pointer(300.0, 120.0, .true.)
+    call frame()
+    call check(ev%captured, "captured before removal")
+    show_canvas = .false.
+    call frame()
+    call frame()
+    call check(len_trim(ctx%input%active_id) == 0, "capture released on widget removal")
+    st = ui_stats()
+    call check(st%active_layers == 0, "layers released with their canvas")
+    show_canvas = .true.
+    call frame()
+    call check(.not. ev%captured, "re-added canvas is not captured")
+    call layer_uploads("nodes", u, iu)
+    call check(u == 1, "re-created layer uploads afresh")
+    call ui_inject_pointer(300.0, 120.0, .false.)
+    call frame()
 
-call ui_inject_wheel(1.5)
-call frame()
-call check(abs(ev%wheel - 1.5) < 1e-6, "wheel reported over canvas")
-call canvas_zoom_at(cam, 2.0, ev%local_x, ev%local_y)
-call check(abs((ev%local_x - cam%pan_x) / cam%zoom - ev%x) < 1e-4, "zoom keeps anchor")
+    call ui_inject_wheel(1.5)
+    call frame()
+    call check(abs(ev%wheel - 1.5) < 1e-6, "wheel reported over canvas")
+    call canvas_zoom_at(cam, 2.0, ev%local_x, ev%local_y)
+    call check(abs((ev%local_x - cam%pan_x) / cam%zoom - ev%x) < 1e-4, "zoom keeps anchor")
 
-! --- text input -----------------------------------------------------------------------
-call click(20.0, 16.0)
-call check(ui_focused_id() == "main/search", "click focuses text input")
-call ui_inject_text("Grüße")
-call frame()
-call check(changed .and. query == "Grüße", "typing inserts UTF-8")
-st = ui_stats()
-call check(.not. st%last_present_waits, "changed value schedules a follow-up frame")
-call ui_inject_key(KEY_BACKSPACE)
-call frame()
-call check(query == "Grüß", "backspace removes one code point")
-call ui_inject_key(KEY_ARROW_LEFT)
-call ui_inject_key(KEY_ARROW_LEFT)
-call ui_inject_key(KEY_DELETE)
-call frame()
-call check(query == "Grß", "delete after caret moves")
-call ui_inject_key(KEY_HOME)
-call ui_inject_text("Ä")
-call frame()
-call check(query == "ÄGrß", "home then insert")
-call frame()
-call check(.not. changed, "no change without input")
-call ui_inject_key(KEY_END)
-call ui_inject_key(KEY_ENTER)
-call frame()
-call check(submitted .and. .not. changed, "enter submits")
-call ui_inject_key(KEY_ESCAPE)
-call frame()
-call check(len(ui_focused_id()) == 0 .and. .not. ui_should_close(), &
-    "escape leaves the text field without quitting")
-call check(.not. esc_seen, "escape consumed by the text field is no shortcut")
-call ui_inject_key(KEY_ESCAPE)
-call frame()
-call check(esc_seen .and. .not. ui_should_close(), "escape as application shortcut")
-call frame()
-call check(.not. esc_seen, "shortcut key lasts one frame")
-call ui_inject_text("x")
-call frame()
-call check(query == "ÄGrß", "unfocused field ignores typing")
+    ! --- text input -----------------------------------------------------------------------
+    call click(20.0, 16.0)
+    call check(ui_focused_id() == "main/search", "click focuses text input")
+    call ui_inject_text("Grüße")
+    call frame()
+    call check(changed .and. query == "Grüße", "typing inserts UTF-8")
+    st = ui_stats()
+    call check(.not. st%last_present_waits, "changed value schedules a follow-up frame")
+    call ui_inject_key(KEY_BACKSPACE)
+    call frame()
+    call check(query == "Grüß", "backspace removes one code point")
+    call ui_inject_key(KEY_ARROW_LEFT)
+    call ui_inject_key(KEY_ARROW_LEFT)
+    call ui_inject_key(KEY_DELETE)
+    call frame()
+    call check(query == "Grß", "delete after caret moves")
+    call ui_inject_key(KEY_HOME)
+    call ui_inject_text("Ä")
+    call frame()
+    call check(query == "ÄGrß", "home then insert")
+    call frame()
+    call check(.not. changed, "no change without input")
+    call ui_inject_key(KEY_END)
+    call ui_inject_key(KEY_ENTER)
+    call frame()
+    call check(submitted .and. .not. changed, "enter submits")
+    call ui_inject_key(KEY_ESCAPE)
+    call frame()
+    call check(len(ui_focused_id()) == 0 .and. .not. ui_should_close(), &
+        "escape leaves the text field without quitting")
+    call check(.not. esc_seen, "escape consumed by the text field is no shortcut")
+    call ui_inject_key(KEY_ESCAPE)
+    call frame()
+    call check(esc_seen .and. .not. ui_should_close(), "escape as application shortcut")
+    call frame()
+    call check(.not. esc_seen, "shortcut key lasts one frame")
+    call ui_inject_text("x")
+    call frame()
+    call check(query == "ÄGrß", "unfocused field ignores typing")
 
-! --- scroll view ----------------------------------------------------------------------
-doc = ""
-do i = 1, 100
-    doc = doc // "line" // achar(10)
-end do
-doc = doc // "end"
-call frame()
-call check(ui_node_scroll("main/note", scroll, content, nlines), "scroll text present")
-call check(nlines == 101, "one line per paragraph")
-call check(abs(content - 101 * 25.0) < 1e-3, "content height from fixed metrics")
-call check(ui_node_rect("main/note", bx, by, bw, bh), "scroll text rect")
-call ui_inject_pointer(100.0, 300.0, .false.)
-call ui_inject_wheel(-1000.0)
-call frame()
-call check(ui_node_scroll("main/note", scroll, content, nlines), "scroll text present")
-call check(abs(scroll - (101 * 25.0 + 16.0 - bh)) < 1e-2, "scroll clamps at end")
-call ui_inject_wheel(1000.0)
-call frame()
-call check(ui_node_scroll("main/note", scroll, content, nlines) .and. scroll < 1e-6, &
-    "scroll clamps at top")
-call ui_inject_pointer(bx + bw - 3.0, by + 5.0, .true.)
-call frame()
-call ui_inject_pointer(bx + bw - 3.0, by + 55.0, .true.)
-call frame()
-call check(ui_node_scroll("main/note", scroll, content, nlines) .and. &
-    abs(scroll - 50.0 * (101 * 25.0 + 16.0) / bh) < 1e-2, &
-    "scrollbar drag maps thumb motion to content")
-call ui_inject_pointer(100.0, 300.0, .false.)
-call frame()
-wraps = ctx%states(ctx%state("main/note"))%wraps
-call frame()
-call check(ctx%states(ctx%state("main/note"))%wraps == wraps, &
-    "unchanged text is not rewrapped")
-doc = "other"
-call frame()
-call check(ui_node_scroll("main/note", scroll, content, nlines) .and. scroll < 1e-6, &
-    "new document starts at the top")
+    ! --- scroll view ----------------------------------------------------------------------
+    doc = ""
+    do i = 1, 100
+        doc = doc // "line" // achar(10)
+    end do
+    doc = doc // "end"
+    call frame()
+    call check(ui_node_scroll("main/note", scroll, content, nlines), "scroll text present")
+    call check(nlines == 101, "one line per paragraph")
+    call check(abs(content - 101 * 25.0) < 1e-3, "content height from fixed metrics")
+    call check(ui_node_rect("main/note", bx, by, bw, bh), "scroll text rect")
+    call ui_inject_pointer(100.0, 300.0, .false.)
+    call ui_inject_wheel(-1000.0)
+    call frame()
+    call check(ui_node_scroll("main/note", scroll, content, nlines), "scroll text present")
+    call check(abs(scroll - (101 * 25.0 + 16.0 - bh)) < 1e-2, "scroll clamps at end")
+    call ui_inject_wheel(1000.0)
+    call frame()
+    call check(ui_node_scroll("main/note", scroll, content, nlines) .and. scroll < 1e-6, &
+        "scroll clamps at top")
+    call ui_inject_pointer(bx + bw - 3.0, by + 5.0, .true.)
+    call frame()
+    call ui_inject_pointer(bx + bw - 3.0, by + 55.0, .true.)
+    call frame()
+    call check(ui_node_scroll("main/note", scroll, content, nlines) .and. &
+        abs(scroll - 50.0 * (101 * 25.0 + 16.0) / bh) < 1e-2, &
+        "scrollbar drag maps thumb motion to content")
+    call ui_inject_pointer(100.0, 300.0, .false.)
+    call frame()
+    wraps = ctx%states(ctx%state("main/note"))%wraps
+    call frame()
+    call check(ctx%states(ctx%state("main/note"))%wraps == wraps, &
+        "unchanged text is not rewrapped")
+    doc = "other"
+    call frame()
+    call check(ui_node_scroll("main/note", scroll, content, nlines) .and. scroll < 1e-6, &
+        "new document starts at the top")
 
-! --- idle waiting ---------------------------------------------------------------------
-call frame()
-call frame()
-st = ui_stats()
-call check(st%last_present_waits, "idle frame may wait for events")
-call ui_request_frame()
-call frame()
-st = ui_stats()
-call check(.not. st%last_present_waits, "requested frame does not wait")
-call frame()
-st = ui_stats()
-call check(st%last_present_waits, "request is one-shot")
-call ui_set_continuous(.true.)
-call frame()
-st = ui_stats()
-call check(.not. st%last_present_waits, "continuous mode does not wait")
-call ui_set_continuous(.false.)
-call ui_inject_pointer(110.0, 300.0, .false.)
-call frame()
-st = ui_stats()
-call check(st%last_present_waits, "hover-only input needs no follow-up frame")
+    ! --- idle waiting ---------------------------------------------------------------------
+    call frame()
+    call frame()
+    st = ui_stats()
+    call check(st%last_present_waits, "idle frame may wait for events")
+    call ui_request_frame()
+    call frame()
+    st = ui_stats()
+    call check(.not. st%last_present_waits, "requested frame does not wait")
+    call frame()
+    st = ui_stats()
+    call check(st%last_present_waits, "request is one-shot")
+    call ui_set_continuous(.true.)
+    call frame()
+    st = ui_stats()
+    call check(.not. st%last_present_waits, "continuous mode does not wait")
+    call ui_set_continuous(.false.)
+    call ui_inject_pointer(110.0, 300.0, .false.)
+    call frame()
+    st = ui_stats()
+    call check(st%last_present_waits, "hover-only input needs no follow-up frame")
 
-call ui_shutdown()
-print *, "fortui canvas/text tests passed"
+    call ui_shutdown()
+    print *, "fortui canvas/text tests passed"
 
 contains
 
-subroutine frame()
-    call ui_inject_time(now)
-    call ui_frame_begin()
-    call split_begin("main", first=200.0)
-    changed = text_input("search", query, placeholder="Search", submitted=submitted)
-    esc_seen = ui_key_pressed(KEY_ESCAPE)
-    call scroll_text("note", doc, markdown=.true.)
-    call split_next()
-    if (show_canvas) then
-        call canvas_begin("graph", cam, ev, fill=ui_rgba(10, 10, 20))
-        call canvas_vertices("pos", point_gen, xy)
-        call canvas_lines("edges", "pos", segs, colours, generation=seg_gen)
-        call canvas_points("nodes", "pos", colours, size=6.0)
-        call canvas_points("marks", mark_gen, mxy, colours(3:3))
-        call canvas_label(0.0, 0.0, "Ursprung", 14.0)
-        call canvas_end()
-    end if
-    call split_end()
-    call ui_present()
-end subroutine frame
+    subroutine frame()
+        call ui_inject_time(now)
+        call ui_frame_begin()
+        call split_begin("main", first=200.0)
+        changed = text_input("search", query, placeholder="Search", submitted=submitted)
+        esc_seen = ui_key_pressed(KEY_ESCAPE)
+        call scroll_text("note", doc, markdown=.true.)
+        call split_next()
+        if (show_canvas) then
+            call canvas_begin("graph", cam, ev, fill=ui_rgba(10, 10, 20))
+            call canvas_vertices("pos", point_gen, xy)
+            call canvas_lines("edges", "pos", segs, colours, generation=seg_gen)
+            call canvas_points("nodes", "pos", colours, size=6.0)
+            call canvas_points("marks", mark_gen, mxy, colours(3:3))
+            call canvas_label(0.0, 0.0, "Ursprung", 14.0)
+            call canvas_end()
+        end if
+        call split_end()
+        call ui_present()
+    end subroutine frame
 
-subroutine click(x, y)
-    real, intent(in) :: x, y
-    call ui_inject_pointer(x, y, .true.)
-    call frame()
-    call ui_inject_pointer(x, y, .false.)
-    call frame()
-end subroutine click
+    subroutine click(x, y)
+        real, intent(in) :: x, y
+        call ui_inject_pointer(x, y, .true.)
+        call frame()
+        call ui_inject_pointer(x, y, .false.)
+        call frame()
+    end subroutine click
 
-subroutine layer_uploads(key, uploads, index_uploads)
-    character(*), intent(in) :: key
-    integer, intent(out) :: uploads, index_uploads
-    call ui_layer_uploads("main/graph", key, uploads, index_uploads)
-end subroutine layer_uploads
+    subroutine layer_uploads(key, uploads, index_uploads)
+        character(*), intent(in) :: key
+        integer, intent(out) :: uploads, index_uploads
+        call ui_layer_uploads("main/graph", key, uploads, index_uploads)
+    end subroutine layer_uploads
 
-subroutine test_store()
-    !! Store semantics with hand-derived expectations (independent of backends).
-    type(canvas_store_t) :: s
-    real :: p3(2, 3), p2(2, 2), none(2, 0), big(2, 5)
-    integer(int32) :: c3(3), cnone(0)
-    integer :: sg(2, 2), v, l, f, k, slots(12), serial
+    subroutine test_store()
+        !! Store semantics with hand-derived expectations (independent of backends).
+        type(canvas_store_t) :: s
+        real :: p3(2, 3), p2(2, 2), none(2, 0), big(2, 5)
+        integer(int32) :: c3(3), cnone(0)
+        integer :: sg(2, 2), v, l, f, k, slots(12), serial
 
-    p3 = reshape([0.0, 0.0, 1.0, 0.0, 2.0, 0.0], [2, 3])
-    p2 = p3(:, 1:2)
-    c3 = [1, 2, 3]
-    sg = reshape([1, 2, 2, 3], [2, 2])
+        p3 = reshape([0.0, 0.0, 1.0, 0.0, 2.0, 0.0], [2, 3])
+        p2 = p3(:, 1:2)
+        c3 = [1, 2, 3]
+        sg = reshape([1, 2, 2, 3], [2, 2])
 
-    ! Owned copies: caller arrays may change after submission.
-    f = 1
-    v = s%submit_vertices("c/v", 1, p3, f)
-    l = s%submit_lines("c/l", v, 1, c3, 1, sg, f)
-    p3(1, 3) = 99.0
-    call check(abs(s%layers(v)%xy(1, 3) - 2.0) < 1e-6, "store owns a copy of positions")
-    call check(s%layers(l)%index_count == 4 .and. &
-        all(s%layers(l)%indices == [0, 1, 1, 2]), "segments become 0-based indices")
+        ! Owned copies: caller arrays may change after submission.
+        f = 1
+        v = s%submit_vertices("c/v", 1, p3, f)
+        l = s%submit_lines("c/l", v, 1, c3, 1, sg, f)
+        p3(1, 3) = 99.0
+        call check(abs(s%layers(v)%xy(1, 3) - 2.0) < 1e-6, "store owns a copy of positions")
+        call check(s%layers(l)%index_count == 4 .and. &
+            all(s%layers(l)%indices == [0, 1, 1, 2]), "segments become 0-based indices")
 
-    ! B1: vertex count shrinks while the segment generation stays the same.
-    f = 2
-    v = s%submit_vertices("c/v", 2, p2, f)
-    l = s%submit_lines("c/l", v, 1, c3(1:1), 1, sg, f)
-    call check(s%layers(l)%index_count == 2 .and. &
-        all(s%layers(l)%indices(1:2) == [0, 1]), &
-        "shrinking vertices drop the stale segment (2,3)")
-    call check(s%layers(l)%vertex_count == 2, "line layer follows the new vertex count")
+        ! B1: vertex count shrinks while the segment generation stays the same.
+        f = 2
+        v = s%submit_vertices("c/v", 2, p2, f)
+        l = s%submit_lines("c/l", v, 1, c3(1:1), 1, sg, f)
+        call check(s%layers(l)%index_count == 2 .and. &
+            all(s%layers(l)%indices(1:2) == [0, 1]), &
+            "shrinking vertices drop the stale segment (2,3)")
+        call check(s%layers(l)%vertex_count == 2, "line layer follows the new vertex count")
 
-    ! B2: empty arrays never abort and draw nothing.
-    f = 3
-    v = s%submit_vertices("c/v", 3, none, f)
-    l = s%submit_lines("c/l", v, 1, cnone, 2, sg, f)
-    k = s%submit_points("c/p", v, 1, cnone, frame_no=f)
-    call check(s%layers(l)%index_count == 0 .and. s%layers(k)%vertex_count == 0, &
-        "zero vertices: no segments, no points")
-    f = 4
-    v = s%submit_vertices("c/v", 4, p2, f)
-    k = s%submit_points("c/p", v, 2, cnone, frame_no=f)
-    call check(s%layers(k)%vertex_count == 0, &
-        "empty colours with vertices draw nothing")
-    l = s%submit_lines("c/l", v, 2, cnone, 3, sg, f)
-    call check(s%layers(l)%index_count == 0, "empty line colours draw nothing")
+        ! B2: empty arrays never abort and draw nothing.
+        f = 3
+        v = s%submit_vertices("c/v", 3, none, f)
+        l = s%submit_lines("c/l", v, 1, cnone, 2, sg, f)
+        k = s%submit_points("c/p", v, 1, cnone, frame_no=f)
+        call check(s%layers(l)%index_count == 0 .and. s%layers(k)%vertex_count == 0, &
+            "zero vertices: no segments, no points")
+        f = 4
+        v = s%submit_vertices("c/v", 4, p2, f)
+        k = s%submit_points("c/p", v, 2, cnone, frame_no=f)
+        call check(s%layers(k)%vertex_count == 0, &
+            "empty colours with vertices draw nothing")
+        l = s%submit_lines("c/l", v, 2, cnone, 3, sg, f)
+        call check(s%layers(l)%index_count == 0, "empty line colours draw nothing")
 
-    ! S5: a key submitted twice in one frame is rejected.
-    k = s%submit_points("c/p", v, 2, c3(1:1), frame_no=f)
-    call check(k == 0, "duplicate layer key in one frame yields no slot")
+        ! S5: a key submitted twice in one frame is rejected.
+        k = s%submit_points("c/p", v, 2, c3(1:1), frame_no=f)
+        call check(k == 0, "duplicate layer key in one frame yields no slot")
 
-    ! Kind change under the same key: fresh layer (new serial).
-    f = 5
-    v = s%submit_vertices("c/v", 4, p2, f)
-    k = s%submit_points("c/p", v, 2, c3(1:1), frame_no=f)
-    serial = s%layers(k)%serial
-    f = 6
-    v = s%submit_vertices("c/v", 4, p2, f)
-    k = s%submit_lines("c/p", v, 1, c3(1:1), 1, sg, f)
-    call check(s%layers(k)%kind == LAYER_LINES .and. s%layers(k)%serial /= serial, &
-        "kind change replaces the layer")
-    call s%collect(f)
-    call check(s%lookup("c/p") == k .and. count(s%layers%in_use) == 2, &
-        "the old kind is released")
+        ! Kind change under the same key: fresh layer (new serial).
+        f = 5
+        v = s%submit_vertices("c/v", 4, p2, f)
+        k = s%submit_points("c/p", v, 2, c3(1:1), frame_no=f)
+        serial = s%layers(k)%serial
+        f = 6
+        v = s%submit_vertices("c/v", 4, p2, f)
+        k = s%submit_lines("c/p", v, 1, c3(1:1), 1, sg, f)
+        call check(s%layers(k)%kind == LAYER_LINES .and. s%layers(k)%serial /= serial, &
+            "kind change replaces the layer")
+        call s%collect(f)
+        call check(s%lookup("c/p") == k .and. count(s%layers%in_use) == 2, &
+            "the old kind is released")
 
-    ! Growth past the initial 8 slots keeps every layer's data.
-    f = 7
-    do k = 1, 12
-        big = real(k)
-        slots(k) = s%submit_vertices("g/" // achar(64 + k), 1, big, f)
-    end do
-    call s%collect(f)
-    call check(count(s%layers%in_use) == 12 .and. size(s%layers) >= 12, &
-        "store grows past eight slots")
-    do k = 1, 12
-        if (abs(s%layers(slots(k))%xy(2, 5) - real(k)) > 1e-6) &
-            call check(.false., "layer data survives growth")
-    end do
-end subroutine test_store
+        ! Growth past the initial 8 slots keeps every layer's data.
+        f = 7
+        do k = 1, 12
+            big = real(k)
+            slots(k) = s%submit_vertices("g/" // achar(64 + k), 1, big, f)
+        end do
+        call s%collect(f)
+        call check(count(s%layers%in_use) == 12 .and. size(s%layers) >= 12, &
+            "store grows past eight slots")
+        do k = 1, 12
+            if (abs(s%layers(slots(k))%xy(2, 5) - real(k)) > 1e-6) &
+                call check(.false., "layer data survives growth")
+        end do
+    end subroutine test_store
 
-subroutine test_wrap()
-    type(text_line_t), allocatable :: lines(:)
-    integer :: n
-    real :: h
-    character(len=*), parameter :: uml = "äöü äöü"
+    subroutine test_wrap()
+        type(text_line_t), allocatable :: lines(:)
+        integer :: n
+        real :: h
+        character(len=*), parameter :: uml = "äöü äöü"
 
-    call text_use_fixed_metrics()
-    call text_wrap("hello world foo", 60.0, 20.0, .false., lines, n, h)
-    call check(n == 3, "word wrap line count")
-    call check(slice("hello world foo", lines(1)) == "hello" .and. &
-        slice("hello world foo", lines(2)) == "world" .and. &
-        slice("hello world foo", lines(3)) == "foo", "word wrap ranges")
-    call check(abs(h - 75.0) < 1e-4 .and. abs(lines(3)%y - 50.0) < 1e-4, &
-        "line positions")
-    call text_wrap(uml, 40.0, 20.0, .false., lines, n, h)
-    call check(n == 2, "UTF-8 wrap counts code points, not bytes")
-    call check(lines(1)%first == 1 .and. lines(1)%last == 6 .and. &
-        slice(uml, lines(2)) == "äöü", "UTF-8 wrap ranges")
-    call text_wrap("abcdefghij", 40.0, 20.0, .false., lines, n, h)
-    call check(n == 3 .and. slice("abcdefghij", lines(3)) == "ij", "long word breaks")
-    call text_wrap("a" // achar(10) // achar(10) // "b", 400.0, 20.0, .false., lines, &
-        n, h)
-    call check(n == 3 .and. lines(2)%last < lines(2)%first, "empty paragraph line")
-    call text_wrap("# Title" // achar(10) // "body", 400.0, 20.0, .true., lines, n, h)
-    call check(n == 2 .and. lines(1)%style == 2 .and. abs(lines(1)%size - 30.0) < 1e-4 &
-        .and. slice("# Title" // achar(10) // "body", lines(1)) == "Title", &
-        "markdown heading styling")
-    call check(utf8_length("Grüße") == 5, "code point length")
-    call check(utf8_prev("aä", 3) == 1 .and. utf8_next("äa", 0) == 2, "caret stepping")
-    call check(abs(ui_text_width("äb", 20.0) - 20.0) < 1e-6, "fixed metric width")
-end subroutine test_wrap
+        call text_use_fixed_metrics()
+        call text_wrap("hello world foo", 60.0, 20.0, .false., lines, n, h)
+        call check(n == 3, "word wrap line count")
+        call check(slice("hello world foo", lines(1)) == "hello" .and. &
+            slice("hello world foo", lines(2)) == "world" .and. &
+            slice("hello world foo", lines(3)) == "foo", "word wrap ranges")
+        call check(abs(h - 75.0) < 1e-4 .and. abs(lines(3)%y - 50.0) < 1e-4, &
+            "line positions")
+        call text_wrap(uml, 40.0, 20.0, .false., lines, n, h)
+        call check(n == 2, "UTF-8 wrap counts code points, not bytes")
+        call check(lines(1)%first == 1 .and. lines(1)%last == 6 .and. &
+            slice(uml, lines(2)) == "äöü", "UTF-8 wrap ranges")
+        call text_wrap("abcdefghij", 40.0, 20.0, .false., lines, n, h)
+        call check(n == 3 .and. slice("abcdefghij", lines(3)) == "ij", "long word breaks")
+        call text_wrap("a" // achar(10) // achar(10) // "b", 400.0, 20.0, .false., lines, &
+            n, h)
+        call check(n == 3 .and. lines(2)%last < lines(2)%first, "empty paragraph line")
+        call text_wrap("# Title" // achar(10) // "body", 400.0, 20.0, .true., lines, n, h)
+        call check(n == 2 .and. lines(1)%style == 2 .and. abs(lines(1)%size - 30.0) < 1e-4 &
+            .and. slice("# Title" // achar(10) // "body", lines(1)) == "Title", &
+            "markdown heading styling")
+        call check(utf8_length("Grüße") == 5, "code point length")
+        call check(utf8_prev("aä", 3) == 1 .and. utf8_next("äa", 0) == 2, "caret stepping")
+        call check(abs(ui_text_width("äb", 20.0) - 20.0) < 1e-6, "fixed metric width")
+    end subroutine test_wrap
 
-function slice(s, line) result(out)
-    character(*), intent(in) :: s
-    type(text_line_t), intent(in) :: line
-    character(len=:), allocatable :: out
-    out = s(line%first:line%last)
-end function slice
+    function slice(s, line) result(out)
+        character(*), intent(in) :: s
+        type(text_line_t), intent(in) :: line
+        character(len=:), allocatable :: out
+        out = s(line%first:line%last)
+    end function slice
 
-subroutine check(condition, message)
-    logical, intent(in) :: condition
-    character(*), intent(in) :: message
-    if (.not. condition) then
-        write(*, '(a)') "FAIL: " // trim(message)
-        error stop 1
-    end if
-end subroutine check
+    subroutine check(condition, message)
+        logical, intent(in) :: condition
+        character(*), intent(in) :: message
+        if (.not. condition) then
+            write(*, '(a)') "FAIL: " // trim(message)
+            error stop 1
+        end if
+    end subroutine check
 
 end program test_canvas_text
