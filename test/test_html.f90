@@ -4,6 +4,7 @@ program test_html
     use fortui
     use fortui_backend_headless, only: headless_backend_t
     use fortui_html, only: ui_frame_html, html_escape
+    use fortui_testing, only: ui_node_rect
     implicit none
 
     character(len=:), allocatable :: html, name, note
@@ -11,6 +12,7 @@ program test_html
     integer :: j, k
     integer(8) :: t0, t1, rate
     logical :: clicked
+    real :: plain(4), rect(4)
 
     name = 'Ada "<x>"'
     note = 'a < b'//new_line('a')//'c'
@@ -61,6 +63,55 @@ program test_html
         'a link is an anchor with its location')
     call check(html_escape('a<b>&"c"') == 'a&lt;b&gt;&amp;&quot;c&quot;', 'html_escape')
 
+    ! Style names and page addresses: data-look and id on the elements that were
+    ! given them, on no others, and the layout of other hosts is the same.
+    call marks_frame(.false.)
+    call check(count_of('data-look=') == 0 .and. count_of(' id="') == 0, &
+        'without look and anchor no element carries data-look or id')
+    plain = rect
+    call marks_frame(.true.)
+    call check(plain(3) > 0.0 .and. all(rect == plain), 'look and anchor leave the layout as it was')
+    call check(index(html, 'class="fui-box fui-row" data-look="bar" id="checks" '// &
+        'style="gap: 4px;"') > 0, 'a row carries its look and its anchor')
+    call check(index(html, 'class="fui-box fui-col" data-look="list" style=') > 0, &
+        'a column carries its look')
+    call check(index(html, '<div class="fui fui-k1" data-key="1:~1" data-style="1" '// &
+        'data-tone="17" data-look="state" id="L812"') > 0, &
+        'a text carries the attention tone, its look and its anchor')
+    call check(index(html, 'data-key="2:land" data-id="land" data-style="1" data-tone="0" '// &
+        'data-look="primary" id="land-button"') > 0, 'a button carries its look and its anchor')
+    call check(index(html, 'data-key="9:file" data-id="file" data-style="1" data-tone="14" '// &
+        'data-look="path" id="f&quot;1"') > 0, 'a link carries its look and its escaped anchor')
+    call check(count_of('data-look=') == 5 .and. count_of(' id="') == 4, &
+        'elements without look or anchor carry neither')
+
+    ! Names as the page can carry them: whole characters within the limits, no
+    ! control characters, and an address on one element only, in every frame.
+    do k = 1, 2
+        call ui_init(headless_backend_t(), 800, 600, "html", stat=stat)
+        call ui_frame_begin()
+        call text("cut", look=repeat("l", 31)//"ä", anchor=repeat("a", 63)//"ä")
+        call text("control", look="l"//achar(9)//"k", anchor="c"//achar(13)//"r"//achar(31)//"s")
+        call text("dup one", anchor="dup")
+        call row_begin(anchor="dup")
+        call text("dup two", anchor="dup")
+        call row_end()
+        do j = 1, 200
+            call text("line", anchor="L"//ui_str(j))
+        end do
+        call ui_present()
+        html = ui_frame_html()
+        call ui_shutdown()
+    end do
+    call check(index(html, ' data-look="'//repeat("l", 31)//'" id="'//repeat("a", 63)//'"') > 0, &
+        'a look and an anchor are cut before a character that does not fit')
+    call check(index(html, ' data-look="lk" id="crs"') > 0, &
+        'control characters are left out of a look and an anchor')
+    call check(count_of(' id="dup"') == 1 .and. at(' id="dup"') < at('dup one') .and. &
+        at('dup one') < at('dup two'), 'of two elements with one anchor only the first carries it')
+    call check(count_of(' id="L') == 200 .and. at(' id="L200"') > 0, &
+        'two hundred anchors in one frame are all kept')
+
     ! A long page (a large diff): its HTML grows in time linear in its length.
     call ui_init(headless_backend_t(), 800, 600, "html", stat=stat)
     call ui_frame_begin()
@@ -82,6 +133,50 @@ program test_html
     print *, "fortui html tests passed"
 
 contains
+
+    subroutine marks_frame(marked)
+        !! The same controls with or without look and anchor.
+        logical, intent(in) :: marked
+
+        call ui_init(headless_backend_t(), 800, 600, "html", stat=stat)
+        call ui_frame_begin()
+        if (marked) then
+            call row_begin(4.0, look="bar", anchor="checks")
+            call text("your turn", tone=UI_TONE_ATTENTION, look="state", anchor="L812")
+            clicked = button("land", "Land", look="primary", anchor="land-button")
+            clicked = link("file", "a.f90", "/f/a.f90", look="path", anchor='f"1')
+            call row_end()
+            call column_begin(look="list")
+        else
+            call row_begin(4.0)
+            call text("your turn")
+            clicked = button("land", "Land")
+            clicked = link("file", "a.f90", "/f/a.f90")
+            call row_end()
+            call column_begin()
+        end if
+        call text("plain")
+        call column_end()
+        call ui_present()
+        html = ui_frame_html()
+        ! The last control of the row: its place depends on all before it.
+        clicked = ui_node_rect("file", rect(1), rect(2), rect(3), rect(4))
+        call ui_shutdown()
+    end subroutine marks_frame
+
+    integer function count_of(s)
+        character(*), intent(in) :: s
+        integer :: from, hit
+
+        count_of = 0
+        from = 1
+        do
+            hit = index(html(from:), s)
+            if (hit == 0) exit
+            count_of = count_of + 1
+            from = from + hit
+        end do
+    end function count_of
 
     integer function at(s)
         character(*), intent(in) :: s

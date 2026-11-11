@@ -34,13 +34,19 @@ contains
         if (tabs("tabs", tab_labels, tab)) continue
         select case (tab)
         case (1)
-            call row_begin(8.0)
-            if (button("one", "One")) value = 10
+            call row_begin(8.0, look="toolbar", anchor="controls")
+            if (button("one", "One", look="primary")) value = 10
             if (button("two", "Two")) value = 90
             if (button("count", "Clicked " // ui_str(clicks))) clicks = clicks + 1
             call row_end()
             if (link("more", "Read more", "#more")) clicks = clicks + 100
-            call text("Value " // ui_str(value))
+            ! A low value asks for attention; the address #value stays either way.
+            if (value < 50) then
+                call text("Value " // ui_str(value), tone=UI_TONE_ATTENTION, &
+                    look="low", anchor="value")
+            else
+                call text("Value " // ui_str(value), anchor="value")
+            end if
             if (slider("value", 0, 100, value, step=5, width=240.0)) continue
             if (checkbox("check", checked, "Enabled")) continue
         case (2)

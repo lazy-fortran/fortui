@@ -198,7 +198,8 @@ contains
             associate (b => frame%boxes(i))
                 rec = 'B'//US//ui_str(b%kind)//US//ui_str(b%parent)//US//ui_str(b%after)// &
                     US//ui_str(nint(b%gap))//US//ui_str(nint(b%cross))//US// &
-                    ui_str(nint(b%width))//US//clean(trim(b%id))//RS
+                    ui_str(nint(b%width))//US//clean(trim(b%id))//US//clean(trim(b%look))// &
+                    US//clean(trim(b%anchor))//RS
             end associate
             call add(rec)
         end do
@@ -233,7 +234,8 @@ contains
 
     function node_record(n) result(r)
         !! Kind, id, x, y, width, height (logical units), flags, value, min,
-        !! max, style, text size, box, width mode, tone, text, body.
+        !! max, style, text size, box, width mode, tone, text, body, runs, look,
+        !! anchor.
         type(ui_node_t), intent(in) :: n
         character(len=:), allocatable :: r
         integer :: flags
@@ -252,7 +254,7 @@ contains
             ui_str(nint(n%text_size))//US//ui_str(n%box)//US//ui_str(n%width_mode)//US// &
             ui_str(n%tone)//US//clean(trim(n%text))//US
         if (allocated(n%body)) r = r//clean(n%body)
-        r = r//US//runs(n)
+        r = r//US//runs(n)//US//clean(trim(n%look))//US//clean(trim(n%anchor))
     end function node_record
 
     function runs(n) result(s)

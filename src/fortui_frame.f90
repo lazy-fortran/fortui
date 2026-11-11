@@ -3,7 +3,7 @@ module fortui_frame
     use iso_fortran_env, only: int32, int64
     use fortui_layout, only: layout_box_t
     use fortui_text, only: text_line_t, TEXT_DEFAULT_SIZE, TEXT_STYLE_REGULAR, &
-        TEXT_STYLE_BOLD, TEXT_STYLE_MONO
+        TEXT_STYLE_BOLD, TEXT_STYLE_MONO, text_hash
     implicit none
     private
 
@@ -44,6 +44,8 @@ module fortui_frame
         UI_TONE_NUMBER = 8, UI_TONE_TYPE = 9, UI_TONE_PREPROC = 10, UI_TONE_ADDED = 11, &
         UI_TONE_REMOVED = 12, UI_TONE_HUNK = 13, UI_TONE_LINK = 14, UI_TONE_STRONG = 15, &
         UI_TONE_EMPHASIS = 16
+    ! A person's turn: something waits for a decision (amber).
+    integer, parameter, public :: UI_TONE_ATTENTION = 17
 
     integer, parameter, public :: WIDTH_NATURAL = 0, WIDTH_FIXED = 1, WIDTH_FILL = 2
 
@@ -110,6 +112,10 @@ module fortui_frame
         logical :: checked = .false.
         integer :: style = UI_BODY
         integer :: tone = UI_TONE_NORMAL
+        ! A name the page styles by (data-look), and the address of the node in
+        ! the page (the HTML id); both empty by default.
+        character(len=32) :: look = ""
+        character(len=64) :: anchor = ""
         ! Container the node was composed in (index into boxes; 0: page root).
         integer :: box = 0
         ! How the width was asked for: WIDTH_NATURAL, WIDTH_FIXED or WIDTH_FILL.
@@ -262,7 +268,7 @@ contains
         index = 0
         if (.not. allocated(self%buckets) .or. len_trim(id) == 0) return
         mask = size(self%buckets) - 1
-        b = id_hash(id, mask)
+        b = text_hash(id, mask)
         do
             if (self%buckets(b + 1) == 0) return
             if (self%buckets(b + 1) <= self%count) then
@@ -281,7 +287,7 @@ contains
         integer :: b, mask
 
         mask = size(self%buckets) - 1
-        b = id_hash(self%nodes(index)%id, mask)
+        b = text_hash(self%nodes(index)%id, mask)
         do while (self%buckets(b + 1) /= 0)
             b = iand(b + 1, mask)
         end do
@@ -300,20 +306,5 @@ contains
             if (len_trim(self%nodes(i)%id) > 0) call insert(self, i)
         end do
     end subroutine rehash
-
-    pure integer function id_hash(id, mask) result(b)
-        !! FNV-1a over the trimmed bytes, reduced to a bucket in 0..mask.
-        character(*), intent(in) :: id
-        integer, intent(in) :: mask
-        integer(int64), parameter :: LOW32 = 4294967295_int64
-        integer(int64) :: h
-        integer :: i
-
-        h = 2166136261_int64
-        do i = 1, len_trim(id)
-            h = iand(ieor(h, int(iachar(id(i:i)), int64)) * 16777619_int64, LOW32)
-        end do
-        b = int(iand(h, int(mask, int64)))
-    end function id_hash
 
 end module fortui_frame

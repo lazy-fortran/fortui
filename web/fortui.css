@@ -1,6 +1,6 @@
 /* Base styles of the fortui browser backend. Pages include this in <head>, so
    a page rendered by the server is laid out before any script runs. Colours
-   and fonts belong to the page. */
+   and fonts belong to the page, except the attention tone below. */
 .fui-box { display: flex; box-sizing: border-box; min-width: 0; }
 .fui-col { flex-direction: column; align-items: flex-start; }
 .fui-row { flex-direction: row; align-items: center; }
@@ -23,3 +23,6 @@
 .fui-k7 { overflow: auto; white-space: pre-wrap; }
 .fui-k8 { min-height: 32px; }
 .fui-k10 { resize: none; font: inherit; }
+/* Attention (UI_TONE_ATTENTION): a person's turn, amber for the colour scheme
+   the page declares (color-scheme), light where it declares none. */
+.fui[data-tone="17"], .fui [data-t="17"] { color: #9a6700; color: light-dark(#9a6700, #d29922); }

@@ -227,6 +227,16 @@ bounded work for a large collection, and no unsupported performance claims.
 - [x] `fortui_html`: a composed frame as the HTML the browser host builds
       (same elements, classes, styles and keys), for pages a server renders
       with the headless backend before the WebAssembly starts.
+- [x] `look=` and `anchor=` on `text`, `link`, `button`, `row_begin` and
+      `column_begin`: the attribute `data-look` for page styles and the HTML
+      `id`, so an address with a fragment scrolls the server's page before any
+      script runs, both from `fortui_html` and the browser host; the terminal,
+      raylib and headless hosts ignore them. Tone `UI_TONE_ATTENTION` (a
+      person's turn) with its amber in `web/fortui.css`, the only colour the
+      base styles bring, chosen by the `color-scheme` the page declares. Names
+      lose control characters and are cut at whole characters; a second
+      element with an anchor already given in the frame is reported and gets
+      none. Checked in `test_html` and in headless Chromium.
 - [ ] Web backend: canvas layers (WebGPU through emscripten `webgpu.h`, or 2-D
       canvas first), DOM-realized geometry fed back to the runtime, IME through
       composition events, URL/history integration, and a CI job.

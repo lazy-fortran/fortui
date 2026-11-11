@@ -126,6 +126,7 @@ addToLibrary({
       if (el.dataset.id !== f[1]) { if (f[1]) el.dataset.id = f[1]; else delete el.dataset.id; }
       if (el.dataset.style !== style) el.dataset.style = style;
       if (el.dataset.tone !== f[14]) el.dataset.tone = f[14];
+      FUI.mark(el, f[18] || '', f[19] || '');
       var px = f[11] + 'px';
       if (s.fontSize !== px) s.fontSize = px;
       FUI.size(s, +f[13], +f[4], inRow);
@@ -175,6 +176,11 @@ addToLibrary({
         if (target.focus && document.hasFocus()) target.focus({ preventScroll: true });
       }
     },
+    // The style name as data-look and the page address as the element's id.
+    mark: function (el, look, anchor) {
+      if ((el.dataset.look || '') !== look) { if (look) el.dataset.look = look; else delete el.dataset.look; }
+      if (el.id !== anchor) { if (anchor) el.id = anchor; else el.removeAttribute('id'); }
+    },
     // Plain text, or runs of rich text as spans (ends are UTF-8 byte offsets).
     text: function (el, text, runs) {
       if (el._text === text && el._runs === runs) return;
@@ -202,6 +208,7 @@ addToLibrary({
       s.minHeight = +b[5] > 0 ? b[5] + 'px' : '';
       if (kind === 4 && +b[6] >= 0) { s.width = b[6] + 'px'; s.flex = '0 0 auto'; }
       if ((b[7] || '') !== (el.dataset.box || '')) { if (b[7]) el.dataset.box = b[7]; else delete el.dataset.box; }
+      FUI.mark(el, b[8] || '', b[9] || '');
     },
   },
 

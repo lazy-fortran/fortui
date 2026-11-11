@@ -38,6 +38,7 @@ module fortui_text
 
     public :: utf8_decode, utf8_encode, utf8_length, utf8_prev, utf8_next
     public :: utf8_boundary
+    public :: text_hash
     public :: text_use_fixed_metrics, text_set_metrics, text_metrics_fixed, text_set_mono_metrics
     public :: text_use_cell_metrics
     public :: text_advance, text_width, text_line_height, text_caret_from_x
@@ -135,6 +136,21 @@ contains
         b = iachar(s(pos:pos))
         is_continuation = b >= 128 .and. b < 192
     end function is_continuation
+
+    pure integer function text_hash(id, mask) result(b)
+        !! FNV-1a over the trimmed bytes, reduced to a bucket in 0..mask.
+        character(*), intent(in) :: id
+        integer, intent(in) :: mask
+        integer(int64), parameter :: LOW32 = 4294967295_int64
+        integer(int64) :: h
+        integer :: i
+
+        h = 2166136261_int64
+        do i = 1, len_trim(id)
+            h = iand(ieor(h, int(iachar(id(i:i)), int64)) * 16777619_int64, LOW32)
+        end do
+        b = int(iand(h, int(mask, int64)))
+    end function text_hash
 
     pure integer function utf8_boundary(s, caret) result(c)
         !! Clamp a caret (byte offset 0..len) back onto a code point boundary.

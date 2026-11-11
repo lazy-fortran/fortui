@@ -14,9 +14,14 @@ execFileSync('fpm', ['run', '--example', 'web_demo_ssr', '--', join(dir, 'ssr.ht
 const ssr = (await readFile(join(dir, 'ssr.html'))).toString().trim();
 const server = createServer(async (req, res) => {
   try {
-    if (req.url === '/?ssr') {
-      // Every server element is marked before the WebAssembly starts.
-      const page = (await readFile(join(dir, 'index.html'))).toString().replace('<div id="app"></div>',
+    if (req.url.startsWith('/?ssr') || req.url === '/?static') {
+      // Every server element is marked before the WebAssembly starts. Other
+      // than "/?ssr" the page has room to scroll below the frame; "/?static"
+      // is the page without the application's script.
+      let page = (await readFile(join(dir, 'index.html'))).toString();
+      if (req.url !== '/?ssr') page = page.replace('</head>', '<style>#app { padding-bottom: 3000px; }</style></head>');
+      if (req.url === '/?static') page = page.replace('<script src="web_demo.js"></script>', '');
+      page = page.replace('<div id="app"></div>',
         `<div id="app">${ssr}</div><script>document.querySelectorAll('[data-key]').forEach((e) => { e.__ssr = 1; });
         window.__ssrCount = document.querySelectorAll('[data-key]').length;</script>`);
       res.writeHead(200, { 'content-type': 'text/html' });
@@ -108,6 +113,32 @@ try {
   check(await evaluate(`document.querySelector('[data-id="count"]').tagName === 'BUTTON'`), 'button element');
   check(await evaluate(`getComputedStyle(document.querySelector('[data-id="count"]')).fontFamily === getComputedStyle(document.querySelector('.fui-root')).fontFamily`),
     'controls use the page font the metrics were measured in');
+  check(await evaluate(`(() => { const row = document.getElementById('controls'), one = document.querySelector('[data-id="one"]');
+    return !!row && row.classList.contains('fui-row') && row.dataset.look === 'toolbar' && one.dataset.look === 'primary'
+      && !one.id && !document.querySelector('[data-id="two"]').hasAttribute('data-look'); })()`),
+    'a container and a control carry their look and anchor, others neither');
+  const valueColour = `getComputedStyle(document.getElementById('value')).color`;
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
+  check(await evaluate(`document.getElementById('value').dataset.look === 'low' && document.getElementById('value').dataset.tone === '17'`) &&
+    (await evaluate(valueColour)) === 'rgb(154, 103, 0)', 'the attention tone is amber on a light page');
+  // The colour follows the scheme the page declares, not the system's preference.
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
+  check((await evaluate(valueColour)) === 'rgb(154, 103, 0)', 'the attention tone stays dark amber on a light page of a dark system');
+  await evaluate(`document.documentElement.style.colorScheme = 'dark'`);
+  check((await evaluate(valueColour)) === 'rgb(210, 153, 34)', 'the attention tone is a lighter amber on a page of dark scheme');
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
+  check((await evaluate(valueColour)) === 'rgb(210, 153, 34)', 'and stays lighter on a dark page of a light system');
+  await evaluate(`document.documentElement.style.colorScheme = ''`);
+  await send('Emulation.setEmulatedMedia', { features: [] });
+  await click('[data-id="two"]');
+  await until(`document.getElementById('value')?.textContent === 'Value 90'`, 'value 90');
+  check(await evaluate(`(() => { const e = document.getElementById('value');
+    return !e.hasAttribute('data-look') && e.dataset.tone === '0' &&
+      getComputedStyle(e).color === getComputedStyle(document.querySelector('.fui-root')).color; })()`),
+    'a look and a tone that end are removed while the anchor stays');
+  await click('[data-id="one"]');
+  await until(`document.getElementById('value')?.dataset.look === 'low' && document.getElementById('value').textContent === 'Value 10'`, 'value 10');
+  check(true, 'a look that returns is set again');
   await click('[data-id="count"]');
   await until(`document.querySelector('[data-id="count"]')?.textContent === 'Clicked 1'`, 'click');
   check(true, 'a pointer click activates the button');
@@ -159,6 +190,20 @@ try {
   check(await evaluate(`(() => { const all = [...document.querySelectorAll('[data-key]')];
     return all.length === window.__ssrCount && all.every((e) => e.__ssr === 1); })()`),
     'every server element is adopted, none rebuilt');
+  // An address with a fragment: the browser scrolls the server's page to the
+  // anchor without any script, and adoption leaves it there.
+  await send('Page.navigate', { url: url + '?static#value' });
+  await until(`window.__ssrCount > 0 && document.readyState === 'complete' && window.scrollY > 0`, 'static page');
+  check(await evaluate(`!document.querySelector('script[src]') &&
+    Math.abs(document.getElementById('value').getBoundingClientRect().top) < 2`),
+    'an address scrolls to its anchor before any script runs');
+  await send('Page.navigate', { url: url + '?ssr&tall#value' });
+  await until(`window.__ssrCount > 0 && document.querySelector('[data-id="ticks"]')?.textContent === 'Ticks 3'`, 'adopted tall page');
+  check(await evaluate(`(() => { const e = document.getElementById('value');
+    const all = [...document.querySelectorAll('[data-key]')];
+    return e.__ssr === 1 && e.dataset.look === 'low' && window.scrollY > 0 && Math.abs(e.getBoundingClientRect().top) < 2
+      && all.length === window.__ssrCount && all.every((x) => x.__ssr === 1); })()`),
+    'the adopted page keeps the anchor and stays scrolled to it');
 
   if (shot) {
     const png = await send('Page.captureScreenshot', { format: 'png' });

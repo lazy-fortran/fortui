@@ -120,6 +120,7 @@ contains
             s = '<div data-key="b'//ui_str(b)//'" class="'//cls//'"'
             if (len_trim(frame%boxes(b)%id) > 0) s = s//' data-box="'// &
                 html_escape(trim(frame%boxes(b)%id))//'"'
+            s = s//marks(frame%boxes(b)%look, frame%boxes(b)%anchor)
             call put(s//' style="'//style//'">')
             call children(b)
             call put('</div>')
@@ -146,6 +147,7 @@ contains
                 a = a//'" data-key="'//html_escape(trim(keys(k)))//'"'
                 if (len_trim(n%id) > 0) a = a//' data-id="'//html_escape(trim(n%id))//'"'
                 a = a//' data-style="'//ui_str(n%style)//'" data-tone="'//ui_str(n%tone)//'"'
+                a = a//marks(n%look, n%anchor)
                 if (n%disabled) a = a//' disabled'
                 style = 'font-size: '//ui_str(nint(n%text_size))//'px;'//width_style(n, row)
                 select case (n%kind)
@@ -224,6 +226,16 @@ contains
         end do
         if (at < len(text)) s = s//html_escape(text(at + 1:))
     end function runs_html
+
+    function marks(look, anchor) result(s)
+        !! The style name as data-look and the page address as id, where given.
+        character(len=*), intent(in) :: look, anchor
+        character(len=:), allocatable :: s
+
+        s = ''
+        if (len_trim(look) > 0) s = s//' data-look="'//html_escape(trim(look))//'"'
+        if (len_trim(anchor) > 0) s = s//' id="'//html_escape(trim(anchor))//'"'
+    end function marks
 
     function width_style(n, row) result(s)
         !! As the host sizes elements: fixed width, filling the container, or natural.

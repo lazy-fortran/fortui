@@ -16,7 +16,8 @@ module fortui_widgets
         LAYER_VERTICES, SCROLL_PADDING, SCROLLBAR_WIDTH, INPUT_PADDING, CONTROL_PADDING, &
         style_size, style_weight, WIDTH_NATURAL, WIDTH_FIXED, WIDTH_FILL, UI_TONE_LINK
     use fortui_layout, only: layout_get_cursor, layout_advance, layout_available, &
-        layout_scope, layout_fill_width, layout_place, layout_note_node, row_begin, row_end
+        layout_scope, layout_fill_width, layout_place, layout_note_node, row_begin, row_end, &
+        layout_marks
     use fortui_input, only: input_activated, input_focused, input_active, input_hovered, &
         input_wheel_for, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_ARROW_UP, KEY_ARROW_DOWN, &
         KEY_BACKSPACE, KEY_DELETE, KEY_HOME, KEY_END, KEY_ENTER, KEY_PAGE_UP, KEY_PAGE_DOWN, &
@@ -174,7 +175,8 @@ contains
 
     ! --- static and simple controls ------------------------------------------------
 
-    subroutine text(value, style, size, width, ellipsis, id, tone, ends, tones)
+    subroutine text(value, style, size, width, ellipsis, id, tone, ends, tones, look, &
+            anchor)
         !! Static text. `style` is a token (UI_BODY default, UI_CAPTION, UI_HEADING,
         !! UI_TITLE, UI_CODE); `tone` a UI_TONE_* token for its colour; `size`
         !! overrides its logical size. With `ellipsis`, text wider than `width`
@@ -182,6 +184,16 @@ contains
         !! the backend. `id` is only needed for later reference.
         !! With `ends` and `tones` the text is rich: run k ends at byte ends(k) and
         !! has tone tones(k) (highlighted code, emphasis, links).
+        !! `look` names the element for the page's styles and `anchor` is its address
+        !! in the page: hosts that render HTML emit them as the attributes
+        !! `data-look` and `id`, so "#anchor" in a location scrolls to the element;
+        !! other hosts ignore both. Neither is scoped by containers. Control
+        !! characters are dropped, and a look keeps 32 and an anchor 64 bytes of
+        !! whole characters. An anchor must be free of spaces and unique in the
+        !! page: a second element with the same anchor is reported and gets none,
+        !! and the ids of the page's own markup (the root element the application
+        !! is mounted in, say) are taken too, since a page has one set of ids and
+        !! the page's styles for such an id would apply to the element.
         character(*), intent(in) :: value
         integer, intent(in), optional :: style
         real, intent(in), optional :: size, width
@@ -189,6 +201,7 @@ contains
         character(*), intent(in), optional :: id
         integer, intent(in), optional :: tone
         integer, intent(in), optional :: ends(:), tones(:)
+        character(*), intent(in), optional :: look, anchor
 
         type(fortui_context_t), pointer :: ctx
         type(ui_node_t) :: node
@@ -197,6 +210,7 @@ contains
         if (.not. composing(ctx)) return
 
         node%kind = UI_TEXT
+        call layout_marks(look, anchor, node%look, node%anchor)
         if (present(tone)) node%tone = tone
         if (present(ends) .and. present(tones)) then
             ! `size` is the text size argument here.
@@ -221,15 +235,17 @@ contains
         call place_and_emit(ctx, node)
     end subroutine text
 
-    logical function button(id, label, key, width, height, enabled, ellipsis, size) &
-            result(clicked)
+    logical function button(id, label, key, width, height, enabled, ellipsis, size, &
+            look, anchor) result(clicked)
         !! Push button; true once when activated (pointer release or Enter/Space).
-        !! `size` is the logical text size of the label.
+        !! `size` is the logical text size of the label; `look` and `anchor` as
+        !! for `text`.
         character(*), intent(in) :: id
         character(*), intent(in), optional :: label
         integer, intent(in), optional :: key
         real, intent(in), optional :: width, height, size
         logical, intent(in), optional :: enabled, ellipsis
+        character(*), intent(in), optional :: look, anchor
 
         type(fortui_context_t), pointer :: ctx
         type(ui_node_t) :: node
@@ -241,6 +257,7 @@ contains
         node%kind = UI_BUTTON
         node%id = scoped_id(id, key)
         if (.not. claim(ctx, trim(node%id), "button")) return
+        call layout_marks(look, anchor, node%look, node%anchor)
         node%text = trim(id)
         if (present(label)) node%text = label
         if (present(size)) node%text_size = max(1.0, size)
@@ -258,16 +275,18 @@ contains
         call place_and_emit(ctx, node)
     end function button
 
-    logical function link(id, label, href, key, width, ellipsis, size, style, tone) &
-            result(clicked)
+    logical function link(id, label, href, key, width, ellipsis, size, style, tone, &
+            look, anchor) result(clicked)
         !! A hyperlink to `href`, a location such as "/docs/intro"; true once when
         !! activated, so the application navigates itself. A host that knows
         !! locations (a browser) shows `href` and opens it on its own when asked to,
         !! for example in a new tab. Laid out like text of `style` and `size`.
+        !! `look` and `anchor` as for `text`.
         character(*), intent(in) :: id, label, href
         integer, intent(in), optional :: key, style, tone
         real, intent(in), optional :: width, size
         logical, intent(in), optional :: ellipsis
+        character(*), intent(in), optional :: look, anchor
 
         type(fortui_context_t), pointer :: ctx
         type(ui_node_t) :: node
@@ -279,6 +298,7 @@ contains
         node%kind = UI_LINK
         node%id = scoped_id(id, key)
         if (.not. claim(ctx, trim(node%id), "link")) return
+        call layout_marks(look, anchor, node%look, node%anchor)
         node%text = label
         node%body = href
         node%tone = UI_TONE_LINK

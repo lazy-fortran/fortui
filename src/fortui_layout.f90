@@ -2,6 +2,7 @@ module fortui_layout
     !! Immediate composition layout state in backend-neutral logical units, plus
     !! identity scopes: a container with an id prefixes the ids of widgets inside.
     use fortui_error, only: report_error
+    use fortui_text, only: utf8_boundary, text_hash
     implicit none
     private
 
@@ -58,6 +59,10 @@ module fortui_layout
         real :: width = -1.0
         !! The id the container was opened with (for page styles), or empty.
         character(len=64) :: id = ""
+        !! A name the page styles by (data-look), or empty.
+        character(len=32) :: look = ""
+        !! The address of the container in the page (the HTML id), or empty.
+        character(len=64) :: anchor = ""
     end type layout_box_t
 
     type(layout_entry_t), save :: layout_stack(MAX_LAYOUT_DEPTH)
@@ -65,11 +70,19 @@ module fortui_layout
     integer, save :: box_count = 0, nodes_emitted = 0
     integer, save :: stack_depth = 0
 
+    ! Page addresses given in the frame being composed (open addressing; a free
+    ! slot is blank), and the duplicates already reported.
+    character(len=64), allocatable, save :: anchors(:)
+    integer, save :: anchor_count = 0
+    character(len=64), save :: anchors_told(16) = ""
+    integer, save :: told_count = 0
+
     public :: layout_reset, layout_get_cursor, layout_advance, layout_depth, layout_place
     public :: column_begin, column_end, row_begin, row_end
     public :: layout_available, split_begin, split_next, split_end
     public :: layout_scope, layout_fill_width, layout_check_balance
     public :: layout_boxes, layout_note_node
+    public :: layout_marks
     public :: KIND_COLUMN, KIND_ROW, KIND_SPLIT, KIND_PANE
 
 contains
@@ -81,6 +94,8 @@ contains
         layout_stack(1) = layout_entry_t(direction=DIR_COLUMN, scope="")
         box_count = 0
         nodes_emitted = 0
+        if (anchor_count > 0) anchors = ""
+        anchor_count = 0
         if (present(width)) layout_stack(1)%region_w = max(0.0, width)
         if (present(height)) layout_stack(1)%region_h = max(0.0, height)
     end subroutine layout_reset
@@ -280,22 +295,114 @@ contains
             region_y=y, region_w=w, region_h=h, scope=scope, box=box_count)
     end subroutine push_region
 
-    subroutine column_begin(gap, id)
+    subroutine column_begin(gap, id, look, anchor)
         !! Vertical container; `id` (optional) scopes the identities inside.
+        !! `look` names the container for the page's styles and `anchor` is its
+        !! address in the page (see `text`).
         real, intent(in), optional :: gap
-        character(*), intent(in), optional :: id
+        character(*), intent(in), optional :: id, look, anchor
         call push_layout(KIND_COLUMN, DIR_COLUMN, gap, id)
+        call mark_box(look, anchor)
     end subroutine column_begin
 
-    subroutine row_begin(gap, id, height)
+    subroutine row_begin(gap, id, height, look, anchor)
         !! Horizontal container; `id` (optional) scopes the identities inside. With
         !! `height`, the row is at least that tall and centres shorter items in it.
+        !! `look` names the container for the page's styles and `anchor` is its
+        !! address in the page (see `text`).
         real, intent(in), optional :: gap, height
-        character(*), intent(in), optional :: id
+        character(*), intent(in), optional :: id, look, anchor
         call push_layout(KIND_ROW, DIR_ROW, gap, id)
+        call mark_box(look, anchor)
         if (present(height)) layout_stack(stack_depth)%cross_size = max(0.0, height)
         if (present(height)) boxes(layout_stack(stack_depth)%box)%cross = max(0.0, height)
     end subroutine row_begin
+
+    subroutine mark_box(look, anchor)
+        !! Style name and page address of the container just opened.
+        character(*), intent(in), optional :: look, anchor
+        integer :: b
+
+        b = layout_stack(stack_depth)%box
+        call layout_marks(look, anchor, boxes(b)%look, boxes(b)%anchor)
+    end subroutine mark_box
+
+    subroutine layout_marks(look, anchor, look_name, anchor_name)
+        !! Store the style name and the page address of an element, where given.
+        !! An address another element of the frame already has is reported and
+        !! left out, as two elements cannot share an HTML id.
+        character(*), intent(in), optional :: look, anchor
+        character(*), intent(inout) :: look_name, anchor_name
+
+        if (present(look)) look_name = page_name(look, len(look_name))
+        if (.not. present(anchor)) return
+        anchor_name = page_name(anchor, len(anchor_name))
+        if (.not. claim_anchor(anchor_name)) anchor_name = ""
+    end subroutine layout_marks
+
+    function page_name(value, limit) result(name)
+        !! `value` without control characters (hosts and the HTML parser treat
+        !! them differently), cut to whole UTF-8 characters within `limit` bytes.
+        character(*), intent(in) :: value
+        integer, intent(in) :: limit
+        character(len=:), allocatable :: name
+        character(len=len(value)) :: kept
+        integer :: i, n, c
+
+        n = 0
+        do i = 1, len_trim(value)
+            c = iachar(value(i:i))
+            if (c < 32 .or. c == 127) cycle
+            n = n + 1
+            kept(n:n) = value(i:i)
+        end do
+        name = kept(1:utf8_boundary(kept(1:n), min(n, limit)))
+    end function page_name
+
+    logical function claim_anchor(anchor) result(free)
+        !! Whether no element of this frame has the page address `anchor` yet;
+        !! a duplicate is reported once.
+        character(len=64), intent(in) :: anchor
+        character(len=64), allocatable :: old(:)
+        integer :: i, slot
+
+        free = .true.
+        if (len_trim(anchor) == 0) return
+        if (.not. allocated(anchors)) then
+            allocate(anchors(64))
+            anchors = ""
+        else if (2 * (anchor_count + 1) > size(anchors)) then
+            call move_alloc(anchors, old)
+            allocate(anchors(2 * size(old)))
+            anchors = ""
+            do i = 1, size(old)
+                if (len_trim(old(i)) > 0) anchors(anchor_slot(old(i))) = old(i)
+            end do
+        end if
+        slot = anchor_slot(anchor)
+        free = len_trim(anchors(slot)) == 0
+        if (free) then
+            anchors(slot) = anchor
+            anchor_count = anchor_count + 1
+        else if (.not. any(anchors_told(1:told_count) == anchor)) then
+            if (told_count < size(anchors_told)) then
+                told_count = told_count + 1
+                anchors_told(told_count) = anchor
+            end if
+            call report_error("fortui_layout", "anchor", "duplicate anchor '" // &
+                trim(anchor) // "' in one frame; the later element has none")
+        end if
+    end function claim_anchor
+
+    integer function anchor_slot(anchor) result(slot)
+        !! The slot holding `anchor`, or the free one where it belongs.
+        character(len=64), intent(in) :: anchor
+
+        slot = text_hash(anchor, size(anchors) - 1) + 1
+        do while (len_trim(anchors(slot)) > 0 .and. anchors(slot) /= anchor)
+            slot = mod(slot, size(anchors)) + 1
+        end do
+    end function anchor_slot
 
     subroutine column_end()
         logical :: ok
