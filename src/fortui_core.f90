@@ -8,7 +8,7 @@ module fortui_core
         input_scroll, input_set_key, input_type_text, input_set_time, input_key_arrived, &
         KEY_ESCAPE, input_apply_host, input_host_event
     use fortui_layout, only: layout_reset, layout_check_balance, layout_boxes
-    use fortui_frame, only: UI_TEXT_INPUT, style_weight
+    use fortui_frame, only: UI_TEXT_INPUT, UI_TEXT_AREA, style_weight
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t, ui_window_config_t
     use fortui_text, only: text_use_fixed_metrics, text_width
     use fortui_error, only: report_error
@@ -103,7 +103,8 @@ contains
 
         call input_apply_host(ctx%input)
         call input_route(ctx%input, ctx%previous_frame)
-        ctx%text_focused = focused_kind(ctx) == UI_TEXT_INPUT
+        ctx%text_focused = focused_kind(ctx) == UI_TEXT_INPUT .or. &
+            focused_kind(ctx) == UI_TEXT_AREA
         ! Escape leaves a focused text field; otherwise it is an ordinary key.
         if (ctx%text_focused .and. input_key_arrived(ctx%input, KEY_ESCAPE)) &
             ctx%input%focus_id = ""

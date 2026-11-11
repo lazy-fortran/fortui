@@ -12,7 +12,7 @@ module fortui_widgets
     use iso_fortran_env, only: int32
     use fortui_context, only: fortui_context_t, get_default_context
     use fortui_frame, only: ui_node_t, canvas_view_t, ui_label_t, UI_TEXT, UI_BUTTON, UI_LINK, &
-        UI_SLIDER, UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, &
+        UI_SLIDER, UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, &
         LAYER_VERTICES, SCROLL_PADDING, SCROLLBAR_WIDTH, INPUT_PADDING, CONTROL_PADDING, &
         style_size, style_weight, WIDTH_NATURAL, WIDTH_FIXED, WIDTH_FILL, UI_TONE_LINK
     use fortui_layout, only: layout_get_cursor, layout_advance, layout_available, &
@@ -934,26 +934,30 @@ contains
     end subroutine scroll_text
 
     logical function text_input(id, value, placeholder, submitted, width, enabled, key, &
-            size) &
+            size, lines) &
             result(changed)
-        !! Single-line UTF-8 text field. Focus by click or Tab; typing inserts at the
-        !! caret; Backspace/Delete/Left/Right/Home/End edit; Enter sets `submitted`;
+        !! UTF-8 text field. Focus by click or Tab; typing inserts at the caret;
+        !! Backspace/Delete/Left/Right/Home/End edit; Enter sets `submitted`;
         !! Escape leaves the field. Each edit commits to `value` (no draft session).
         !! Returns whether `value` changed in this frame. Width defaults to the
         !! remaining width of the current container.
+        !!
+        !! With `lines` above 1 the field shows that many lines and holds text of
+        !! any number of lines: Enter starts a new line and never submits, Up and
+        !! Down move between lines, and Home and End act on the caret's line.
         character(*), intent(in) :: id
         character(len=:), allocatable, intent(inout) :: value
         character(*), intent(in), optional :: placeholder
         logical, intent(out), optional :: submitted
         real, intent(in), optional :: width, size
         logical, intent(in), optional :: enabled
-        integer, intent(in), optional :: key
+        integer, intent(in), optional :: key, lines
 
         type(fortui_context_t), pointer :: ctx
         type(ui_node_t) :: node
         character(len=:), allocatable :: old, typed
-        integer :: st, k, c, i, done
-        logical :: did_submit
+        integer :: st, k, c, i, done, row
+        logical :: did_submit, area
 
         changed = .false.
         did_submit = .false.
@@ -962,7 +966,10 @@ contains
         ctx => get_default_context()
         if (.not. composing(ctx)) return
 
+        area = .false.
+        if (present(lines)) area = lines > 1
         node%kind = UI_TEXT_INPUT
+        if (area) node%kind = UI_TEXT_AREA
         node%id = scoped_id(id, key)
         if (.not. claim(ctx, trim(node%id), "text_input")) return
         call set_enabled(node, enabled)
@@ -972,6 +979,10 @@ contains
         if (present(width)) node%width_mode = width_mode(width)
         node%height = CONTROL_HEIGHT
         if (present(size)) node%text_size = max(1.0, size)
+        if (area) then
+            node%line_count = lines
+            node%height = lines * text_line_height(node%text_size) + 2.0 * INPUT_PADDING
+        end if
         call decorate_from_input(ctx, node)
 
         old = value
@@ -984,8 +995,20 @@ contains
             c = utf8_boundary(value, s%caret)
             if (.not. node%disabled .and. node%focused) then
                 if (node%active .and. inp%pointer_pressed) then
-                    c = text_caret_from_x(value, node%text_size, &
-                        inp%pointer_x - node%x - INPUT_PADDING)
+                    if (area) then
+                        row = int((inp%pointer_y - node%y - INPUT_PADDING) / &
+                            text_line_height(node%text_size))
+                        i = line_start(value, 0)
+                        do k = 1, row
+                            if (line_end(value, i) >= len(value)) exit
+                            i = line_end(value, i) + 1
+                        end do
+                        c = i + text_caret_from_x(value(i + 1:line_end(value, i)), node%text_size, &
+                            inp%pointer_x - node%x - INPUT_PADDING)
+                    else
+                        c = text_caret_from_x(value, node%text_size, &
+                            inp%pointer_x - node%x - INPUT_PADDING)
+                    end if
                 end if
                 done = 0
                 do k = 1, inp%key_count
@@ -1000,9 +1023,37 @@ contains
                         value = value(1:c) // value(i + 1:)
                     case (KEY_ARROW_LEFT); c = utf8_prev(value, c)
                     case (KEY_ARROW_RIGHT); c = utf8_next(value, c)
-                    case (KEY_HOME); c = 0
-                    case (KEY_END); c = len(value)
-                    case (KEY_ENTER); did_submit = .true.
+                    case (KEY_HOME)
+                        if (area) then
+                            c = line_start(value, c)
+                        else
+                            c = 0
+                        end if
+                    case (KEY_END)
+                        if (area) then
+                            c = line_end(value, c)
+                        else
+                            c = len(value)
+                        end if
+                    case (KEY_ARROW_UP)
+                        if (area) then
+                            i = line_start(value, c)
+                            if (i > 0) c = utf8_boundary(value, &
+                                min(line_start(value, i - 1) + c - i, i - 1))
+                        end if
+                    case (KEY_ARROW_DOWN)
+                        if (area) then
+                            i = line_end(value, c)
+                            if (i < len(value)) c = utf8_boundary(value, &
+                                min(i + 1 + c - line_start(value, c), line_end(value, i + 1)))
+                        end if
+                    case (KEY_ENTER)
+                        if (area) then
+                            value = value(1:c) // new_line('a') // value(c + 1:)
+                            c = c + 1
+                        else
+                            did_submit = .true.
+                        end if
                     end select
                 end do
                 call insert_typed(inp%text_len)
@@ -1034,6 +1085,25 @@ contains
         end subroutine insert_typed
 
     end function text_input
+
+    pure integer function line_start(s, c) result(at)
+        !! Caret position at the start of the line that holds caret position `c`.
+        character(*), intent(in) :: s
+        integer, intent(in) :: c
+        at = index(s(1:min(c, len(s))), new_line('a'), back=.true.)
+    end function line_start
+
+    pure integer function line_end(s, c) result(at)
+        !! Caret position at the end of the line that holds caret position `c`.
+        character(*), intent(in) :: s
+        integer, intent(in) :: c
+        at = index(s(min(c, len(s)) + 1:), new_line('a'))
+        if (at == 0) then
+            at = len(s)
+        else
+            at = min(c, len(s)) + at - 1
+        end if
+    end function line_end
 
     ! --- helpers --------------------------------------------------------------------------
 

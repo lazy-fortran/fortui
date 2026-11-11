@@ -16,7 +16,7 @@ module fortui_gui_raylib
     use iso_c_binding
     use iso_fortran_env, only: int32
     use fortui_frame, only: ui_frame_t, ui_node_t, ui_layer_ref_t, UI_TEXT, UI_BUTTON, UI_LINK, &
-        UI_SLIDER, UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, &
+        UI_SLIDER, UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, &
         UI_CAPTION, LAYER_POINTS, LAYER_LINES, SCROLL_PADDING, SCROLLBAR_WIDTH, &
         INPUT_PADDING, CONTROL_PADDING, style_weight
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
@@ -1149,6 +1149,68 @@ contains
         call rl_end_scissor()
     end subroutine draw_text_input
 
+    subroutine draw_text_area(rl, node, fg)
+        !! The lines of the text one under the other, with the caret on its line.
+        type(raylib_backend_t), intent(inout) :: rl
+        type(ui_node_t), intent(in) :: node
+        type(rl_color), intent(in) :: fg
+        integer :: x, y, w, h, first, last, row, caret_row
+        real :: tx, ty, line_h, caret_x
+
+        x = nint(node%x)
+        y = nint(node%y)
+        w = max(1, nint(node%width))
+        h = max(1, nint(node%height))
+        call rl_draw_rectangle(x, y, w, h, color(20, 20, 22, 255))
+        if (node%focused) then
+            call draw_border(x, y, w, h, color(255, 220, 90, 255))
+        else
+            call draw_border(x, y, w, h, color(90, 90, 100, 255))
+        end if
+        call rl_begin_scissor(x + 1, y + 1, max(1, w - 2), max(1, h - 2))
+        tx = node%x + INPUT_PADDING
+        ty = node%y + INPUT_PADDING
+        line_h = text_line_height(node%text_size)
+        caret_row = 0
+        caret_x = 0.0
+        if (len(node%body) == 0) then
+            if (.not. node%focused) call draw_utf8(rl, trim(node%text), tx, ty, &
+                node%text_size, TEXT_STYLE_REGULAR, color(120, 120, 130, 255))
+        else
+            first = 1
+            row = 0
+            do
+                last = index(node%body(first:), new_line('a'))
+                if (last == 0) then
+                    last = len(node%body)
+                else
+                    last = first + last - 2
+                end if
+                if (last >= first) call draw_utf8(rl, node%body(first:last), tx, &
+                    ty + row * line_h, node%text_size, TEXT_STYLE_REGULAR, fg)
+                if (node%caret >= first - 1 .and. node%caret <= last) then
+                    caret_row = row
+                    caret_x = 0.0
+                    if (node%caret >= first) caret_x = text_width(node%body(first:node%caret), &
+                        node%text_size)
+                end if
+                if (last >= len(node%body)) exit
+                first = last + 2
+                row = row + 1
+                if (first > len(node%body)) then
+                    if (node%caret >= len(node%body)) then
+                        caret_row = row
+                        caret_x = 0.0
+                    end if
+                    exit
+                end if
+            end do
+        end if
+        if (node%focused) call rl_draw_rectangle(nint(tx + caret_x), &
+            nint(ty + caret_row * line_h), 2, max(1, nint(line_h)), color(255, 220, 90, 255))
+        call rl_end_scissor()
+    end subroutine draw_text_area
+
     function shown(node, avail, weight) result(s)
         !! Node text, shortened with an ellipsis to `avail` when the node asks for it.
         type(ui_node_t), intent(in) :: node
@@ -1244,6 +1306,8 @@ contains
             call draw_scroll_text(rl, node, fg)
         case (UI_TEXT_INPUT)
             call draw_text_input(rl, node, fg)
+        case (UI_TEXT_AREA)
+            call draw_text_area(rl, node, fg)
         end select
     end subroutine draw_node
 

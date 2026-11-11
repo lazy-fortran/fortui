@@ -96,7 +96,8 @@ addToLibrary({
       }, { passive: false });
       window.addEventListener('resize', FUI.resize);
     },
-    tags: { 2: 'button', 3: 'input', 4: 'label', 5: 'button', 6: 'canvas', 8: 'input', 9: 'a' },
+    tags: { 2: 'button', 3: 'input', 4: 'label', 5: 'button', 6: 'canvas', 8: 'input', 9: 'a',
+      10: 'textarea' },
     create: function (kind, key) {
       var el = document.createElement(FUI.tags[kind] || 'div');
       if (kind === 3) { el.type = 'range'; el.step = 'any'; }
@@ -129,7 +130,7 @@ addToLibrary({
       if (s.fontSize !== px) s.fontSize = px;
       FUI.size(s, +f[13], +f[4], inRow);
       if ('disabled' in el) el.disabled = (flags & 2) !== 0;
-      if (kind === 2 || kind === 5 || kind === 6 || kind === 7) s.height = f[5] + 'px';
+      if (kind === 2 || kind === 5 || kind === 6 || kind === 7 || kind === 10) s.height = f[5] + 'px';
       switch (kind) {
         case 2:
           if (el.textContent !== text) el.textContent = text;
@@ -159,6 +160,7 @@ addToLibrary({
           el.classList.toggle('fui-ellipsis', (flags & 64) !== 0);
           break;
         case 8:
+        case 10:
           // The field edits natively; the runtime's value is shown only when
           // the application changed it (it differs from what the field said).
           if (body !== el._reported && el.value !== body) { el.value = body; el._reported = body; }

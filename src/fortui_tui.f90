@@ -17,7 +17,7 @@ module fortui_tui
     use iso_c_binding, only: c_int, c_int8_t, c_int16_t, c_int32_t, c_long, c_char
     use iso_fortran_env, only: int32, int64
     use fortui_frame, only: ui_frame_t, ui_node_t, UI_TEXT, UI_BUTTON, UI_LINK, UI_SLIDER, &
-        UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_CAPTION, &
+        UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, UI_CAPTION, &
         UI_HEADING, UI_TITLE, SCROLL_PADDING
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
         input_set_key, input_type_text, KEY_NONE, KEY_ENTER, KEY_ESCAPE, KEY_TAB, &
@@ -1079,8 +1079,52 @@ contains
                 end if
             end if
             call put_cell(self, x + w - 1, y, iachar(']'), fg, bg)
+        case (UI_TEXT_AREA)
+            call draw_text_area(self, node, x, y, w, h, fg, bg)
         end select
     end subroutine draw_node
+
+    subroutine draw_text_area(self, node, x, y, w, h, fg, bg)
+        !! The lines of the text between brackets, scrolled so that the caret's
+        !! line shows.
+        type(tui_backend_t), intent(inout) :: self
+        type(ui_node_t), intent(in) :: node
+        integer, intent(in) :: x, y, w, h, fg, bg
+        integer :: row, first, last, top, caret_line, i
+
+        do row = 0, h - 1
+            call put_cell(self, x, y + row, iachar('['), fg, bg)
+            call put_cell(self, x + w - 1, y + row, iachar(']'), fg, bg)
+        end do
+        if (.not. allocated(node%body)) return
+        if (len(node%body) == 0) then
+            call draw_string(self, x + 1, y, trim(node%text), colour(self, RGB_DISABLED), bg, &
+                max(0, w - 2), .false.)
+            return
+        end if
+        caret_line = 0
+        do i = 1, min(node%caret, len(node%body))
+            if (node%body(i:i) == new_line('a')) caret_line = caret_line + 1
+        end do
+        top = max(0, caret_line - h + 1)
+        first = 1
+        row = -top
+        do
+            last = index(node%body(first:), new_line('a'))
+            if (last == 0) then
+                last = len(node%body)
+            else
+                last = first + last - 2
+            end if
+            if (row >= h) exit
+            if (row >= 0 .and. last >= first) call draw_string(self, x + 1, y + row, &
+                node%body(first:last), fg, bg, max(0, w - 2), .false.)
+            if (last >= len(node%body)) exit
+            first = last + 2
+            row = row + 1
+            if (first > len(node%body)) exit
+        end do
+    end subroutine draw_text_area
 
     subroutine draw_scroll_text(self, node, x, y, w, h, fg, bg)
         type(tui_backend_t), intent(inout) :: self

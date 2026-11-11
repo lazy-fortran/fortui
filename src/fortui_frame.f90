@@ -18,6 +18,8 @@ module fortui_frame
     integer, parameter, public :: UI_TEXT_INPUT = 8
     ! A hyperlink: activated like a button, and a location the host can open itself.
     integer, parameter, public :: UI_LINK = 9
+    ! A text field of several lines: Enter starts a new line instead of submitting.
+    integer, parameter, public :: UI_TEXT_AREA = 10
 
     integer, parameter, public :: LAYER_POINTS = 1
     integer, parameter, public :: LAYER_LINES = 2
