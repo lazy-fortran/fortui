@@ -6,13 +6,14 @@ program test_html
     use fortui_html, only: ui_frame_html, html_escape
     implicit none
 
-    character(len=:), allocatable :: html, name
+    character(len=:), allocatable :: html, name, note
     integer :: stat, tab
     integer :: j, k
     integer(8) :: t0, t1, rate
     logical :: clicked
 
     name = 'Ada "<x>"'
+    note = 'a < b'//new_line('a')//'c'
     tab = 2
     call ui_init(headless_backend_t(), 800, 600, "html", stat=stat)
     call ui_frame_begin()
@@ -23,6 +24,7 @@ program test_html
     clicked = button("go", "Go")
     call row_end()
     if (text_input("name", name, width=UI_FILL)) continue
+    if (text_input("note", note, placeholder="Note", lines=4)) continue
     call column_end()
     if (tabs("t", [character(len=4) :: "A", "B"], tab, width=200.0)) continue
     call text("after")
@@ -42,6 +44,9 @@ program test_html
         'row with its gap and height')
     call check(index(html, '<button type="button" class="fui fui-k2" data-key="2:c/go" '// &
         'data-id="c/go"') > 0, 'button with key and id')
+    call check(index(html, '<textarea rows="4" placeholder="Note"') > 0 .and. &
+        index(html, '>a &lt; b'//new_line('a')//'c</textarea>') > 0, &
+        'a field of several lines is a textarea with its escaped text')
     call check(index(html, 'value="Ada &quot;&lt;x&gt;&quot;"') > 0 .and. &
         index(html, 'align-self: stretch;') > 0, 'filling text field with its escaped value')
     call check(index(html, 'role="tab" aria-selected="true" class="fui fui-k5" data-key="5:t#2"') &

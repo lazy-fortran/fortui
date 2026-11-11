@@ -5,7 +5,8 @@ module fortui_html
     !! the page shows before any script runs; the browser backend then adopts the
     !! elements by key instead of rebuilding them.
     use fortui_frame, only: ui_frame_t, ui_node_t, UI_TEXT, UI_BUTTON, UI_LINK, UI_SLIDER, &
-        UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, WIDTH_FIXED, &
+        UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, &
+        WIDTH_FIXED, &
         WIDTH_FILL
     use fortui_layout, only: KIND_ROW, KIND_SPLIT, KIND_PANE
     use fortui_text, only: ui_str
@@ -179,6 +180,9 @@ contains
                     s = '<div'//a//'>'//body//'</div>'
                 case (UI_TEXT_INPUT)
                     s = '<input type="text" value="'//body//'" placeholder="'//text//'"'//a//'>'
+                case (UI_TEXT_AREA)
+                    s = '<textarea rows="'//ui_str(n%line_count)//'" placeholder="'//text//'"'// &
+                        a//'>'//body//'</textarea>'
                 case default
                     if (allocated(n%run_end)) text = runs_html(trim(n%text), n%run_end, n%run_tone)
                     s = '<div'//a//'>'//text//'</div>'

@@ -22,3 +22,4 @@
 .fui-k4 { display: inline-flex; align-items: center; gap: 6px; }
 .fui-k7 { overflow: auto; white-space: pre-wrap; }
 .fui-k8 { min-height: 32px; }
+.fui-k10 { resize: none; font: inherit; }
