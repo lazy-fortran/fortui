@@ -4,7 +4,8 @@ program test_sdl_gpu
     !! - a classic button has the Windows 95 bevel pixels on screen;
     !! - its label is drawn (dark glyph pixels inside the face);
     !! - a material button's rounded corner is antialiased;
-    !! - a press and release that arrive between two frames activate a button.
+    !! - a press and release that arrive between two frames activate a button;
+    !! - a canvas image shows in the first frame it is composed in.
     use iso_c_binding
     use iso_fortran_env, only: int8
     use fortui
@@ -31,6 +32,7 @@ program test_sdl_gpu
     call test_classic_pixels()
     call test_material_corner()
     call test_quick_click()
+    call test_image_first_frame()
 #else
     print '(a)', "sdl gpu: skipped (built without -DENABLE_SDL=1)"
 #endif
@@ -146,6 +148,30 @@ contains
         call check(clicks == 100, "quick click activates the button under it")
         call ui_shutdown()
     end subroutine test_quick_click
+
+    subroutine test_image_first_frame()
+        !! One frame, then read: the image's red pixels are on screen at once.
+        type(sdl_backend_t) :: b
+        integer(int8), allocatable :: px(:, :, :)
+        integer :: w, h, stat
+        integer(c_int32_t) :: red(4, 4)
+        type(canvas_view_t) :: view
+        b%offscreen = .true.
+        call ui_init(b, 100, 100, "test", stat=stat, theme_name="material")
+        if (stat /= 0) return
+        call ui_set_theme("material")
+        red = ui_rgba(255, 0, 0)
+        call ui_frame_begin()
+        call canvas_begin("c", view, width=60.0, height=60.0, fill=ui_rgba(0, 0, 255))
+        call canvas_image("img", 1, red, 10.0, 10.0, 40.0, 40.0)
+        call canvas_end(view)
+        call ui_present()
+        call read_frame(px, w, h)
+        if (w /= 100) return
+        call check(rgb_is(px, 16 + 30, 16 + 30, int(z'FF0000')), "image in the first frame")
+        call check(rgb_is(px, 16 + 5, 16 + 5, int(z'0000FF')), "canvas fill around it")
+        call ui_shutdown()
+    end subroutine test_image_first_frame
 
     subroutine read_frame(px, w, h)
         integer(int8), allocatable, intent(out) :: px(:, :, :)

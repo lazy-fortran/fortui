@@ -1645,8 +1645,18 @@ contains
             g%vertex_version = ref%vertex_version
             g%pending = .true.
             if (ref%kind == LAYER_IMAGE) then
+                ! The texture exists before the frame is recorded; its pixels
+                ! arrive with this frame's copy pass.
+                if (c_associated(g%texture) .and. (g%width /= l%image_width .or. &
+                    g%height /= l%image_height)) then
+                    call SDL_ReleaseGPUTexture(self%device, g%texture)
+                    g%texture = c_null_ptr
+                end if
                 g%width = l%image_width
                 g%height = l%image_height
+                if (.not. c_associated(g%texture)) g%texture = SDL_CreateGPUTexture( &
+                    self%device, texture_info_t(type=TEX_2D, format=TEX_RGBA8, &
+                    usage=TEXUSE_SAMPLER, width=g%width, height=g%height))
                 return
             end if
             vs = ref%vertex_slot
@@ -1773,15 +1783,11 @@ contains
             if (offsets(k) < 0) cycle
             associate(g => self%layers(k))
                 if (g%width > 0) then
-                    if (c_associated(g%texture)) call SDL_ReleaseGPUTexture(self%device, &
-                        g%texture)
-                    g%texture = SDL_CreateGPUTexture(self%device, texture_info_t(type=TEX_2D, &
-                        format=TEX_RGBA8, usage=TEXUSE_SAMPLER, width=g%width, height=g%height))
                     call SDL_UploadToGPUTexture(pass, texture_xfer_t(self%upload, &
                         int(offsets(k), c_int32_t), int(g%width, c_int32_t), &
                         int(g%height, c_int32_t)), texture_region_t(texture=g%texture, &
                         w=int(g%width, c_int32_t), h=int(g%height, c_int32_t)), &
-                        .false._c_bool)
+                        .true._c_bool)
                 else if (g%count > 0) then
                     if (g%count > g%capacity) then
                         if (c_associated(g%buffer)) call SDL_ReleaseGPUBuffer(self%device, &
