@@ -25,6 +25,7 @@ module fortui_term
     public :: term_t, term_image_t, term_place_t, term_line_t
     public :: term_open, term_close, term_pump, term_key, term_paste, term_resize, term_write
     public :: term_available, term_set_colors, term_mouse
+    integer, parameter, public :: CURSOR_BLOCK = 1, CURSOR_BAR = 2, CURSOR_UNDERLINE = 3
 
     integer, parameter :: MAX_IMAGES = 64, MAX_PLACES = 256
     ! Erase in display: all, all with scrollback, below the cursor (two spellings).
@@ -69,6 +70,9 @@ module fortui_term
         integer :: mouse_mode = 0
         integer(int32) :: default_fg = int(z'FFD4D4D4', int32)
         integer(int32) :: default_bg = 0
+        ! Cursor colour (ui_rgba; 0: the text colour) and shape (CURSOR_*).
+        integer(int32) :: cursor_color = 0
+        integer :: cursor_shape = 1
         ! The 16 ANSI colours (ui_rgba) when `own_palette`, else libvterm's.
         integer(int32) :: palette(16) = 0
         logical :: own_palette = .false.
@@ -742,7 +746,27 @@ contains
             if (iand(ishft(bg, -24), 255_int32) == 0) bg = t%default_fg
         end if
         if (btest(a, 6)) fg = bg
+        ! Faint text arrives as alternative font 1 (see faint_as_font).
+        if (iand(ishft(a, -8), 15) == 1) then
+            attr = ior(attr, CELL_DIM)
+            if (iand(ishft(bg, -24), 255_int32) == 0) then
+                fg = blend(fg, t%default_bg)
+            else
+                fg = blend(fg, bg)
+            end if
+        end if
     end subroutine convert
+
+    pure integer(int32) function blend(a, b) result(c)
+        !! Halfway between two colours (opaque).
+        integer(int32), intent(in) :: a, b
+        integer :: k, v
+        c = ishft(-1_int32, 24)
+        do k = 0, 2
+            v = (int(iand(ishft(a, -8 * k), 255_int32)) + int(iand(ishft(b, -8 * k), 255_int32))) / 2
+            c = ior(c, ishft(int(v, int32), 8 * k))
+        end do
+    end function blend
 
     integer(int32) function colour(t, col, foreground) result(rgba)
         !! ui_rgba of a libvterm colour; the default background is transparent
@@ -783,16 +807,18 @@ contains
 
     ! --- input from the program -------------------------------------------------
 
-    subroutine feed(t, bytes)
+    subroutine feed(t, raw)
         !! Program output to libvterm, cut after each string terminator (the
         !! cursor motion an image owes comes before the text after it) and
         !! after each erase of the display (which removes the images it erases;
         !! libvterm does not report erasing).
         type(term_t), intent(inout) :: t
-        character(*), intent(in) :: bytes
+        character(*), intent(in) :: raw
         character(len=*), parameter :: CSI = achar(27) // "["
         integer :: first, k, cut, kind, j
         integer(c_size_t) :: n
+        character(len=:), allocatable :: bytes
+        bytes = faint_as_font(raw)
         first = 1
         do while (first <= len(bytes))
             cut = 0
@@ -821,6 +847,78 @@ contains
             call owed_motion(t)
         end do
     end subroutine feed
+
+    function faint_as_font(bytes) result(out)
+        !! libvterm keeps no faint attribute: SGR 2 becomes alternative font 1
+        !! (SGR 11), which it keeps per cell, and SGR 22 also selects font 0.
+        !! Colour arguments (38/48/58 with 5;n or 2;r;g;b) pass unchanged.
+        !! Sequences cut by the end of a read are left as they are.
+        character(*), intent(in) :: bytes
+        character(len=:), allocatable :: out, buf
+        integer :: n, p, q, k, a, b, skip
+        character(len=8) :: tok
+        allocate(character(len=len(bytes) + 64) :: buf)
+        n = 0
+        p = 1
+        do
+            q = index(bytes(p:), achar(27) // "[")
+            if (q == 0) exit
+            q = p + q - 1
+            k = q + 2
+            do while (k <= len(bytes))
+                if (verify(bytes(k:k), "0123456789;:") /= 0) exit
+                k = k + 1
+            end do
+            if (k > len(bytes)) exit
+            if (bytes(k:k) /= "m" .or. index(bytes(q + 2:k - 1), "2") == 0) then
+                call put(bytes(p:k))
+                p = k + 1
+                cycle
+            end if
+            call put(bytes(p:q + 1))
+            a = q + 2
+            skip = 0
+            do while (a <= k - 1 .or. a == q + 2)
+                b = index(bytes(a:k), ";") - 1
+                if (b < 0) b = k - a
+                tok = bytes(a:a + b - 1)
+                if (a > q + 2) call put(";")
+                if (skip > 0) then
+                    skip = skip - 1
+                    call put(trim(tok))
+                else if (tok == "2") then
+                    call put("11")
+                else if (tok == "22") then
+                    call put("22;10")
+                else
+                    call put(trim(tok))
+                    if (tok == "38" .or. tok == "48" .or. tok == "58") then
+                        if (bytes(a + b + 1:a + b + 2) == "5;") skip = 2
+                        if (bytes(a + b + 1:a + b + 2) == "2;") skip = 4
+                    end if
+                end if
+                a = a + b + 1
+                if (a > k - 1) exit
+            end do
+            call put("m")
+            p = k + 1
+            if (p > len(bytes)) exit
+        end do
+        if (p <= len(bytes)) call put(bytes(p:))
+        out = buf(1:n)
+    contains
+        subroutine put(s)
+            character(*), intent(in) :: s
+            character(len=:), allocatable :: grown
+            if (n + len(s) > len(buf)) then
+                allocate(character(len=2 * (n + len(s))) :: grown)
+                grown(1:n) = buf(1:n)
+                call move_alloc(grown, buf)
+            end if
+            buf(n + 1:n + len(s)) = s
+            n = n + len(s)
+        end subroutine put
+    end function faint_as_font
 
     subroutine erase_images(t, from_row)
         !! Images shown on screen rows from `from_row` down are erased.

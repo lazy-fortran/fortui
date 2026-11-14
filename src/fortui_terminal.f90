@@ -14,9 +14,9 @@ module fortui_terminal
     use fortui_canvas, only: canvas_view_t, canvas_events_t
     use fortui_input, only: key_press_t, KEY_NONE, KEY_PAGE_UP, KEY_PAGE_DOWN, MOD_CTRL, &
         MOD_SHIFT
-    use fortui_frame, only: CELL_UNDERLINE, CELL_CONT
+    use fortui_frame, only: CELL_UNDERLINE, CELL_CONT, CELL_CURSOR, CELL_BAR
     use fortui_term, only: term_t, term_open, term_pump, term_key, term_paste, term_resize, &
-        term_mouse
+        term_mouse, CURSOR_BAR, CURSOR_UNDERLINE
     implicit none
     private
 
@@ -226,10 +226,19 @@ contains
             if (t%alive .and. t%cursor_visible .and. v%back == 0 .and. &
                 t%cursor_row < rows .and. t%cursor_col < cols) then
                 i = t%cursor_row * cols + t%cursor_col + 1
-                if (ev%focused) then
-                    call invert(i)
-                else
+                attr(i) = ior(attr(i), CELL_CURSOR)
+                if (.not. ev%focused) then
                     attr(i) = ior(attr(i), CELL_UNDERLINE)
+                else if (t%cursor_shape == CURSOR_BAR) then
+                    attr(i) = ior(attr(i), CELL_BAR)
+                    if (t%cursor_color /= 0) fg(i) = t%cursor_color
+                else if (t%cursor_shape == CURSOR_UNDERLINE) then
+                    attr(i) = ior(attr(i), CELL_UNDERLINE)
+                    if (t%cursor_color /= 0) fg(i) = t%cursor_color
+                else
+                    ! A block in the cursor colour, its character in the background's.
+                    call invert(i)
+                    if (t%cursor_color /= 0) bg(i) = opaque(t%cursor_color)
                 end if
             end if
         end subroutine compose

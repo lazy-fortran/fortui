@@ -7,6 +7,7 @@ program test_term
     use fortui_term, only: term_t, term_open, term_close, term_pump, term_key, &
         term_available
     use fortui_input, only: key_press_t, KEY_NONE, KEY_ENTER
+    use fortui_frame, only: CELL_DIM
     implicit none
 
     type(term_t), target, save :: t
@@ -86,6 +87,14 @@ contains
         call check(iand(t%fg(6), 255_int32) > 150 .and. &
             iand(ishft(t%fg(6), -8), 255_int32) < 100, "red is red")
         call check(t%exit_status == 0, "exit status")
+        call term_close(t)
+        ! Faint (SGR 2) halves the colour; a truecolour argument 2 is no faint.
+        call run("printf 'n\033[2mf\033[22mn\033[38;2;200;100;0mc'")
+        call check(iand(t%attr(2), CELL_DIM) /= 0 .and. iand(t%attr(1), CELL_DIM) == 0 .and. &
+            iand(t%attr(3), CELL_DIM) == 0, "faint text and its end")
+        call check(iand(t%fg(2), 255_int32) < iand(t%fg(1), 255_int32), "faint is darker")
+        call check(iand(t%attr(4), CELL_DIM) == 0 .and. iand(t%fg(4), 255_int32) == 200, &
+            "truecolour argument is not faint")
         call term_close(t)
     end subroutine test_text
 

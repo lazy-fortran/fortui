@@ -47,17 +47,24 @@ module fortui_text
             integer, intent(in) :: cp, style
             real, intent(in) :: size
         end function text_advance_i
+        subroutine text_cell_i(size, width, height)
+            !! Logical size of one character cell of the cell font at `size`.
+            real, intent(in) :: size
+            real, intent(out) :: width, height
+        end subroutine text_cell_i
     end interface
 
     ! Measurement by the font a backend draws with (hinted, bitmap, kerned).
     procedure(text_width_i), pointer, save :: measured_width => null()
     procedure(text_advance_i), pointer, save :: measured_advance => null()
+    procedure(text_cell_i), pointer, save :: measured_cell => null()
 
     public :: utf8_decode, utf8_encode, utf8_length, utf8_prev, utf8_next
     public :: utf8_boundary
     public :: text_hash
     public :: text_use_fixed_metrics, text_set_metrics, text_metrics_fixed, text_set_mono_metrics
     public :: text_use_cell_metrics, text_use_measurement, text_width_i, text_advance_i
+    public :: text_cell_i, text_use_cell_measure, text_cell_size
     public :: text_advance, text_width, text_line_height, text_caret_from_x
     public :: text_wrap, text_fit, ui_str
 
@@ -215,11 +222,38 @@ contains
         real, intent(in) :: height_factor
         measured_width => width
         measured_advance => advance
+        measured_cell => null()
         fixed_metrics = .false.
         cell_advance = 0.0
         cell_height = 0.0
         line_factor = height_factor
     end subroutine text_use_measurement
+
+    subroutine text_use_cell_measure(cell)
+        !! Measure character cells with the backend's cell font (after
+        !! text_use_measurement).
+        procedure(text_cell_i) :: cell
+        measured_cell => cell
+    end subroutine text_use_cell_measure
+
+    subroutine text_cell_size(size, width, height)
+        !! One character cell: a terminal cell on a terminal host, the cell
+        !! font's advance and height where the backend measures it, else the
+        !! monospace advance of "M" and the line height.
+        real, intent(in) :: size
+        real, intent(out) :: width, height
+        if (cell_advance > 0.0 .and. cell_height > 0.0) then
+            width = cell_advance
+            height = cell_height
+        else if (associated(measured_cell)) then
+            call measured_cell(size, width, height)
+        else
+            width = text_width("M", size, TEXT_STYLE_MONO)
+            height = text_line_height(size)
+        end if
+        width = max(1.0, width)
+        height = max(1.0, height)
+    end subroutine text_cell_size
 
     subroutine text_use_fixed_metrics(advance_factor, height_factor)
         !! Deterministic metrics: every code point advances `advance_factor * size`.
@@ -227,6 +261,7 @@ contains
 
         measured_width => null()
         measured_advance => null()
+        measured_cell => null()
         fixed_metrics = .true.
         cell_advance = 0.0
         cell_height = 0.0
@@ -244,6 +279,7 @@ contains
 
         measured_width => null()
         measured_advance => null()
+        measured_cell => null()
         fixed_metrics = .true.
         cell_advance = advance
         cell_height = height

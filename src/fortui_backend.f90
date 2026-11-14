@@ -75,6 +75,7 @@ module fortui_backend
         procedure :: clipboard_get => backend_clipboard_get
         procedure :: set_title => backend_set_title
         procedure :: waker => backend_waker
+        procedure :: set_window_size => backend_set_window_size
     end type ui_backend_t
 
     abstract interface
@@ -165,6 +166,14 @@ contains
         character(*), intent(in) :: title
         if (len(title) < 0 .or. self%presents < 0) continue
     end subroutine backend_set_title
+
+    subroutine backend_set_window_size(self, width, height)
+        !! Resize the window to width x height logical units (hosts without
+        !! windows ignore it).
+        class(ui_backend_t), intent(inout) :: self
+        integer, intent(in) :: width, height
+        if (width + height < 0 .or. self%presents < 0) continue
+    end subroutine backend_set_window_size
 
     function backend_waker(self) result(fn)
         !! A C function that wakes the host's event loop and may be called from

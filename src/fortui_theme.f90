@@ -31,6 +31,10 @@ module fortui_theme
 
     ! Font faces a theme names (regular, bold/medium, monospaced).
     integer, parameter, public :: FACE_REGULAR = 1, FACE_STRONG = 2, FACE_MONO = 3
+    ! Character cell grids (canvas_cells): the theme's monospace face unless the
+    ! application names a font of its own (cell_font_family).
+    integer, parameter, public :: FACE_CELL = 4
+    character(len=128), public, save :: cell_font_family = ""
 
     type, public :: ui_font_t
         !! fontconfig families tried in order; `pixel` fonts are bitmap or pixel

@@ -19,7 +19,7 @@ module fortui_gui_sdl
     use iso_fortran_env, only: int8, int32, int64
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t
     use fortui_frame, only: ui_frame_t, ui_layer_ref_t, LAYER_POINTS, LAYER_IMAGE, LAYER_CELLS, &
-        CELL_UNDERLINE, CELL_STRIKE, CELL_CONT, CELL_WIDE
+        CELL_UNDERLINE, CELL_STRIKE, CELL_CONT, CELL_WIDE, CELL_CURSOR, CELL_BAR
     use fortui_canvas, only: canvas_layer_t
     use fortui_canvas, only: canvas_store_t
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
@@ -29,8 +29,8 @@ module fortui_gui_sdl
         KEY_PAGE_DOWN, KEY_SPACE, KEY_INSERT, KEY_F1, MOD_CTRL, MOD_ALT, MOD_SHIFT, MOD_META
     use fortui_paint, only: paint_list_t, paint_frame, paint_face, PAINT_RECT, PAINT_LINE, &
         PAINT_TEXT, PAINT_CLIP, PAINT_UNCLIP, PAINT_CANVAS, PATTERN_CHECKER
-    use fortui_theme, only: theme, FACE_REGULAR, FACE_MONO
-    use fortui_text, only: text_use_measurement
+    use fortui_theme, only: theme, FACE_REGULAR, FACE_MONO, FACE_CELL, cell_font_family
+    use fortui_text, only: text_use_measurement, text_use_cell_measure
     use fortui_fontconfig, only: font_for, font_lookup
     use fortui_sdl_shaders, only: shape_vert_spv, shape_frag_spv, textured_vert_spv, &
         textured_frag_spv
@@ -62,7 +62,7 @@ module fortui_gui_sdl
     integer(c_int32_t), parameter :: LOAD_CLEAR = 1, STORE_STORE = 0
     integer(c_int32_t), parameter :: FILTER_NEAREST = 0, FILTER_LINEAR = 1, ADDR_CLAMP = 2
     integer(c_int32_t), parameter :: INDEX_32 = 1
-    integer(c_int), parameter :: HINT_LIGHT = 1, HINT_MONO = 2
+    integer(c_int), parameter :: HINT_NORMAL = 0, HINT_LIGHT = 1, HINT_MONO = 2
 
     ! --- SDL structures (layouts checked against the C headers) ----------------------
     type, bind(C) :: shader_info_t
@@ -281,12 +281,14 @@ module fortui_gui_sdl
         procedure :: clipboard_get => sb_clipboard_get
         procedure :: set_title => sb_set_title
         procedure :: waker => sb_waker
+        procedure :: set_window_size => sb_set_window_size
     end type sdl_backend_t
 
     ! Fonts of the SDL backend (one at a time), shared with text measurement.
     type(font_slot_t), save :: fonts(48)
     integer, save :: nfonts = 0
-    character(len=32), save :: font_theme = ""
+    ! What the open fonts were chosen for: the theme and the cell font.
+    character(len=192), save :: font_theme = ""
     real, save :: px_scale = 1.0
     logical, save :: measuring = .false.
 
@@ -314,6 +316,12 @@ module fortui_gui_sdl
             import :: c_bool, c_ptr, c_char
             type(c_ptr), value :: w
             character(kind=c_char), intent(in) :: title(*)
+        end function
+        logical(c_bool) function SDL_SetWindowSize(w, width, height) &
+                bind(C, name="SDL_SetWindowSize")
+            import :: c_bool, c_ptr, c_int
+            type(c_ptr), value :: w
+            integer(c_int), value :: width, height
         end function
         logical(c_bool) function SDL_PushEvent(ev) bind(C, name="SDL_PushEvent")
             import :: c_bool, c_int8_t
@@ -743,6 +751,20 @@ contains
         if (SDL_SetWindowTitle(self%window, title // c_null_char)) continue
     end subroutine sb_set_title
 
+    subroutine sb_set_window_size(self, width, height)
+        class(sdl_backend_t), intent(inout) :: self
+        integer, intent(in) :: width, height
+        real :: density
+        integer(c_int) :: w, h
+        if (.not. c_associated(self%window)) return
+        ! Logical units to window points (pixels per point may exceed 1).
+        density = 1.0
+        if (SDL_GetWindowSize(self%window, w, h) .and. w > 0) &
+            density = real(self%pw) / real(w)
+        if (SDL_SetWindowSize(self%window, int(real(width) * self%scale / density, c_int), &
+            int(real(height) * self%scale / density, c_int))) continue
+    end subroutine sb_set_window_size
+
     function sb_waker(self) result(fn)
         class(sdl_backend_t), intent(in) :: self
         type(c_funptr) :: fn
@@ -969,13 +991,27 @@ contains
         logical :: pixel
         integer :: size_px
 
-        if (font_theme /= theme%name) call close_font_cache()
+        if (font_theme /= font_key()) call close_font_cache()
         size_px = max(1, px)
         do k = 1, nfonts
             if (fonts(k)%face == face .and. fonts(k)%px == size_px) return
         end do
         if (nfonts == size(fonts)) call close_font_cache()
-        call font_for(theme%fonts(face), face, size_px, theme%name, path, pixel)
+        pixel = .false.
+        path = ""
+        if (face == FACE_CELL .and. len_trim(cell_font_family) > 0) then
+            call font_lookup(trim(cell_font_family), "", 0, path)
+            if (len(path) == 0) call report_error("fortui_gui_sdl", "font", "cell font '" // &
+                trim(cell_font_family) // "' is not installed; using the theme's")
+            ! A pixel design at a whole multiple of its grid is drawn crisp;
+            ! between the steps it is smoothed (antialiased, light hinting), as
+            ! GTK terminals draw it, since monochrome strokes turn uneven there.
+            pixel = any(theme%fonts(FACE_MONO)%families == cell_font_family) .and. &
+                theme%fonts(FACE_MONO)%pixel .and. theme%fonts(FACE_MONO)%grid > 0.0
+            if (pixel) pixel = modulo(size_px, nint(theme%fonts(FACE_MONO)%grid)) == 0
+        end if
+        if (len(path) == 0) call font_for(theme%fonts(min(face, FACE_MONO)), &
+            min(face, FACE_MONO), size_px, theme%name, path, pixel)
         k = nfonts + 1
         fonts(k)%face = face
         fonts(k)%px = size_px
@@ -987,17 +1023,30 @@ contains
             k = 0
             return
         end if
-        if (pixel .or. theme%fonts(face)%pixel) then
+        if (pixel .or. (theme%fonts(min(face, FACE_MONO))%pixel .and. .not. (face == FACE_CELL &
+            .and. len_trim(cell_font_family) > 0))) then
             call TTF_SetFontHinting(fonts(k)%font, HINT_MONO)
         else
-            call TTF_SetFontHinting(fonts(k)%font, HINT_LIGHT)
+            if (face == FACE_CELL) then
+                ! The font's own hinting snaps strokes to pixel rows; this is
+                ! what VTE (xfce4-terminal, GNOME Terminal) draws with the
+                ! fontconfig defaults, pixel for pixel.
+                call TTF_SetFontHinting(fonts(k)%font, HINT_NORMAL)
+            else
+                call TTF_SetFontHinting(fonts(k)%font, HINT_LIGHT)
+            end if
         end if
         call add_fallbacks(fonts(k), size_px)
         fonts(k)%height = int(TTF_GetFontHeight(fonts(k)%font))
         fonts(k)%ascent = int(TTF_GetFontAscent(fonts(k)%font))
         nfonts = k
-        font_theme = theme%name
+        font_theme = font_key()
     end function font_slot
+
+    function font_key() result(key)
+        character(len=192) :: key
+        key = trim(theme%name) // "|" // trim(cell_font_family)
+    end function font_key
 
     subroutine close_fonts(self)
         !! Forget the backend's text objects, then the fonts.
@@ -1040,7 +1089,7 @@ contains
             fonts(k) = font_slot_t()
         end do
         nfonts = 0
-        font_theme = theme%name
+        font_theme = font_key()
     end subroutine close_font_cache
 
     integer function face_px(face, size) result(px)
@@ -1049,8 +1098,11 @@ contains
         real, intent(in) :: size
         real :: grid
         px = max(1, nint(size))
-        grid = theme%fonts(face)%grid
-        if (theme%fonts(face)%pixel .and. grid > 0.0) px = nint(grid) * max(1, nint(size / grid))
+        ! A named cell font is drawn at the size asked for, as terminals do.
+        if (face == FACE_CELL .and. len_trim(cell_font_family) > 0) return
+        grid = theme%fonts(min(face, FACE_MONO))%grid
+        if (theme%fonts(min(face, FACE_MONO))%pixel .and. grid > 0.0) &
+            px = nint(grid) * max(1, nint(size / grid))
     end function face_px
 
     subroutine sb_metrics(self)
@@ -1059,7 +1111,25 @@ contains
         px_scale = self%scale
         call close_fonts(self)
         call text_use_measurement(measure_width, measure_advance, theme%line_factor)
+        call text_use_cell_measure(measure_cell)
     end subroutine sb_metrics
+
+    subroutine measure_cell(size, width, height)
+        !! The cell font's advance of "M" and its line height (ascent plus
+        !! descent), the cell terminals use.
+        real, intent(in) :: size
+        real, intent(out) :: width, height
+        integer :: k
+        integer(c_int) :: a, b, c, d, e
+        width = 0.5 * size
+        height = 1.25 * size
+        if (.not. measuring) return
+        k = font_slot(FACE_CELL, face_px(FACE_CELL, size * px_scale))
+        if (k == 0) return
+        if (TTF_GetGlyphMetrics(fonts(k)%font, int(iachar("M"), c_int32_t), a, b, c, d, e)) &
+            width = real(e) / px_scale
+        height = real(fonts(k)%height) / px_scale
+    end subroutine measure_cell
 
     real function measure_width(s, size, style) result(w)
         character(*), intent(in) :: s
@@ -1745,11 +1815,16 @@ contains
                 if (cp <= 32 .or. iand(l%attr(k), CELL_CONT) /= 0) cycle
                 call encode(cp, buf, nb)
                 call add_text(self, buf(1:nb), real(nint(x0 + real(col) * cw)), &
-                    y0 + real(r) * ch, ch, FACE_MONO, px, l%fg(k))
+                    y0 + real(r) * ch, ch, FACE_CELL, px, l%fg(k))
             end do
         end do
         t = max(1.0, real(nint(self%scale)))
         do k = 1, l%cols * l%rows
+            if (iand(l%attr(k), CELL_BAR) /= 0) then
+                call unpack(l%fg(k), c)
+                call add_shape(self, [x0 + real(modulo(k - 1, l%cols)) * cw, &
+                    y0 + real((k - 1) / l%cols) * ch, 2.0 * t, ch], c, c, [0.0, 0.0, 0.0, 0.0])
+            end if
             if (iand(l%attr(k), CELL_UNDERLINE + CELL_STRIKE) == 0) cycle
             r = (k - 1) / l%cols
             col = modulo(k - 1, l%cols)
@@ -1774,7 +1849,7 @@ contains
             if (right > xr) then
                 do j = 0, l%rows - 1
                     k = j * l%cols + l%cols
-                    if (alpha(l%bg(k)) == 0) cycle
+                    if (alpha(l%bg(k)) == 0 .or. iand(l%attr(k), CELL_CURSOR) /= 0) cycle
                     call unpack(l%bg(k), c)
                     call add_shape(self, [xr, y0 + real(j) * ch, right - xr, ch], c, c, &
                         [0.0, 0.0, 0.0, 0.0])
@@ -1783,13 +1858,14 @@ contains
             if (bottom > yb) then
                 do j = 0, l%cols - 1
                     k = (l%rows - 1) * l%cols + j + 1
-                    if (alpha(l%bg(k)) == 0) cycle
+                    if (alpha(l%bg(k)) == 0 .or. iand(l%attr(k), CELL_CURSOR) /= 0) cycle
                     call unpack(l%bg(k), c)
                     call add_shape(self, [x0 + real(j) * cw, yb, cw, bottom - yb], c, c, &
                         [0.0, 0.0, 0.0, 0.0])
                 end do
                 k = l%rows * l%cols
-                if (right > xr .and. alpha(l%bg(k)) > 0) then
+                if (right > xr .and. alpha(l%bg(k)) > 0 .and. &
+                    iand(l%attr(k), CELL_CURSOR) == 0) then
                     call unpack(l%bg(k), c)
                     call add_shape(self, [xr, yb, right - xr, bottom - yb], c, c, &
                         [0.0, 0.0, 0.0, 0.0])

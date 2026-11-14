@@ -9,7 +9,7 @@ module fortui
         ui_should_close, ui_request_quit, ui_is_initialized, ui_get_backend, &
         ui_request_frame, ui_set_continuous, ui_window_size, ui_scale, ui_key_pressed, &
         ui_time, ui_wake_after, ui_shortcut, ui_clipboard_set, ui_clipboard_text, ui_set_title, &
-        ui_waker, ui_set_window_margin, &
+        ui_waker, ui_set_window_margin, ui_set_window_size, &
         ui_text_width, ui_backend_capabilities, ui_backend_caps_t, ui_backend_description, &
         ui_run, ui_run_step, ui_frame_proc, ui_set_theme, ui_theme_name
     use fortui_layout, only: column_begin, column_end, row_begin, row_end, split_begin, &
@@ -17,7 +17,7 @@ module fortui
     use fortui_widgets, only: text, button, link, slider, checkbox, tabs, scroll_text, &
         text_input, canvas_begin, canvas_end, canvas_vertices, canvas_points, &
         canvas_lines, canvas_label, canvas_image, canvas_cells, canvas_keys, ui_cell_metrics, &
-        ui_focus, &
+        ui_set_cell_font, ui_focus, &
         ui_reveal
     use fortui_canvas, only: canvas_view_t, canvas_events_t, ui_rgba, canvas_to_world, &
         canvas_to_local, canvas_zoom_at
@@ -43,7 +43,7 @@ module fortui
     public :: ui_backend_capabilities, ui_backend_caps_t, ui_backend_description
     public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale
     public :: ui_time, ui_wake_after, ui_clipboard_set, ui_clipboard_text, ui_set_title, ui_waker
-    public :: ui_set_window_margin
+    public :: ui_set_window_margin, ui_set_window_size
     public :: ui_key_pressed, ui_text_width, ui_str
     public :: ui_shortcut, ui_focus, ui_reveal
     public :: column_begin, column_end, row_begin, row_end
@@ -62,7 +62,7 @@ module fortui
     public :: KEY_END, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_ARROW_UP, KEY_ARROW_DOWN
     public :: KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_SPACE, KEY_INSERT, KEY_F1, KEY_F12
     public :: canvas_cells, canvas_keys, key_press_t, MOD_CTRL, MOD_ALT, MOD_SHIFT, MOD_META
-    public :: ui_cell_metrics, CELL_BOLD, CELL_ITALIC, CELL_UNDERLINE
+    public :: ui_cell_metrics, ui_set_cell_font, CELL_BOLD, CELL_ITALIC, CELL_UNDERLINE
     public :: CELL_STRIKE, CELL_WIDE, CELL_CONT, CELL_DIM
 
 end module fortui

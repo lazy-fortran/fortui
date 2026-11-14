@@ -32,6 +32,9 @@ module fortui_frame
     ! two cells wide, CELL_CONT its second cell, which draws nothing.
     integer, parameter, public :: CELL_BOLD = 1, CELL_ITALIC = 2, CELL_UNDERLINE = 4, &
         CELL_STRIKE = 8, CELL_WIDE = 16, CELL_CONT = 32, CELL_DIM = 64
+    ! The text cursor is on this cell (its colours already show it; edges do not
+    ! spread it), and CELL_BAR draws it as a bar at the cell's left edge.
+    integer, parameter, public :: CELL_CURSOR = 128, CELL_BAR = 256
 
     ! Presentation style tokens (role, default size and weight; backends choose colour).
     integer, parameter, public :: UI_BODY = 1

@@ -26,8 +26,9 @@ module fortui_widgets
         input_host_value, input_host_submitted, key_press_t
     use fortui_canvas, only: canvas_events_t, canvas_to_world
     use fortui_text, only: text_width, text_line_height, text_wrap, text_caret_from_x, &
-        utf8_boundary, utf8_prev, utf8_next, ui_str, TEXT_DEFAULT_SIZE, TEXT_STYLE_MONO
+        utf8_boundary, utf8_prev, utf8_next, ui_str, TEXT_DEFAULT_SIZE, text_cell_size
     use fortui_error, only: report_error
+    use fortui_theme, only: cell_font_family
     implicit none
     private
 
@@ -54,7 +55,7 @@ module fortui_widgets
 
     public :: text, button, link, slider, checkbox, tabs
     public :: canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_lines
-    public :: canvas_label, canvas_image, canvas_cells, canvas_keys, ui_cell_metrics, scroll_text, text_input, ui_focus, ui_reveal
+    public :: canvas_label, canvas_image, canvas_cells, canvas_keys, ui_cell_metrics, ui_set_cell_font, scroll_text, text_input, ui_focus, ui_reveal
 
 contains
 
@@ -925,13 +926,20 @@ contains
         if (slot > 0) call add_layer_ref(ctx, slot)
     end subroutine canvas_cells
 
+    subroutine ui_set_cell_font(family)
+        !! The fontconfig family that character cell grids use instead of the
+        !! theme's monospace face ("" returns to the theme's), drawn at the
+        !! requested size without snapping to a pixel grid, as terminals do.
+        character(*), intent(in) :: family
+        cell_font_family = family
+    end subroutine ui_set_cell_font
+
     subroutine ui_cell_metrics(size, cell_width, cell_height)
         !! Logical size of one character cell of the monospace face at `size`
         !! (one terminal cell on a terminal host).
         real, intent(in) :: size
         real, intent(out) :: cell_width, cell_height
-        cell_width = max(1.0, text_width("M", size, TEXT_STYLE_MONO))
-        cell_height = max(1.0, text_line_height(size))
+        call text_cell_size(size, cell_width, cell_height)
     end subroutine ui_cell_metrics
 
     subroutine canvas_label(x, y, value, size, rgba)
