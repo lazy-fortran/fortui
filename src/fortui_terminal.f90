@@ -31,6 +31,9 @@ module fortui_terminal
         integer :: anchor(2) = 0, head(2) = 0
         logical :: started = .false.
         logical :: failed = .false.
+        ! Show "[process exited N]" when the program ended (hosts that close
+        ! the terminal at once turn it off).
+        logical :: show_exit = .true.
         integer :: generation = 0
         integer :: cols = 0, rows = 0
         real :: cell_w = 0.0, cell_h = 0.0
@@ -281,7 +284,8 @@ contains
                 end if
             end do
             if (v%failed) call message("The terminal could not start a program.")
-            if (.not. t%alive .and. v%started .and. .not. v%failed .and. t%exit_status >= 0) &
+            if (v%show_exit .and. .not. t%alive .and. v%started .and. .not. v%failed .and. &
+                t%exit_status >= 0) &
                 call message("[process exited " // itoa(t%exit_status) // "]")
             if (v%selected) then
                 call ordered(v%anchor, v%head, lo, hi)

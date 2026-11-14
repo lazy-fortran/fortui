@@ -352,6 +352,12 @@ contains
         integer :: line, c0, j, m, b, n
         n = len(s)
         do
+            ! The deferred wrap happens only when a character is printed: text
+            ! that ends exactly at the right margin, followed by a control or
+            ! escape, must not scroll (tmux draws its status line so).
+            if (pos > n) return
+            b = iachar(s(pos:pos))
+            if (b < 32 .or. b > 126) return
             if (vt%wrap_next) call wrap_line(vt)
             m = vt%cols - vt%cc
             c0 = vt%cc + 1

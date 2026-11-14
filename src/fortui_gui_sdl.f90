@@ -352,6 +352,31 @@ module fortui_gui_sdl
             import :: c_bool, c_char
             character(kind=c_char), intent(in) :: url(*)
         end function
+        integer(c_int64_t) function SDL_GetWindowFlags(w) bind(C, name="SDL_GetWindowFlags")
+            import :: c_int64_t, c_ptr
+            type(c_ptr), value :: w
+        end function
+        integer(c_int32_t) function SDL_GetDisplayForWindow(w) &
+                bind(C, name="SDL_GetDisplayForWindow")
+            import :: c_int32_t, c_ptr
+            type(c_ptr), value :: w
+        end function
+        logical(c_bool) function SDL_GetDisplayUsableBounds(id, rect) &
+                bind(C, name="SDL_GetDisplayUsableBounds")
+            import :: c_bool, c_int32_t, c_int
+            integer(c_int32_t), value :: id
+            integer(c_int), intent(out) :: rect(4)
+        end function
+        logical(c_bool) function SDL_SetWindowPosition(w, x, y) &
+                bind(C, name="SDL_SetWindowPosition")
+            import :: c_bool, c_ptr, c_int
+            type(c_ptr), value :: w
+            integer(c_int), value :: x, y
+        end function
+        logical(c_bool) function SDL_SyncWindow(w) bind(C, name="SDL_SyncWindow")
+            import :: c_bool, c_ptr
+            type(c_ptr), value :: w
+        end function
         logical(c_bool) function SDL_MaximizeWindow(w) bind(C, name="SDL_MaximizeWindow")
             import :: c_bool, c_ptr
             type(c_ptr), value :: w
@@ -835,10 +860,21 @@ contains
     end subroutine sb_open_url
 
     subroutine sb_maximize_window(self)
+        !! A hidden window first takes the work area's position and size, so
+        !! that it is drawn at that size and appears maximized at once instead
+        !! of growing after it was shown.
         class(sdl_backend_t), intent(inout) :: self
-        if (c_associated(self%window)) then
-            if (SDL_MaximizeWindow(self%window)) continue
+        integer(c_int) :: area(4)
+        if (.not. c_associated(self%window)) return
+        if (iand(SDL_GetWindowFlags(self%window), WIN_HIDDEN) /= 0) then
+            if (SDL_GetDisplayUsableBounds(SDL_GetDisplayForWindow(self%window), area)) then
+                if (SDL_SetWindowPosition(self%window, area(1), area(2))) continue
+                if (SDL_SetWindowSize(self%window, area(3), area(4))) continue
+                if (SDL_SyncWindow(self%window)) continue
+            end if
         end if
+        if (SDL_MaximizeWindow(self%window)) continue
+        call update_scale(self)
     end subroutine sb_maximize_window
 
     subroutine sb_set_window_visible(self, visible)

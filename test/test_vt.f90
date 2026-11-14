@@ -31,6 +31,12 @@ program test_vt
     call feed("A")
     call check(row(1) == "A", "wrap on the next character")
 
+    ! Text ending at the right margin of the last row, then an escape: no
+    ! scrolling (fed in one piece, as programs write it).
+    call feed(E // "[2J" // E // "[5;1H" // "0123456789" // E // "(B" // E // "[1;1H" // "top")
+    call check(row(4) == "0123456789" .and. row(0) == "top" .and. vt%sb_count == 0, &
+        "no wrap without a following character")
+
     ! Scroll region: line feed at its bottom scrolls only the region.
     call feed(E // "[2J" // E // "[H" // "1" // achar(13) // achar(10) // "2" // achar(13) // &
         achar(10) // "3" // achar(13) // achar(10) // "4" // achar(13) // achar(10) // "5")
