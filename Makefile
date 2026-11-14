@@ -8,7 +8,7 @@ SDL_ENV = FPM_FFLAGS="$${FPM_FFLAGS:-} -cpp -DENABLE_SDL=1" \
 	FPM_LDFLAGS="$${FPM_LDFLAGS:-} -lSDL3 -lSDL3_ttf -lfontconfig"
 TERM_ENV = FPM_FFLAGS="$${FPM_FFLAGS:-} -cpp -DENABLE_TERM=1" \
 	FPM_CFLAGS="$${FPM_CFLAGS:-} -DENABLE_TERM=1" \
-	FPM_LDFLAGS="$${FPM_LDFLAGS:-} -lvterm -lutil -lpthread"
+	FPM_LDFLAGS="$${FPM_LDFLAGS:-} -lutil -lpthread"
 PRINT_ENV = FPM_FFLAGS="$${FPM_FFLAGS:-} -cpp -DENABLE_PRINT=1" \
 	FPM_LDFLAGS="$${FPM_LDFLAGS:-} -lcups"
 

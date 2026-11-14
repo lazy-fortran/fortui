@@ -3,14 +3,16 @@
  * Fortran cannot make portably: starting a program on a pseudo-terminal (the
  * child of a threaded process may only call async-signal-safe functions, so
  * its environment is built before fork), ioctl (variadic) for the window size,
- * and a thread that wakes the host's event loop when the program writes.
+ * and a reader thread with a ring buffer that wakes the host's event loop.
  */
 #if defined(ENABLE_TERM)
 #define _GNU_SOURCE
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -87,38 +89,74 @@ int fortui_pty_exited(int pid) {
     return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
 }
 
-/* Watcher: calls wake() when fd has data, then sleeps until rearmed, so that
- * a host waiting for events sleeps while the program is quiet. */
+/* Reader: a thread drains the program's output into a ring buffer, so that
+ * the program never waits while the host draws, and calls wake() when data
+ * arrives after the host asked for it (fortui_pty_rearm). The host takes the
+ * bytes with fortui_pty_take. One producer, one consumer: head and tail are
+ * atomic; a full ring makes the reader wait for space. */
 typedef struct {
-    int fd, rearm[2];
+    int fd, stop[2];
     void (*wake)(void);
     pthread_t thread;
+    char *buf;
+    size_t cap;
+    _Atomic size_t head, tail;
+    _Atomic int eof, want;
+    pthread_mutex_t lock;
+    pthread_cond_t space;
 } watch_t;
 
 static void *watch_loop(void *arg) {
     watch_t *w = arg;
     struct pollfd p[2];
-    char b;
     for (;;) {
+        size_t head = atomic_load(&w->head), tail = atomic_load(&w->tail);
+        if (head - tail == w->cap) {
+            pthread_mutex_lock(&w->lock);
+            while (atomic_load(&w->head) - atomic_load(&w->tail) == w->cap) {
+                struct pollfd q = {w->stop[0], POLLIN, 0};
+                if (poll(&q, 1, 0) > 0) {
+                    pthread_mutex_unlock(&w->lock);
+                    return NULL;
+                }
+                pthread_cond_wait(&w->space, &w->lock);
+            }
+            pthread_mutex_unlock(&w->lock);
+            continue;
+        }
+        {
+            /* Read while there is output (non-blocking); wait only when none
+             * is left, so a busy program costs one system call per chunk. */
+            size_t at = head % w->cap;
+            size_t room = w->cap - (head - tail);
+            size_t n = w->cap - at < room ? w->cap - at : room;
+            ssize_t got = read(w->fd, w->buf + at, n);
+            if (got > 0) {
+                atomic_store(&w->head, head + (size_t)got);
+                if (atomic_exchange(&w->want, 0)) w->wake();
+                continue;
+            }
+            if (got < 0 && errno == EINTR) continue;
+            if (got < 0 && errno != EAGAIN) {
+                atomic_store(&w->eof, 1);
+                if (atomic_exchange(&w->want, 0)) w->wake();
+                break;
+            }
+            if (got == 0) {
+                atomic_store(&w->eof, 1);
+                if (atomic_exchange(&w->want, 0)) w->wake();
+                break;
+            }
+        }
         p[0].fd = w->fd;
         p[0].events = POLLIN;
-        p[1].fd = w->rearm[0];
+        p[1].fd = w->stop[0];
         p[1].events = POLLIN;
         if (poll(p, 2, -1) < 0) {
             if (errno == EINTR) continue;
             break;
         }
-        if (p[1].revents) {
-            if (read(w->rearm[0], &b, 1) <= 0 || b == 'q') break;
-            continue;
-        }
-        if (p[0].revents) {
-            w->wake();
-            /* Wait for the host to read before looking again. */
-            p[1].revents = 0;
-            if (poll(&p[1], 1, -1) < 0 && errno != EINTR) break;
-            if (read(w->rearm[0], &b, 1) <= 0 || b == 'q') break;
-        }
+        if (p[1].revents) break;
     }
     return NULL;
 }
@@ -126,33 +164,74 @@ static void *watch_loop(void *arg) {
 void *fortui_pty_watch(int fd, void (*wake)(void)) {
     watch_t *w = calloc(1, sizeof(watch_t));
     if (!w) return NULL;
+    w->cap = (size_t)16 << 20;
+    w->buf = malloc(w->cap);
     w->fd = fd;
     w->wake = wake;
-    if (pipe(w->rearm) != 0) {
+    atomic_store(&w->want, 1);
+    pthread_mutex_init(&w->lock, NULL);
+    pthread_cond_init(&w->space, NULL);
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+    if (!w->buf || pipe(w->stop) != 0) {
+        free(w->buf);
         free(w);
         return NULL;
     }
     if (pthread_create(&w->thread, NULL, watch_loop, w) != 0) {
-        close(w->rearm[0]);
-        close(w->rearm[1]);
+        close(w->stop[0]);
+        close(w->stop[1]);
+        free(w->buf);
         free(w);
         return NULL;
     }
     return w;
 }
 
+/* Up to max bytes of output: the count, 0 when none is waiting, -1 once the
+ * program's side is closed and everything was taken. */
+long fortui_pty_take(void *handle, char *dst, long max) {
+    watch_t *w = handle;
+    size_t head = atomic_load(&w->head), tail = atomic_load(&w->tail);
+    size_t used = head - tail, n, at, first;
+    if (used == 0) return atomic_load(&w->eof) ? -1 : 0;
+    n = used < (size_t)max ? used : (size_t)max;
+    at = tail % w->cap;
+    first = w->cap - at < n ? w->cap - at : n;
+    memcpy(dst, w->buf + at, first);
+    if (n > first) memcpy(dst + first, w->buf, n - first);
+    atomic_store(&w->tail, tail + n);
+    if (used == w->cap) {
+        pthread_mutex_lock(&w->lock);
+        pthread_cond_signal(&w->space);
+        pthread_mutex_unlock(&w->lock);
+    }
+    return (long)n;
+}
+
+/* The host took everything: wake it when more arrives (at once if some
+ * already did). */
 void fortui_pty_rearm(void *handle) {
     watch_t *w = handle;
-    if (w && write(w->rearm[1], "r", 1) < 0) {}
+    if (!w) return;
+    atomic_store(&w->want, 1);
+    if (atomic_load(&w->head) != atomic_load(&w->tail) || atomic_load(&w->eof)) {
+        if (atomic_exchange(&w->want, 0)) w->wake();
+    }
 }
 
 void fortui_pty_unwatch(void *handle) {
     watch_t *w = handle;
     if (!w) return;
-    if (write(w->rearm[1], "q", 1) < 0) {}
+    if (write(w->stop[1], "q", 1) < 0) {}
+    pthread_mutex_lock(&w->lock);
+    pthread_cond_signal(&w->space);
+    pthread_mutex_unlock(&w->lock);
     pthread_join(w->thread, NULL);
-    close(w->rearm[0]);
-    close(w->rearm[1]);
+    close(w->stop[0]);
+    close(w->stop[1]);
+    pthread_mutex_destroy(&w->lock);
+    pthread_cond_destroy(&w->space);
+    free(w->buf);
     free(w);
 }
 #endif

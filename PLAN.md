@@ -227,7 +227,8 @@ bounded work for a large collection, and no unsupported performance claims.
       function key line from labelled shortcuts.
 - [ ] CUA action bar with pull-down menus and pop-up windows with shadows
       (needs a menu widget on every host).
-- [x] Terminal emulator (`-DENABLE_TERM=1`): libvterm screen, pseudo-terminal,
+- [x] Terminal emulator (`-DENABLE_TERM=1`): Fortran engine (fortui_vt, ring of
+      lines, reader thread with ring buffer), pseudo-terminal,
       kitty graphics and sixel decoded in Fortran (inflate, PNG, sixel), images
       anchored to cells through scrolling and erasing, scrollback, selection and
       clipboard, mouse reports; `terminal` widget and `canvas_cells`; function

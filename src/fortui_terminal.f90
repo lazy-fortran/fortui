@@ -8,7 +8,7 @@ module fortui_terminal
     use iso_c_binding, only: c_funptr, c_associated
     use iso_fortran_env, only: int32
     use fortui_core, only: ui_scale, ui_waker, ui_wake_after, ui_clipboard_set, &
-        ui_clipboard_text
+        ui_clipboard_text, ui_request_frame
     use fortui_widgets, only: canvas_begin, canvas_end, canvas_cells, canvas_image, &
         canvas_keys, ui_cell_metrics
     use fortui_canvas, only: canvas_view_t, canvas_events_t
@@ -16,7 +16,7 @@ module fortui_terminal
         MOD_SHIFT
     use fortui_frame, only: CELL_UNDERLINE, CELL_CONT, CELL_CURSOR, CELL_BAR
     use fortui_term, only: term_t, term_open, term_pump, term_key, term_paste, term_resize, &
-        term_mouse, CURSOR_BAR, CURSOR_UNDERLINE
+        term_mouse, term_row, CURSOR_BAR, CURSOR_UNDERLINE
     implicit none
     private
 
@@ -56,7 +56,7 @@ contains
         integer(int32), allocatable :: cp(:), fg(:), bg(:), attr(:)
         real :: cw, ch, scale
         integer :: cols, rows, n, k, cwp, chp, r, c
-        logical :: ok, moved
+        logical :: ok, moved, behind
 
         if (present(changed)) changed = .false.
         scale = max(0.25, ui_scale())
@@ -92,10 +92,15 @@ contains
         end do
         call pointer()
 
-        moved = term_pump(t)
+        moved = term_pump(t, more=behind)
         if (present(changed)) changed = moved
-        ! Without a waker the program's output is fetched on a timer.
-        if (t%alive .and. .not. c_associated(ui_waker())) call ui_wake_after(1.0 / 60.0)
+        ! Output still waiting: draw this frame and continue at once. Without a
+        ! waker the program's output is fetched on a timer.
+        if (behind) then
+            call ui_request_frame()
+        else if (t%alive .and. .not. c_associated(ui_waker())) then
+            call ui_wake_after(1.0 / 60.0)
+        end if
         v%back = max(0, min(v%back, t%sb_count))
 
         call compose()
@@ -196,15 +201,9 @@ contains
                     bg(i + 1:i + w) = t%bg(line * t%cols + 1:line * t%cols + w)
                     attr(i + 1:i + w) = t%attr(line * t%cols + 1:line * t%cols + w)
                 else if (-line <= t%sb_count) then
-                    kk = modulo(t%sb_head + line, size(t%sb)) + 1
-                    associate(l => t%sb(kk))
-                        if (.not. allocated(l%cp)) cycle
-                        w = min(cols, size(l%cp))
-                        cp(i + 1:i + w) = l%cp(1:w)
-                        fg(i + 1:i + w) = l%fg(1:w)
-                        bg(i + 1:i + w) = l%bg(1:w)
-                        attr(i + 1:i + w) = l%attr(1:w)
-                    end associate
+                    w = min(cols, t%cols)
+                    call term_row(t, line, cp(i + 1:i + w), fg(i + 1:i + w), bg(i + 1:i + w), &
+                        attr(i + 1:i + w))
                 end if
             end do
             if (v%failed) call message("The terminal could not start a program.")
@@ -269,7 +268,8 @@ contains
         type(term_t), intent(in) :: t
         type(terminal_view_t), intent(in) :: v
         character(len=:), allocatable :: text, line_text
-        integer :: lo(2), hi(2), line, c, c0, c1, kk, cpv, k
+        integer :: lo(2), hi(2), line, c, c0, c1, cpv, k
+        integer(int32) :: rcp(t%cols), rfg(t%cols), rbg(t%cols), rattr(t%cols)
         text = ""
         if (.not. v%selected) return
         call ordered(v%anchor, v%head, lo, hi)
@@ -279,6 +279,7 @@ contains
             if (line == lo(1)) c0 = lo(2)
             if (line == hi(1)) c1 = hi(2)
             line_text = ""
+            if (line < 0) call term_row(t, line, rcp, rfg, rbg, rattr)
             do c = c0, c1
                 cpv = 32
                 if (line >= 0 .and. line < t%rows) then
@@ -286,11 +287,8 @@ contains
                     if (iand(t%attr(k), CELL_CONT) /= 0) cycle
                     cpv = t%cp(k)
                 else if (line < 0 .and. -line <= t%sb_count) then
-                    kk = modulo(t%sb_head + line, size(t%sb)) + 1
-                    if (.not. allocated(t%sb(kk)%cp)) exit
-                    if (c >= size(t%sb(kk)%cp)) exit
-                    if (iand(t%sb(kk)%attr(c + 1), CELL_CONT) /= 0) cycle
-                    cpv = t%sb(kk)%cp(c + 1)
+                    if (iand(rattr(c + 1), CELL_CONT) /= 0) cycle
+                    cpv = rcp(c + 1)
                 end if
                 line_text = line_text // utf8(cpv)
             end do

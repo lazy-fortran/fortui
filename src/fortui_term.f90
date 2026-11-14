@@ -1,13 +1,11 @@
 module fortui_term
-    !! Terminal emulator: a program on a pseudo-terminal whose output libvterm
-    !! turns into a screen of cells, with scrollback, the window title, and
+    !! Terminal emulator: a program on a pseudo-terminal, its screen kept by
+    !! the Fortran engine fortui_vt, with scrollback, the window title, and
     !! images from the kitty graphics protocol and from sixel strings anchored
-    !! to the cells they cover. Built with -DENABLE_TERM=1 (libvterm); without
-    !! it term_open reports that terminals are unavailable.
-    !!
-    !! A term_t must stay where it is while it runs (libvterm keeps its
-    !! address): a module variable, or an element of an array that is not
-    !! reallocated.
+    !! to the cells they cover. A reader thread drains the program's output
+    !! into a ring buffer, so the program never waits while the host draws.
+    !! Built with -DENABLE_TERM=1 (POSIX pseudo-terminals); without it
+    !! term_open reports that terminals are unavailable.
     use iso_c_binding
     use iso_fortran_env, only: int8, int32, int64
     use fortui_error, only: report_error
@@ -15,21 +13,19 @@ module fortui_term
         KEY_BACKSPACE, KEY_DELETE, KEY_HOME, KEY_END, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, &
         KEY_ARROW_UP, KEY_ARROW_DOWN, KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_SPACE, KEY_INSERT, &
         KEY_F1, KEY_F12, MOD_CTRL, MOD_ALT, MOD_SHIFT
-    use fortui_frame, only: CELL_BOLD, CELL_ITALIC, CELL_UNDERLINE, CELL_STRIKE, CELL_WIDE, &
-        CELL_CONT, CELL_DIM
     use fortui_inflate, only: zlib_decompress, png_decode, base64_decode
     use fortui_sixel, only: sixel_decode
+    use fortui_vt, only: vt_t, vt_open, vt_resize, vt_feed, vt_line, vt_key, vt_paste, &
+        vt_mouse, vt_take_output, vt_set_colors, VT_EV_NONE, VT_EV_OSC, VT_EV_DCS, VT_EV_APC
     implicit none
     private
 
-    public :: term_t, term_image_t, term_place_t, term_line_t
+    public :: term_t, term_image_t, term_place_t
     public :: term_open, term_close, term_pump, term_key, term_paste, term_resize, term_write
-    public :: term_available, term_set_colors, term_mouse
+    public :: term_available, term_set_colors, term_mouse, term_row
     integer, parameter, public :: CURSOR_BLOCK = 1, CURSOR_BAR = 2, CURSOR_UNDERLINE = 3
 
     integer, parameter :: MAX_IMAGES = 64, MAX_PLACES = 256
-    ! Erase in display: all, all with scrollback, below the cursor (two spellings).
-    character(len=2), parameter :: ERASES(4) = [character(len=2) :: "2J", "3J", "J", "0J"]
 
     type :: term_image_t
         integer :: id = 0
@@ -48,18 +44,13 @@ module fortui_term
         integer :: serial = 0
     end type term_place_t
 
-    type :: term_line_t
-        integer(int32), allocatable :: cp(:), fg(:), bg(:), attr(:)
-    end type term_line_t
-
     type :: term_t
-        type(c_ptr) :: vt = c_null_ptr, screen = c_null_ptr, state = c_null_ptr
+        type(vt_t) :: vt
         type(c_ptr) :: watch = c_null_ptr
         integer :: fd = -1, pid = -1
         integer :: rows = 24, cols = 80, cell_px_w = 8, cell_px_h = 16
         logical :: alive = .false.
         integer :: exit_status = -1
-        logical :: dirty = .true.
         logical :: bell = .false.
         integer :: generation = 0
         character(len=:), allocatable :: title
@@ -69,219 +60,35 @@ module fortui_term
         ! Mouse reporting the program asked for (0 = none).
         integer :: mouse_mode = 0
         integer(int32) :: default_fg = int(z'FFD4D4D4', int32)
-        integer(int32) :: default_bg = 0
-        ! Cursor colour (ui_rgba; 0: the text colour) and shape (CURSOR_*).
-        integer(int32) :: cursor_color = 0
-        integer :: cursor_shape = 1
-        ! The 16 ANSI colours (ui_rgba) when `own_palette`, else libvterm's.
+        integer(int32) :: default_bg = int(z'FF000000', int32)
+        ! The 16 ANSI colours (ui_rgba) when `own_palette`, else xterm's.
         integer(int32) :: palette(16) = 0
         logical :: own_palette = .false.
         ! Bold text in the first eight colours shows the bright eight, as VTE
         ! and xterm do by default (ls draws directories in bold blue).
         logical :: bold_bright = .true.
+        ! Cursor colour (ui_rgba; 0: the text colour) and shape (CURSOR_*);
+        ! a program's DECSCUSR overrides the shape until it resets it.
+        integer(int32) :: cursor_color = 0
+        integer :: cursor_shape = CURSOR_BLOCK
         ! The screen, row by row from the top (ui_rgba colours, CELL_* bits).
         integer(int32), allocatable :: cp(:), fg(:), bg(:), attr(:)
-        ! Scrollback ring: sb_count lines, the newest at sb_head.
-        type(term_line_t), allocatable :: sb(:)
-        integer :: sb_count = 0, sb_head = 0
+        integer :: sb_count = 0
         ! Images and where they are shown.
         type(term_image_t) :: images(MAX_IMAGES)
         type(term_place_t), allocatable :: places(:)
         integer :: nplaces = 0, place_serial = 0, image_serial = 0
-        ! Escape strings in progress and cursor motion owed after an image.
-        character(len=:), allocatable :: apc, dcs, dcs_command, title_part, motion
-        integer :: napc = 0, ndcs = 0
+        ! Cursor motion owed after an image.
+        character(len=:), allocatable :: motion
         ! Kitty transmission in chunks (m=1).
         character(len=:), allocatable :: chunk_keys, chunk_data
-        integer :: nchunk = 0
         logical :: chunking = .false.
+        logical :: dirty = .true.
+        character(kind=c_char, len=:), allocatable :: buf
     end type term_t
 
 #ifdef ENABLE_TERM
-    type, bind(C) :: vt_pos_t
-        integer(c_int) :: row, col
-    end type vt_pos_t
-
-    type, bind(C) :: vt_rect_t
-        integer(c_int) :: start_row, end_row, start_col, end_col
-    end type vt_rect_t
-
-    type, bind(C) :: vt_cell_t
-        integer(c_int32_t) :: chars(6)
-        integer(c_signed_char) :: width
-        ! C bit-fields (bold 0, underline 1-2, italic 3, blink 4, reverse 5,
-        ! conceal 6, strike 7, ...), allocated from the low bit on the
-        ! little-endian ABIs this runs on.
-        integer(c_int32_t) :: attrs
-        integer(c_int8_t) :: fg(4), bg(4)
-    end type vt_cell_t
-
-    type, bind(C) :: vt_fragment_t
-        type(c_ptr) :: str
-        ! len : 30, initial : 1, final : 1
-        integer(c_size_t) :: bits
-    end type vt_fragment_t
-
-    type, bind(C) :: vt_screen_callbacks_t
-        type(c_funptr) :: damage, moverect, movecursor, settermprop, bell, resize, &
-            sb_pushline, sb_popline, sb_clear
-    end type vt_screen_callbacks_t
-
-    type, bind(C) :: vt_fallbacks_t
-        type(c_funptr) :: control, csi, osc, dcs, apc, pm, sos
-    end type vt_fallbacks_t
-
-    type(vt_screen_callbacks_t), target, save :: screen_cbs
-    type(vt_fallbacks_t), target, save :: fallbacks
-
-    integer(c_int), parameter :: PROP_CURSORVISIBLE = 1, PROP_ALTSCREEN = 3, &
-        PROP_TITLE = 4, PROP_MOUSE = 8
-    integer(c_int), parameter :: VK_ENTER = 1, VK_TAB = 2, VK_BACKSPACE = 3, VK_ESCAPE = 4, &
-        VK_UP = 5, VK_DOWN = 6, VK_LEFT = 7, VK_RIGHT = 8, VK_INS = 9, VK_DEL = 10, &
-        VK_HOME = 11, VK_END = 12, VK_PAGEUP = 13, VK_PAGEDOWN = 14, VK_FUNCTION_0 = 256
-
     interface
-        type(c_ptr) function vterm_new(rows, cols) bind(C, name="vterm_new")
-            import :: c_ptr, c_int
-            integer(c_int), value :: rows, cols
-        end function
-        subroutine vterm_free(vt) bind(C, name="vterm_free")
-            import :: c_ptr
-            type(c_ptr), value :: vt
-        end subroutine
-        subroutine vterm_set_size(vt, rows, cols) bind(C, name="vterm_set_size")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: vt
-            integer(c_int), value :: rows, cols
-        end subroutine
-        subroutine vterm_set_utf8(vt, on) bind(C, name="vterm_set_utf8")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: vt
-            integer(c_int), value :: on
-        end subroutine
-        integer(c_size_t) function vterm_input_write(vt, bytes, n) &
-                bind(C, name="vterm_input_write")
-            import :: c_ptr, c_size_t, c_char
-            type(c_ptr), value :: vt
-            character(kind=c_char), intent(in) :: bytes(*)
-            integer(c_size_t), value :: n
-        end function
-        subroutine vterm_output_set_callback(vt, fn, user) &
-                bind(C, name="vterm_output_set_callback")
-            import :: c_ptr, c_funptr
-            type(c_ptr), value :: vt
-            type(c_funptr), value :: fn
-            type(c_ptr), value :: user
-        end subroutine
-        subroutine vterm_keyboard_unichar(vt, c, m) bind(C, name="vterm_keyboard_unichar")
-            import :: c_ptr, c_int32_t, c_int
-            type(c_ptr), value :: vt
-            integer(c_int32_t), value :: c
-            integer(c_int), value :: m
-        end subroutine
-        subroutine vterm_keyboard_key(vt, k, m) bind(C, name="vterm_keyboard_key")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: vt
-            integer(c_int), value :: k, m
-        end subroutine
-        subroutine vterm_keyboard_start_paste(vt) bind(C, name="vterm_keyboard_start_paste")
-            import :: c_ptr
-            type(c_ptr), value :: vt
-        end subroutine
-        subroutine vterm_keyboard_end_paste(vt) bind(C, name="vterm_keyboard_end_paste")
-            import :: c_ptr
-            type(c_ptr), value :: vt
-        end subroutine
-        subroutine vterm_mouse_move(vt, row, col, m) bind(C, name="vterm_mouse_move")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: vt
-            integer(c_int), value :: row, col, m
-        end subroutine
-        subroutine vterm_mouse_button(vt, button, pressed, m) &
-                bind(C, name="vterm_mouse_button")
-            import :: c_ptr, c_int, c_bool
-            type(c_ptr), value :: vt
-            integer(c_int), value :: button, m
-            logical(c_bool), value :: pressed
-        end subroutine
-        type(c_ptr) function vterm_obtain_screen(vt) bind(C, name="vterm_obtain_screen")
-            import :: c_ptr
-            type(c_ptr), value :: vt
-        end function
-        type(c_ptr) function vterm_obtain_state(vt) bind(C, name="vterm_obtain_state")
-            import :: c_ptr
-            type(c_ptr), value :: vt
-        end function
-        subroutine vterm_screen_reset(screen, hard) bind(C, name="vterm_screen_reset")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: screen
-            integer(c_int), value :: hard
-        end subroutine
-        subroutine vterm_screen_enable_altscreen(screen, on) &
-                bind(C, name="vterm_screen_enable_altscreen")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: screen
-            integer(c_int), value :: on
-        end subroutine
-        subroutine vterm_screen_enable_reflow(screen, on) &
-                bind(C, name="vterm_screen_enable_reflow")
-            import :: c_ptr, c_bool
-            type(c_ptr), value :: screen
-            logical(c_bool), value :: on
-        end subroutine
-        subroutine vterm_screen_set_damage_merge(screen, size) &
-                bind(C, name="vterm_screen_set_damage_merge")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: screen
-            integer(c_int), value :: size
-        end subroutine
-        subroutine vterm_screen_flush_damage(screen) bind(C, name="vterm_screen_flush_damage")
-            import :: c_ptr
-            type(c_ptr), value :: screen
-        end subroutine
-        subroutine vterm_screen_set_callbacks(screen, cbs, user) &
-                bind(C, name="vterm_screen_set_callbacks")
-            import :: c_ptr
-            type(c_ptr), value :: screen, cbs, user
-        end subroutine
-        subroutine vterm_screen_set_unrecognised_fallbacks(screen, fb, user) &
-                bind(C, name="vterm_screen_set_unrecognised_fallbacks")
-            import :: c_ptr
-            type(c_ptr), value :: screen, fb, user
-        end subroutine
-        integer(c_int) function vterm_screen_get_cell(screen, pos, cell) &
-                bind(C, name="vterm_screen_get_cell")
-            import :: c_ptr, c_int, vt_pos_t, vt_cell_t
-            type(c_ptr), value :: screen
-            type(vt_pos_t), value :: pos
-            type(vt_cell_t), intent(out) :: cell
-        end function
-        subroutine vterm_screen_convert_color_to_rgb(screen, col) &
-                bind(C, name="vterm_screen_convert_color_to_rgb")
-            import :: c_ptr, c_int8_t
-            type(c_ptr), value :: screen
-            integer(c_int8_t), intent(inout) :: col(4)
-        end subroutine
-        subroutine vterm_screen_set_default_colors(screen, fg, bg) &
-                bind(C, name="vterm_screen_set_default_colors")
-            import :: c_ptr, c_int8_t
-            type(c_ptr), value :: screen
-            integer(c_int8_t), intent(in) :: fg(4), bg(4)
-        end subroutine
-        subroutine vterm_state_set_bold_highbright(state, on) &
-                bind(C, name="vterm_state_set_bold_highbright")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: state
-            integer(c_int), value :: on
-        end subroutine
-        subroutine vterm_state_set_palette_color(state, index, col) &
-                bind(C, name="vterm_state_set_palette_color")
-            import :: c_ptr, c_int, c_int8_t
-            type(c_ptr), value :: state
-            integer(c_int), value :: index
-            integer(c_int8_t), intent(in) :: col(4)
-        end subroutine
-
         integer(c_int) function fortui_pty_spawn(args, nargs, cwd, rows, cols, xpix, ypix, &
                 pid) bind(C, name="fortui_pty_spawn")
             import :: c_int, c_char
@@ -303,6 +110,12 @@ module fortui_term
             integer(c_int), value :: fd
             type(c_funptr), value :: wake
         end function
+        integer(c_long) function fortui_pty_take(w, dst, max) bind(C, name="fortui_pty_take")
+            import :: c_ptr, c_long, c_char
+            type(c_ptr), value :: w
+            character(kind=c_char), intent(out) :: dst(*)
+            integer(c_long), value :: max
+        end function
         subroutine fortui_pty_rearm(w) bind(C, name="fortui_pty_rearm")
             import :: c_ptr
             type(c_ptr), value :: w
@@ -311,7 +124,6 @@ module fortui_term
             import :: c_ptr
             type(c_ptr), value :: w
         end subroutine
-
         integer(c_long) function c_read(fd, buf, n) bind(C, name="read")
             import :: c_int, c_long, c_size_t, c_char
             integer(c_int), value :: fd
@@ -338,11 +150,6 @@ module fortui_term
             import :: c_int
             integer(c_int), value :: pid, sig
         end function
-        type(c_ptr) function c_memcpy(dst, src, n) bind(C, name="memcpy")
-            import :: c_ptr, c_size_t
-            type(c_ptr), value :: dst, src
-            integer(c_size_t), value :: n
-        end function
     end interface
 #endif
 
@@ -360,8 +167,9 @@ contains
     subroutine term_open(t, rows, cols, cell_px_w, cell_px_h, command, cwd, wake, ok)
         !! Start `command` (default: the user's shell) on a terminal of rows x
         !! cols cells, each cell_px_w x cell_px_h pixels (for programs that size
-        !! images). `wake` (optional) is called from another thread when the
-        !! program writes, so that a host sleeping in its event loop wakes.
+        !! images). With `wake` a reader thread takes the program's output and
+        !! calls it (from that thread) when output arrives, so that a host
+        !! sleeping in its event loop wakes; without it term_pump reads.
         type(term_t), intent(inout), target :: t
         integer, intent(in) :: rows, cols, cell_px_w, cell_px_h
         character(*), intent(in), optional :: command(:), cwd
@@ -383,10 +191,9 @@ contains
         if (present(command)) n = size(command)
         if (n > 0) then
             args = ""
-            do k = 1, size(command)
+            do k = 1, n
                 args = args // trim(command(k)) // c_null_char
             end do
-            n = size(command)
         else
             call get_environment_variable("SHELL", shell, status=st)
             if (st /= 0 .or. len_trim(shell) == 0) shell = "/bin/sh"
@@ -395,35 +202,19 @@ contains
         end if
         dir = ""
         if (present(cwd)) dir = cwd
-        t%vt = vterm_new(int(t%rows, c_int), int(t%cols, c_int))
-        if (.not. c_associated(t%vt)) return
-        call vterm_set_utf8(t%vt, 1_c_int)
-        t%screen = vterm_obtain_screen(t%vt)
-        t%state = vterm_obtain_state(t%vt)
-        screen_cbs = vt_screen_callbacks_t(c_funloc(cb_damage), c_funloc(cb_moverect), &
-            c_funloc(cb_movecursor), c_funloc(cb_settermprop), c_funloc(cb_bell), &
-            c_null_funptr, c_funloc(cb_sb_pushline), c_null_funptr, c_funloc(cb_sb_clear))
-        fallbacks = vt_fallbacks_t(c_null_funptr, c_null_funptr, c_null_funptr, &
-            c_funloc(cb_dcs), c_funloc(cb_apc), c_null_funptr, c_null_funptr)
-        call vterm_output_set_callback(t%vt, c_funloc(cb_output), c_loc(t))
-        call vterm_screen_set_callbacks(t%screen, c_loc(screen_cbs), c_loc(t))
-        call vterm_screen_set_unrecognised_fallbacks(t%screen, c_loc(fallbacks), c_loc(t))
-        call vterm_screen_enable_altscreen(t%screen, 1_c_int)
-        call vterm_state_set_bold_highbright(t%state, merge(1_c_int, 0_c_int, t%bold_bright))
-        call vterm_screen_enable_reflow(t%screen, .true._c_bool)
-        call vterm_screen_set_damage_merge(t%screen, 3_c_int)
-        call vterm_screen_reset(t%screen, 1_c_int)
+        t%vt%bold_bright = t%bold_bright
+        call vt_open(t%vt, t%rows, t%cols)
+        t%vt%cell_px_w = t%cell_px_w
+        t%vt%cell_px_h = t%cell_px_h
         if (t%own_palette) then
-            call term_set_colors(t, t%default_fg, t%default_bg, t%palette)
+            call vt_set_colors(t%vt, t%default_fg, t%default_bg, t%palette)
         else
-            call term_set_colors(t, t%default_fg, t%default_bg)
+            call vt_set_colors(t%vt, t%default_fg, t%default_bg)
         end if
-        if (allocated(t%sb)) deallocate(t%sb)
         if (allocated(t%places)) deallocate(t%places)
-        allocate(t%sb(5000), t%places(32))
-        t%sb_count = 0
-        t%sb_head = 0
+        allocate(t%places(32))
         t%nplaces = 0
+        t%sb_count = 0
         t%cursor_row = 0
         t%cursor_col = 0
         t%cursor_visible = .true.
@@ -431,25 +222,18 @@ contains
         t%mouse_mode = 0
         t%bell = .false.
         t%chunking = .false.
-        t%napc = 0
-        t%ndcs = 0
         t%title = ""
-        t%apc = ""
-        t%dcs = ""
-        t%dcs_command = ""
-        t%title_part = ""
         t%motion = ""
         t%chunk_keys = ""
         t%chunk_data = ""
-        call grid(t)
+        if (.not. allocated(t%buf)) allocate(character(kind=c_char, len=262144) :: t%buf)
+        call snapshot(t)
         t%fd = fortui_pty_spawn(args, int(n, c_int), dir // c_null_char, int(t%rows, c_int), &
             int(t%cols, c_int), int(t%cols * t%cell_px_w, c_int), &
             int(t%rows * t%cell_px_h, c_int), pid)
         if (t%fd < 0) then
             call report_error("fortui_term", "term_open", "cannot start '" // &
                 args(1:index(args, c_null_char) - 1) // "'")
-            call vterm_free(t%vt)
-            t%vt = c_null_ptr
             return
         end if
         t%pid = pid
@@ -467,13 +251,12 @@ contains
         t%cell_px_w = cell_px_w
         t%cell_px_h = cell_px_h
         call report_error("fortui_term", "term_open", &
-            "built without the terminal emulator (-DENABLE_TERM=1, libvterm)")
+            "built without the terminal emulator (-DENABLE_TERM=1)")
 #endif
     end subroutine term_open
 
     subroutine term_close(t)
-        !! End the program (SIGHUP, as when a terminal window closes) and free
-        !! the screen.
+        !! End the program (SIGHUP, as when a terminal window closes).
         type(term_t), intent(inout) :: t
 #ifdef ENABLE_TERM
         integer :: st
@@ -481,10 +264,8 @@ contains
         t%watch = c_null_ptr
         if (t%pid > 0 .and. t%alive) st = c_kill(int(t%pid, c_int), 1_c_int)
         if (t%fd >= 0) st = c_close(int(t%fd, c_int))
-        if (c_associated(t%vt)) call vterm_free(t%vt)
+        if (t%pid > 0 .and. t%exit_status < 0) st = fortui_pty_exited(int(t%pid, c_int))
 #endif
-        t%vt = c_null_ptr
-        t%screen = c_null_ptr
         t%fd = -1
         t%pid = -1
         t%alive = .false.
@@ -497,138 +278,162 @@ contains
         type(term_t), intent(inout) :: t
         integer(int32), intent(in) :: fg, bg
         integer(int32), intent(in), optional :: palette(16)
-#ifdef ENABLE_TERM
-        integer :: k
         t%default_fg = fg
         t%default_bg = bg
-        if (.not. c_associated(t%screen)) return
-        call vterm_screen_set_default_colors(t%screen, vt_rgb(fg), vt_rgb(bg))
         if (present(palette)) then
             t%palette = palette
             t%own_palette = .true.
-            do k = 1, 16
-                call vterm_state_set_palette_color(t%state, int(k - 1, c_int), vt_rgb(palette(k)))
-            end do
+            call vt_set_colors(t%vt, fg, bg, palette)
+        else
+            call vt_set_colors(t%vt, fg, bg)
         end if
         t%dirty = .true.
-#else
-        t%default_fg = fg
-        t%default_bg = bg
-        if (present(palette)) continue
-#endif
     end subroutine term_set_colors
 
-    logical function term_pump(t, budget_bytes) result(changed)
-        !! Read what the program wrote (at most `budget_bytes` this call, so the
-        !! host stays responsive under heavy output) and update the screen.
-        !! True when the screen, cursor or title changed.
+    logical function term_pump(t, budget_ms, more) result(changed)
+        !! Process the program's output for at most `budget_ms` milliseconds
+        !! (default 25) and update the screen; `more` tells that output is
+        !! still waiting (draw, then pump again without sleeping). True when
+        !! the screen, cursor or title changed.
         type(term_t), intent(inout), target :: t
-        integer, intent(in), optional :: budget_bytes
+        real, intent(in), optional :: budget_ms
+        logical, intent(out), optional :: more
 #ifdef ENABLE_TERM
-        character(kind=c_char, len=65536) :: buf
         integer(c_int) :: fds(2)
         integer(c_long) :: got
-        integer :: budget, done, st
+        integer(int64) :: t0, now, rate
+        real :: budget
+        integer :: st
+        logical :: waiting
 
         changed = .false.
-        if (.not. c_associated(t%vt)) return
-        budget = 4 * 1024 * 1024
-        if (present(budget_bytes)) budget = budget_bytes
-        done = 0
-        do while (t%alive .and. done < budget)
-            fds(1) = int(t%fd, c_int)
-            fds(2) = 1_c_int ! POLLIN in the low half of the events/revents pair
-            if (c_poll(fds, 1_c_long, 0_c_int) <= 0) exit
-            got = c_read(int(t%fd, c_int), buf, int(len(buf), c_size_t))
-            if (got <= 0) then
-                ! EIO: the program and everything it started have ended.
+        waiting = .false.
+        if (present(more)) more = .false.
+        if (t%fd < 0 .and. .not. c_associated(t%watch)) return
+        budget = 25.0
+        if (present(budget_ms)) budget = budget_ms
+        call system_clock(t0, rate)
+        do while (t%alive)
+            if (c_associated(t%watch)) then
+                got = fortui_pty_take(t%watch, t%buf, int(len(t%buf), c_long))
+                if (got == 0) then
+                    call fortui_pty_rearm(t%watch)
+                    got = fortui_pty_take(t%watch, t%buf, int(len(t%buf), c_long))
+                    if (got == 0) exit
+                end if
+            else
+                fds(1) = int(t%fd, c_int)
+                fds(2) = 1_c_int ! POLLIN in the low half of the events/revents pair
+                if (c_poll(fds, 1_c_long, 0_c_int) <= 0) exit
+                got = c_read(int(t%fd, c_int), t%buf, int(len(t%buf), c_size_t))
+                if (got == 0) got = -1
+            end if
+            if (got < 0) then
+                ! The program and everything it started have ended.
                 t%alive = .false.
                 exit
             end if
-            call feed(t, buf(1:int(got)))
-            done = done + int(got)
+            call feed(t, t%buf(1:int(got)))
+            changed = .true.
+            call system_clock(now)
+            if (real(now - t0) * 1000.0 / real(rate) > budget) then
+                waiting = .true.
+                exit
+            end if
         end do
         if (.not. t%alive .and. t%pid > 0 .and. t%exit_status < 0) then
             st = fortui_pty_exited(int(t%pid, c_int))
             if (st >= 0) t%exit_status = st
             changed = .true.
         end if
-        if (c_associated(t%watch)) call fortui_pty_rearm(t%watch)
-        call vterm_screen_flush_damage(t%screen)
-        if (t%dirty) then
-            call refresh(t)
-            t%dirty = .false.
+        if (changed .or. t%dirty) then
+            call snapshot(t)
             t%generation = modulo(t%generation + 1, 2**30)
             changed = .true.
+            t%dirty = .false.
         end if
+        if (present(more)) more = waiting
 #else
         changed = .false.
-        if (present(budget_bytes)) continue
+        if (present(budget_ms) .and. present(more)) more = .false.
         if (t%alive) continue
 #endif
     end function term_pump
 
+    subroutine term_row(t, row, cp, fg, bg, attr)
+        !! Cells of screen row `row` (negative: the scrollback, -1 the newest
+        !! line), t%cols of them.
+        type(term_t), intent(in) :: t
+        integer, intent(in) :: row
+        integer(int32), intent(out) :: cp(:), fg(:), bg(:), attr(:)
+        integer :: line, w
+        cp = 32
+        fg = t%default_fg
+        bg = 0
+        attr = 0
+        if (.not. allocated(t%vt%cp)) return
+        if (row >= t%vt%rows .or. row < -t%vt%sb_count) return
+        w = min(size(cp), t%vt%cols)
+        line = vt_line(t%vt, row)
+        if (t%vt%alt .and. row >= 0) then
+            cp(1:w) = t%vt%acp(1:w, line)
+            fg(1:w) = t%vt%afg(1:w, line)
+            bg(1:w) = t%vt%abg(1:w, line)
+            attr(1:w) = t%vt%aattr(1:w, line)
+        else
+            cp(1:w) = t%vt%cp(1:w, line)
+            fg(1:w) = t%vt%fg(1:w, line)
+            bg(1:w) = t%vt%bg(1:w, line)
+            attr(1:w) = t%vt%attr(1:w, line)
+        end if
+    end subroutine term_row
+
     subroutine term_key(t, press)
-        !! A key press as the terminal sends it to the program.
+        !! A key press as xterm sends it to the program.
         type(term_t), intent(inout) :: t
         type(key_press_t), intent(in) :: press
-#ifdef ENABLE_TERM
-        integer(c_int) :: m, k
-        if (.not. c_associated(t%vt)) return
-        m = 0
-        if (iand(press%mods, MOD_SHIFT) /= 0) m = ior(m, 1_c_int)
-        if (iand(press%mods, MOD_ALT) /= 0) m = ior(m, 2_c_int)
-        if (iand(press%mods, MOD_CTRL) /= 0) m = ior(m, 4_c_int)
-        if (press%key == KEY_NONE) then
-            if (press%code > 0) call vterm_keyboard_unichar(t%vt, int(press%code, c_int32_t), m)
-            return
-        end if
+        integer :: k
+        logical :: sh, al, ct
+        sh = iand(press%mods, MOD_SHIFT) /= 0
+        al = iand(press%mods, MOD_ALT) /= 0
+        ct = iand(press%mods, MOD_CTRL) /= 0
         select case (press%key)
-        case (KEY_ENTER); k = VK_ENTER
-        case (KEY_TAB); k = VK_TAB
-        case (KEY_BACKSPACE); k = VK_BACKSPACE
-        case (KEY_ESCAPE); k = VK_ESCAPE
-        case (KEY_ARROW_UP); k = VK_UP
-        case (KEY_ARROW_DOWN); k = VK_DOWN
-        case (KEY_ARROW_LEFT); k = VK_LEFT
-        case (KEY_ARROW_RIGHT); k = VK_RIGHT
-        case (KEY_INSERT); k = VK_INS
-        case (KEY_DELETE); k = VK_DEL
-        case (KEY_HOME); k = VK_HOME
-        case (KEY_END); k = VK_END
-        case (KEY_PAGE_UP); k = VK_PAGEUP
-        case (KEY_PAGE_DOWN); k = VK_PAGEDOWN
-        case (KEY_SPACE)
-            call vterm_keyboard_unichar(t%vt, 32_c_int32_t, m)
+        case (KEY_NONE)
+            if (press%code <= 0) return
+            call vt_key(t%vt, 0, press%code, sh, al, ct)
+            call flush_output(t)
             return
-        case (KEY_F1:KEY_F12); k = VK_FUNCTION_0 + int(press%key - KEY_F1 + 1, c_int)
+        case (KEY_SPACE)
+            call vt_key(t%vt, 0, 32, sh, al, ct)
+            call flush_output(t)
+            return
+        case (KEY_ENTER); k = 1
+        case (KEY_TAB); k = 2
+        case (KEY_BACKSPACE); k = 3
+        case (KEY_ESCAPE); k = 4
+        case (KEY_ARROW_UP); k = 5
+        case (KEY_ARROW_DOWN); k = 6
+        case (KEY_ARROW_LEFT); k = 7
+        case (KEY_ARROW_RIGHT); k = 8
+        case (KEY_INSERT); k = 9
+        case (KEY_DELETE); k = 10
+        case (KEY_HOME); k = 11
+        case (KEY_END); k = 12
+        case (KEY_PAGE_UP); k = 13
+        case (KEY_PAGE_DOWN); k = 14
+        case (KEY_F1:KEY_F12); k = 101 + press%key - KEY_F1
         case default; return
         end select
-        call vterm_keyboard_key(t%vt, k, m)
-#else
-        if (press%key == 0 .or. t%alive) continue
-#endif
+        call vt_key(t%vt, k, 0, sh, al, ct)
+        call flush_output(t)
     end subroutine term_key
 
     subroutine term_paste(t, text)
         !! Pasted text, bracketed when the program asked for that.
         type(term_t), intent(inout) :: t
         character(*), intent(in) :: text
-#ifdef ENABLE_TERM
-        integer :: pos, cp, nb
-        if (.not. c_associated(t%vt)) return
-        call vterm_keyboard_start_paste(t%vt)
-        pos = 1
-        do while (pos <= len(text))
-            call decode_utf8(text, pos, cp, nb)
-            if (cp == 10) cp = 13
-            call vterm_keyboard_unichar(t%vt, int(cp, c_int32_t), 0_c_int)
-            pos = pos + nb
-        end do
-        call vterm_keyboard_end_paste(t%vt)
-#else
-        if (len(text) > 0 .or. t%alive) continue
-#endif
+        call vt_paste(t%vt, text)
+        call flush_output(t)
     end subroutine term_paste
 
     subroutine term_mouse(t, row, col, button, pressed, moved, mods)
@@ -637,19 +442,12 @@ contains
         type(term_t), intent(inout) :: t
         integer, intent(in) :: row, col, button, mods
         logical, intent(in) :: pressed, moved
-#ifdef ENABLE_TERM
-        integer(c_int) :: m
-        if (.not. c_associated(t%vt)) return
-        m = 0
-        if (iand(mods, MOD_SHIFT) /= 0) m = ior(m, 1_c_int)
-        if (iand(mods, MOD_ALT) /= 0) m = ior(m, 2_c_int)
-        if (iand(mods, MOD_CTRL) /= 0) m = ior(m, 4_c_int)
-        call vterm_mouse_move(t%vt, int(row, c_int), int(col, c_int), m)
-        if (.not. moved) call vterm_mouse_button(t%vt, int(button, c_int), &
-            logical(pressed, c_bool), m)
-#else
-        if (row + col + button + mods > 0 .or. pressed .or. moved .or. t%alive) continue
-#endif
+        integer :: b
+        b = button - 1
+        if (button >= 4) b = 64 + button - 4
+        call vt_mouse(t%vt, row, col, b, pressed, moved, iand(mods, MOD_SHIFT) /= 0, &
+            iand(mods, MOD_ALT) /= 0, iand(mods, MOD_CTRL) /= 0)
+        call flush_output(t)
     end subroutine term_mouse
 
     subroutine term_write(t, bytes)
@@ -664,27 +462,30 @@ contains
     end subroutine term_write
 
     subroutine term_resize(t, rows, cols, cell_px_w, cell_px_h)
-        !! New size in cells (and pixels per cell): the screen reflows and the
-        !! program gets SIGWINCH.
+        !! New size in cells (and pixels per cell); the program gets SIGWINCH.
         type(term_t), intent(inout) :: t
         integer, intent(in) :: rows, cols, cell_px_w, cell_px_h
 #ifdef ENABLE_TERM
-        integer :: st
+        integer :: st, before
         if (rows == t%rows .and. cols == t%cols .and. cell_px_w == t%cell_px_w .and. &
             cell_px_h == t%cell_px_h) return
         t%cell_px_w = max(1, cell_px_w)
         t%cell_px_h = max(1, cell_px_h)
+        t%vt%cell_px_w = t%cell_px_w
+        t%vt%cell_px_h = t%cell_px_h
         if (rows /= t%rows .or. cols /= t%cols) then
             t%rows = max(1, rows)
             t%cols = max(1, cols)
-            if (c_associated(t%vt)) call vterm_set_size(t%vt, int(t%rows, c_int), &
-                int(t%cols, c_int))
-            call grid(t)
+            before = t%vt%scrolled
+            if (allocated(t%vt%cp)) call vt_resize(t%vt, t%rows, t%cols)
+            call follow_scroll(t)
+            call snapshot(t)
         end if
         if (t%fd >= 0) st = fortui_pty_resize(int(t%fd, c_int), int(t%rows, c_int), &
             int(t%cols, c_int), int(t%cols * t%cell_px_w, c_int), &
             int(t%rows * t%cell_px_h, c_int))
         t%dirty = .true.
+        if (before < 0) continue
 #else
         t%rows = rows
         t%cols = cols
@@ -693,242 +494,146 @@ contains
 #endif
     end subroutine term_resize
 
-#ifdef ENABLE_TERM
     ! --- screen ----------------------------------------------------------------
 
-    subroutine grid(t)
+    subroutine snapshot(t)
+        !! The visible screen into t%cp/fg/bg/attr, and the cursor and modes.
         type(term_t), intent(inout) :: t
-        integer :: n
+        integer :: n, r, line, c0
         n = t%rows * t%cols
         if (allocated(t%cp)) then
-            if (size(t%cp) == n) return
-            deallocate(t%cp, t%fg, t%bg, t%attr)
+            if (size(t%cp) /= n) deallocate(t%cp, t%fg, t%bg, t%attr)
         end if
-        allocate(t%cp(n), t%fg(n), t%bg(n), t%attr(n))
-        t%cp = 32
-        t%fg = t%default_fg
-        t%bg = 0
-        t%attr = 0
-        t%dirty = .true.
-    end subroutine grid
-
-    subroutine refresh(t)
-        !! The cells from libvterm into the screen arrays.
-        type(term_t), intent(inout) :: t
-        type(vt_cell_t) :: cell
-        integer :: r, c, k, st
-        call grid(t)
+        if (.not. allocated(t%cp)) allocate(t%cp(n), t%fg(n), t%bg(n), t%attr(n))
+        if (.not. allocated(t%vt%cp)) then
+            t%cp = 32
+            t%fg = t%default_fg
+            t%bg = 0
+            t%attr = 0
+            return
+        end if
         do r = 0, t%rows - 1
-            do c = 0, t%cols - 1
-                k = r * t%cols + c + 1
-                st = vterm_screen_get_cell(t%screen, vt_pos_t(int(r, c_int), int(c, c_int)), &
-                    cell)
-                call convert(t, cell, t%cp(k), t%fg(k), t%bg(k), t%attr(k))
-                if (c > 0) then
-                    if (iand(t%attr(k - 1), CELL_WIDE) /= 0) t%attr(k) = ior(t%attr(k), CELL_CONT)
-                end if
-            end do
-        end do
-    end subroutine refresh
-
-    subroutine convert(t, cell, cp, fg, bg, attr)
-        type(term_t), intent(in) :: t
-        type(vt_cell_t), intent(inout) :: cell
-        integer(int32), intent(out) :: cp, fg, bg, attr
-        integer(int32) :: swap
-        integer :: a
-        cp = cell%chars(1)
-        if (cp == 0) cp = 32
-        a = int(cell%attrs)
-        attr = 0
-        if (btest(a, 0)) attr = ior(attr, CELL_BOLD)
-        if (iand(ishft(a, -1), 3) /= 0) attr = ior(attr, CELL_UNDERLINE)
-        if (btest(a, 3)) attr = ior(attr, CELL_ITALIC)
-        if (btest(a, 7)) attr = ior(attr, CELL_STRIKE)
-        if (cell%width > 1) attr = ior(attr, CELL_WIDE)
-        fg = colour(t, cell%fg, .true.)
-        bg = colour(t, cell%bg, .false.)
-        if (btest(a, 5)) then
-            swap = fg
-            fg = bg
-            bg = swap
-            if (iand(ishft(fg, -24), 255_int32) == 0) fg = ior(t%default_bg, ishft(-1_int32, 24))
-            if (iand(ishft(bg, -24), 255_int32) == 0) bg = t%default_fg
-        end if
-        if (btest(a, 6)) fg = bg
-        ! Faint text arrives as alternative font 1 (see faint_as_font).
-        if (iand(ishft(a, -8), 15) == 1) then
-            attr = ior(attr, CELL_DIM)
-            if (iand(ishft(bg, -24), 255_int32) == 0) then
-                fg = blend(fg, t%default_bg)
+            c0 = r * t%cols
+            line = vt_line(t%vt, r)
+            if (t%vt%alt) then
+                t%cp(c0 + 1:c0 + t%cols) = t%vt%acp(1:t%cols, line)
+                t%fg(c0 + 1:c0 + t%cols) = t%vt%afg(1:t%cols, line)
+                t%bg(c0 + 1:c0 + t%cols) = t%vt%abg(1:t%cols, line)
+                t%attr(c0 + 1:c0 + t%cols) = t%vt%aattr(1:t%cols, line)
             else
-                fg = blend(fg, bg)
+                t%cp(c0 + 1:c0 + t%cols) = t%vt%cp(1:t%cols, line)
+                t%fg(c0 + 1:c0 + t%cols) = t%vt%fg(1:t%cols, line)
+                t%bg(c0 + 1:c0 + t%cols) = t%vt%bg(1:t%cols, line)
+                t%attr(c0 + 1:c0 + t%cols) = t%vt%attr(1:t%cols, line)
             end if
-        end if
-    end subroutine convert
-
-    pure integer(int32) function blend(a, b) result(c)
-        !! Halfway between two colours (opaque).
-        integer(int32), intent(in) :: a, b
-        integer :: k, v
-        c = ishft(-1_int32, 24)
-        do k = 0, 2
-            v = (int(iand(ishft(a, -8 * k), 255_int32)) + int(iand(ishft(b, -8 * k), 255_int32))) / 2
-            c = ior(c, ishft(int(v, int32), 8 * k))
         end do
-    end function blend
+        t%cursor_row = t%vt%cr
+        t%cursor_col = t%vt%cc
+        t%cursor_visible = t%vt%cursor_visible
+        t%mouse_mode = t%vt%mouse
+        t%sb_count = t%vt%sb_count
+        if (allocated(t%vt%title)) t%title = t%vt%title
+    end subroutine snapshot
 
-    integer(int32) function colour(t, col, foreground) result(rgba)
-        !! ui_rgba of a libvterm colour; the default background is transparent
-        !! (the widget's own fill shows).
-        type(term_t), intent(in) :: t
-        integer(c_int8_t), intent(inout) :: col(4)
-        logical, intent(in) :: foreground
-        integer :: typ
-        typ = iand(int(col(1)), 255)
-        if (iand(typ, 2) /= 0 .and. foreground) then
-            rgba = t%default_fg
-            return
-        end if
-        if (iand(typ, 4) /= 0 .and. .not. foreground) then
-            rgba = 0
-            return
-        end if
-        if (iand(typ, 1) /= 0) call vterm_screen_convert_color_to_rgb(t%screen, col)
-        rgba = int(iand(int(col(2)), 255), int32) + ishft(int(iand(int(col(3)), 255), int32), 8) &
-            + ishft(int(iand(int(col(4)), 255), int32), 16) + ishft(-1_int32, 24)
-    end function colour
-
-    function vt_rgb(rgba) result(col)
-        integer(int32), intent(in) :: rgba
-        integer(c_int8_t) :: col(4)
-        col(1) = 0
-        col(2) = int(byte_of(rgba, 0), c_int8_t)
-        col(3) = int(byte_of(rgba, 1), c_int8_t)
-        col(4) = int(byte_of(rgba, 2), c_int8_t)
-    end function vt_rgb
-
-    integer function byte_of(v, k)
-        integer(int32), intent(in) :: v
-        integer, intent(in) :: k
-        byte_of = int(iand(ishft(v, -8 * k), 255_int32))
-        if (byte_of > 127) byte_of = byte_of - 256
-    end function byte_of
-
-    ! --- input from the program -------------------------------------------------
-
-    subroutine feed(t, raw)
-        !! Program output to libvterm, cut after each string terminator (the
-        !! cursor motion an image owes comes before the text after it) and
-        !! after each erase of the display (which removes the images it erases;
-        !! libvterm does not report erasing).
+    subroutine follow_scroll(t)
+        !! Images move up with the lines that scrolled into the scrollback.
         type(term_t), intent(inout) :: t
-        character(*), intent(in) :: raw
-        character(len=*), parameter :: CSI = achar(27) // "["
-        integer :: first, k, cut, kind, j
-        integer(c_size_t) :: n
-        character(len=:), allocatable :: bytes
-        bytes = faint_as_font(raw)
-        first = 1
-        do while (first <= len(bytes))
-            cut = 0
-            kind = 0
-            k = index(bytes(first:), achar(27) // "\")
-            if (k > 0) then
-                cut = first + k
-                kind = 1
+        if (t%vt%scrolled == 0) return
+        if (t%nplaces > 0) then
+            t%places(1:t%nplaces)%row = t%places(1:t%nplaces)%row - t%vt%scrolled
+            call drop_old_places(t)
+        end if
+        t%vt%scrolled = 0
+    end subroutine follow_scroll
+
+    ! --- program output ---------------------------------------------------------
+
+#ifdef ENABLE_TERM
+    subroutine feed(t, bytes)
+        !! Program output through the engine; strings for the host (titles,
+        !! colour queries, images) are handled in stream order.
+        type(term_t), intent(inout) :: t
+        character(*), intent(in) :: bytes
+        integer :: pos, ev
+        logical :: was_alt
+        pos = 1
+        do while (pos <= len(bytes))
+            was_alt = t%vt%alt
+            call vt_feed(t%vt, bytes, pos, ev)
+            call follow_scroll(t)
+            if (t%vt%erased_from >= 0) then
+                call erase_images(t, t%vt%erased_from)
+                t%vt%erased_from = -1
             end if
-            do j = 1, 4
-                k = index(bytes(first:), CSI // trim(ERASES(j)))
-                if (k == 0) cycle
-                k = first + k + len_trim(ERASES(j))
-                if (cut == 0 .or. k < cut) then
-                    cut = k
-                    kind = 1 + j
+            ! Images belong to the screen they were shown on.
+            if (t%vt%alt .neqv. was_alt) t%nplaces = 0
+            t%altscreen = t%vt%alt
+            t%cursor_row = t%vt%cr
+            t%cursor_col = t%vt%cc
+            select case (ev)
+            case (VT_EV_OSC); call osc(t, t%vt%str(1:t%vt%nstr))
+            case (VT_EV_DCS); call dcs(t, t%vt%str(1:t%vt%nstr))
+            case (VT_EV_APC)
+                if (t%vt%nstr > 0) then
+                    if (t%vt%str(1:1) == "G") call kitty_command(t, t%vt%str(2:t%vt%nstr))
                 end if
-            end do
-            if (cut == 0) cut = len(bytes)
-            n = vterm_input_write(t%vt, bytes(first:cut), int(cut - first + 1, c_size_t))
-            first = cut + 1
-            select case (kind)
-            case (2, 3); call erase_images(t, 0)
-            case (4, 5); call erase_images(t, t%cursor_row)
             end select
-            call owed_motion(t)
+            if (ev /= VT_EV_NONE) call owed_motion(t)
         end do
+        call flush_output(t)
     end subroutine feed
 
-    function faint_as_font(bytes) result(out)
-        !! libvterm keeps no faint attribute: SGR 2 becomes alternative font 1
-        !! (SGR 11), which it keeps per cell, and SGR 22 also selects font 0.
-        !! Colour arguments (38/48/58 with 5;n or 2;r;g;b) pass unchanged.
-        !! Sequences cut by the end of a read are left as they are.
-        character(*), intent(in) :: bytes
-        character(len=:), allocatable :: out, buf
-        integer :: n, p, q, k, a, b, skip
-        character(len=8) :: tok
-        allocate(character(len=len(bytes) + 64) :: buf)
-        n = 0
-        p = 1
-        do
-            q = index(bytes(p:), achar(27) // "[")
-            if (q == 0) exit
-            q = p + q - 1
-            k = q + 2
-            do while (k <= len(bytes))
-                if (verify(bytes(k:k), "0123456789;:") /= 0) exit
-                k = k + 1
-            end do
-            if (k > len(bytes)) exit
-            if (bytes(k:k) /= "m" .or. index(bytes(q + 2:k - 1), "2") == 0) then
-                call put(bytes(p:k))
-                p = k + 1
-                cycle
-            end if
-            call put(bytes(p:q + 1))
-            a = q + 2
-            skip = 0
-            do while (a <= k - 1 .or. a == q + 2)
-                b = index(bytes(a:k), ";") - 1
-                if (b < 0) b = k - a
-                tok = bytes(a:a + b - 1)
-                if (a > q + 2) call put(";")
-                if (skip > 0) then
-                    skip = skip - 1
-                    call put(trim(tok))
-                else if (tok == "2") then
-                    call put("11")
-                else if (tok == "22") then
-                    call put("22;10")
-                else
-                    call put(trim(tok))
-                    if (tok == "38" .or. tok == "48" .or. tok == "58") then
-                        if (bytes(a + b + 1:a + b + 2) == "5;") skip = 2
-                        if (bytes(a + b + 1:a + b + 2) == "2;") skip = 4
-                    end if
-                end if
-                a = a + b + 1
-                if (a > k - 1) exit
-            end do
-            call put("m")
-            p = k + 1
-            if (p > len(bytes)) exit
-        end do
-        if (p <= len(bytes)) call put(bytes(p:))
-        out = buf(1:n)
-    contains
-        subroutine put(s)
-            character(*), intent(in) :: s
-            character(len=:), allocatable :: grown
-            if (n + len(s) > len(buf)) then
-                allocate(character(len=2 * (n + len(s))) :: grown)
-                grown(1:n) = buf(1:n)
-                call move_alloc(grown, buf)
-            end if
-            buf(n + 1:n + len(s)) = s
-            n = n + len(s)
-        end subroutine put
-    end function faint_as_font
+    subroutine osc(t, s)
+        !! Operating system commands: titles (0, 2), colour queries (10, 11).
+        type(term_t), intent(inout) :: t
+        character(*), intent(in) :: s
+        integer :: semi
+        semi = index(s, ";")
+        if (semi == 0) return
+        select case (s(1:semi - 1))
+        case ("0", "2")
+            t%vt%title = s(semi + 1:)
+        case ("10", "11")
+            if (s(semi + 1:) == "?") call t_reply(t, achar(27) // "]" // s(1:semi) // &
+                xcolor(merge(t%default_fg, t%default_bg, s(1:semi - 1) == "10")) // &
+                achar(27) // "\")
+        end select
+    end subroutine osc
+
+    subroutine dcs(t, s)
+        !! Device control strings: "params q data" is a sixel image.
+        type(term_t), intent(inout) :: t
+        character(*), intent(in) :: s
+        integer :: q
+        q = verify(s, "0123456789;")
+        if (q == 0) return
+        if (s(q:q) == "q") call show_sixel(t, s(1:q - 1), s(q + 1:))
+    end subroutine dcs
+
+    function xcolor(rgba) result(spec)
+        integer(int32), intent(in) :: rgba
+        character(len=:), allocatable :: spec
+        character(len=32) :: buf
+        write (buf, '(a,z2.2,z2.2,a,z2.2,z2.2,a,z2.2,z2.2)') "rgb:", &
+            iand(rgba, 255_int32), iand(rgba, 255_int32), "/", &
+            iand(ishft(rgba, -8), 255_int32), iand(ishft(rgba, -8), 255_int32), "/", &
+            iand(ishft(rgba, -16), 255_int32), iand(ishft(rgba, -16), 255_int32)
+        spec = trim(buf)
+    end function xcolor
+
+    subroutine t_reply(t, s)
+        type(term_t), intent(inout) :: t
+        character(*), intent(in) :: s
+        call write_all(t%fd, s)
+    end subroutine t_reply
+
+    subroutine flush_output(t)
+        type(term_t), intent(inout) :: t
+        character(len=:), allocatable :: s
+        if (t%vt%nout == 0) return
+        call vt_take_output(t%vt, s)
+        call write_all(t%fd, s)
+    end subroutine flush_output
 
     subroutine erase_images(t, from_row)
         !! Images shown on screen rows from `from_row` down are erased.
@@ -948,11 +653,17 @@ contains
     subroutine owed_motion(t)
         type(term_t), intent(inout) :: t
         character(len=:), allocatable :: m
-        integer(c_size_t) :: n
+        integer :: pos, ev
         if (len(t%motion) == 0) return
         m = t%motion
         t%motion = ""
-        n = vterm_input_write(t%vt, m, int(len(m), c_size_t))
+        pos = 1
+        do while (pos <= len(m))
+            call vt_feed(t%vt, m, pos, ev)
+        end do
+        call follow_scroll(t)
+        t%cursor_row = t%vt%cr
+        t%cursor_col = t%vt%cc
     end subroutine owed_motion
 
     subroutine write_all(fd, bytes)
@@ -969,230 +680,6 @@ contains
             done = done + int(w)
         end do
     end subroutine write_all
-
-    ! --- libvterm callbacks ------------------------------------------------------
-
-    subroutine cb_output(s, n, user) bind(C)
-        !! What libvterm answers or encodes for the program (keys, replies).
-        !! Its device attributes reply gains "4": this terminal shows sixel.
-        type(c_ptr), value :: s, user
-        integer(c_size_t), value :: n
-        type(term_t), pointer :: t
-        character(kind=c_char, len=int(n)), pointer :: str
-        call c_f_pointer(user, t)
-        call c_f_pointer(s, str)
-        if (str == achar(27) // "[?1;2c") then
-            call write_all(t%fd, achar(27) // "[?62;4;22c")
-        else
-            call write_all(t%fd, str)
-        end if
-    end subroutine cb_output
-
-    integer(c_int) function cb_damage(rect, user) bind(C)
-        type(vt_rect_t), value :: rect
-        type(c_ptr), value :: user
-        type(term_t), pointer :: t
-        call c_f_pointer(user, t)
-        t%dirty = .true.
-        cb_damage = 1
-        if (rect%start_row < 0) continue
-    end function cb_damage
-
-    integer(c_int) function cb_moverect(dest, src, user) bind(C)
-        !! Text moved (scrolling): images in the moved rows go with it.
-        type(vt_rect_t), value :: dest, src
-        type(c_ptr), value :: user
-        type(term_t), pointer :: t
-        integer :: k, dy
-        call c_f_pointer(user, t)
-        t%dirty = .true.
-        cb_moverect = 1
-        dy = dest%start_row - src%start_row
-        if (dy == 0 .or. src%start_col /= 0 .or. src%end_col < t%cols) return
-        ! Scrolling up from the top row pushes lines into the scrollback, and
-        ! cb_sb_pushline moves the images; libvterm reports some of those
-        ! scrolls here as well.
-        if (dest%start_row == 0 .and. dy < 0) return
-        do k = 1, t%nplaces
-            if (t%places(k)%row >= src%start_row .and. t%places(k)%row < src%end_row) &
-                t%places(k)%row = t%places(k)%row + dy
-        end do
-        call drop_old_places(t)
-    end function cb_moverect
-
-    integer(c_int) function cb_movecursor(pos, oldpos, visible, user) bind(C)
-        type(vt_pos_t), value :: pos, oldpos
-        integer(c_int), value :: visible
-        type(c_ptr), value :: user
-        type(term_t), pointer :: t
-        call c_f_pointer(user, t)
-        t%cursor_row = pos%row
-        t%cursor_col = pos%col
-        t%dirty = .true.
-        cb_movecursor = 1
-        if (oldpos%row < 0 .or. visible < 0) continue
-    end function cb_movecursor
-
-    integer(c_int) function cb_settermprop(prop, val, user) bind(C)
-        integer(c_int), value :: prop
-        type(c_ptr), value :: val, user
-        type(term_t), pointer :: t
-        integer(c_int), pointer :: ival
-        type(vt_fragment_t), pointer :: frag
-        call c_f_pointer(user, t)
-        cb_settermprop = 1
-        select case (prop)
-        case (PROP_CURSORVISIBLE)
-            call c_f_pointer(val, ival)
-            t%cursor_visible = ival /= 0
-            t%dirty = .true.
-        case (PROP_ALTSCREEN)
-            call c_f_pointer(val, ival)
-            t%altscreen = ival /= 0
-            ! Images belong to the screen they were shown on.
-            t%nplaces = 0
-            t%dirty = .true.
-        case (PROP_MOUSE)
-            call c_f_pointer(val, ival)
-            t%mouse_mode = ival
-        case (PROP_TITLE)
-            call c_f_pointer(val, frag)
-            if (frag_initial(frag)) t%title_part = ""
-            t%title_part = t%title_part // frag_text(frag)
-            if (frag_final(frag)) then
-                t%title = t%title_part
-                t%dirty = .true.
-            end if
-        end select
-    end function cb_settermprop
-
-    integer(c_int) function cb_bell(user) bind(C)
-        type(c_ptr), value :: user
-        type(term_t), pointer :: t
-        call c_f_pointer(user, t)
-        t%bell = .true.
-        cb_bell = 1
-    end function cb_bell
-
-    integer(c_int) function cb_sb_pushline(cols, cells, user) bind(C)
-        !! A line scrolled off the top: into the scrollback ring.
-        integer(c_int), value :: cols
-        type(c_ptr), value :: cells, user
-        type(term_t), pointer :: t
-        type(vt_cell_t), pointer :: row(:)
-        integer :: c
-        call c_f_pointer(user, t)
-        call c_f_pointer(cells, row, [int(cols)])
-        cb_sb_pushline = 1
-        ! The top line leaves the screen: images move up with the text (libvterm
-        ! merges scrolling into damage here, so moverect does not report it).
-        t%places(1:t%nplaces)%row = t%places(1:t%nplaces)%row - 1
-        call drop_old_places(t)
-        t%sb_head = modulo(t%sb_head, size(t%sb)) + 1
-        t%sb_count = min(t%sb_count + 1, size(t%sb))
-        associate(line => t%sb(t%sb_head))
-            if (allocated(line%cp)) then
-                if (size(line%cp) /= cols) deallocate(line%cp, line%fg, line%bg, line%attr)
-            end if
-            if (.not. allocated(line%cp)) allocate(line%cp(cols), line%fg(cols), &
-                line%bg(cols), line%attr(cols))
-            do c = 1, int(cols)
-                call convert(t, row(c), line%cp(c), line%fg(c), line%bg(c), line%attr(c))
-                if (c > 1) then
-                    if (iand(line%attr(c - 1), CELL_WIDE) /= 0) &
-                        line%attr(c) = ior(line%attr(c), CELL_CONT)
-                end if
-            end do
-        end associate
-    end function cb_sb_pushline
-
-    integer(c_int) function cb_sb_clear(user) bind(C)
-        type(c_ptr), value :: user
-        type(term_t), pointer :: t
-        call c_f_pointer(user, t)
-        t%sb_count = 0
-        cb_sb_clear = 1
-    end function cb_sb_clear
-
-    integer(c_int) function cb_dcs(command, commandlen, frag, user) bind(C)
-        !! Device control strings: "q" ones are sixel images.
-        type(c_ptr), value :: command, user
-        integer(c_size_t), value :: commandlen
-        type(vt_fragment_t), value, target :: frag
-        type(term_t), pointer :: t
-        character(kind=c_char, len=int(commandlen)), pointer :: cmd
-        call c_f_pointer(user, t)
-        cb_dcs = 1
-        if (frag_initial(frag)) then
-            call c_f_pointer(command, cmd)
-            t%dcs_command = cmd
-            t%ndcs = 0
-        end if
-        if (len(t%dcs_command) == 0) return
-        if (t%dcs_command(len(t%dcs_command):) /= "q") return
-        call append(t%dcs, t%ndcs, frag_text(frag))
-        if (frag_final(frag)) then
-            call show_sixel(t, t%dcs_command(1:len(t%dcs_command) - 1), t%dcs(1:t%ndcs))
-            t%ndcs = 0
-            t%dcs_command = ""
-        end if
-    end function cb_dcs
-
-    integer(c_int) function cb_apc(frag, user) bind(C)
-        !! Application program commands: "G..." ones are kitty graphics.
-        type(vt_fragment_t), value, target :: frag
-        type(c_ptr), value :: user
-        type(term_t), pointer :: t
-        call c_f_pointer(user, t)
-        cb_apc = 1
-        if (frag_initial(frag)) t%napc = 0
-        if (t%napc < 64 * 1024 * 1024) call append(t%apc, t%napc, frag_text(frag))
-        if (frag_final(frag)) then
-            if (t%napc > 0) then
-                if (t%apc(1:1) == "G") call kitty_command(t, t%apc(2:t%napc))
-            end if
-            t%napc = 0
-        end if
-    end function cb_apc
-
-    function frag_text(frag) result(s)
-        type(vt_fragment_t), intent(in) :: frag
-        character(len=:), allocatable :: s
-        character(kind=c_char, len=int(iand(frag%bits, 1073741823_c_size_t))), pointer :: p
-        integer :: n
-        n = int(iand(frag%bits, 1073741823_c_size_t))
-        if (n == 0 .or. .not. c_associated(frag%str)) then
-            s = ""
-            return
-        end if
-        call c_f_pointer(frag%str, p)
-        s = p
-    end function frag_text
-
-    logical function frag_initial(frag)
-        type(vt_fragment_t), intent(in) :: frag
-        frag_initial = btest(frag%bits, 30)
-    end function frag_initial
-
-    logical function frag_final(frag)
-        type(vt_fragment_t), intent(in) :: frag
-        frag_final = btest(frag%bits, 31)
-    end function frag_final
-
-    subroutine append(buf, n, s)
-        character(len=:), allocatable, intent(inout) :: buf
-        integer, intent(inout) :: n
-        character(*), intent(in) :: s
-        character(len=:), allocatable :: grown
-        if (.not. allocated(buf)) buf = ""
-        if (n + len(s) > len(buf)) then
-            allocate(character(len=max(4096, 2 * (n + len(s)))) :: grown)
-            grown(1:n) = buf(1:n)
-            call move_alloc(grown, buf)
-        end if
-        buf(n + 1:n + len(s)) = s
-        n = n + len(s)
-    end subroutine append
 
     ! --- images --------------------------------------------------------------------
 
@@ -1484,7 +971,7 @@ contains
         integer :: k, n
         n = 0
         do k = 1, t%nplaces
-            if (t%places(k)%row + t%places(k)%rows <= -size(t%sb)) cycle
+            if (t%places(k)%row + t%places(k)%rows <= -t%vt%sb_max) cycle
             n = n + 1
             t%places(n) = t%places(k)
         end do
@@ -1627,6 +1114,22 @@ contains
             cp = ior(ishft(cp, 6), iand(iachar(s(pos + k:pos + k)), 63))
         end do
     end subroutine decode_utf8
+#else
+    subroutine feed(t, bytes)
+        type(term_t), intent(inout) :: t
+        character(*), intent(in) :: bytes
+        if (len(bytes) > 0 .or. t%alive) continue
+    end subroutine feed
+
+    subroutine flush_output(t)
+        type(term_t), intent(inout) :: t
+        if (t%alive) continue
+    end subroutine flush_output
+
+    subroutine drop_old_places(t)
+        type(term_t), intent(inout) :: t
+        if (t%alive) continue
+    end subroutine drop_old_places
 #endif
 
 end module fortui_term

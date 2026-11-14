@@ -193,10 +193,14 @@ does not depend on the terminal's own colours.
 
 ## Terminal emulator
 
-With `-DENABLE_TERM=1` (link `-lvterm -lutil -lpthread`) the `terminal` widget
-runs a program on a pseudo-terminal and shows its screen; libvterm keeps the
-screen, FortUI decodes images in Fortran (kitty graphics with raw, zlib and PNG
-data, and sixel). It draws the same character cells on every host: glyph by
+With `-DENABLE_TERM=1` (link `-lutil -lpthread`) the `terminal` widget runs a
+program on a pseudo-terminal and shows its screen. The terminal engine
+(`fortui_vt`) is Fortran: an xterm-compatible parser and a screen whose
+scrollback is a ring of lines, so scrolling copies no cells, with colours
+resolved when text is written; a reader thread drains the program's output into
+a ring buffer so the program never waits for drawing. It parses about 330 MB/s
+of coloured text on one core. Images are decoded in Fortran too (kitty graphics
+with raw, zlib and PNG data, and sixel). It draws the same character cells on every host: glyph by
 glyph on the SDL GPU and one terminal cell per cell inside another terminal.
 
 ```fortran
@@ -248,7 +252,7 @@ dependency only when its build flag is given, so the core stays free of them.
 | SDL desktop (`-DENABLE_SDL=1`) | SDL3 3.2+, SDL3_ttf 3.2+ (FreeType, HarfBuzz), fontconfig, a Vulkan driver | zlib; zlib; MIT-style |
 | Raylib desktop (`-DENABLE_GUI=1`) | raylib 5+, fontconfig | zlib; MIT-style |
 | Printing (`-DENABLE_PRINT=1`) | libcups 2.3+ | Apache-2.0 |
-| Terminal emulator (`-DENABLE_TERM=1`) | libvterm 0.3+, a POSIX pseudo-terminal (`forkpty`) | MIT |
+| Terminal emulator (`-DENABLE_TERM=1`) | a POSIX pseudo-terminal (`forkpty`) and threads | (system) |
 | Browser | LFortran, emscripten | BSD-3-Clause; MIT/NCSA |
 | Shader rebuild (development) | glslc from shaderc | Apache-2.0 |
 
