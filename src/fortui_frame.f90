@@ -24,6 +24,7 @@ module fortui_frame
     integer, parameter, public :: LAYER_POINTS = 1
     integer, parameter, public :: LAYER_LINES = 2
     integer, parameter, public :: LAYER_VERTICES = 3
+    integer, parameter, public :: LAYER_IMAGE = 4
 
     ! Presentation style tokens (role, default size and weight; backends choose colour).
     integer, parameter, public :: UI_BODY = 1

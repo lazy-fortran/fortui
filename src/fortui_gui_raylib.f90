@@ -17,7 +17,7 @@ module fortui_gui_raylib
     use iso_fortran_env, only: int32
     use fortui_frame, only: ui_frame_t, ui_node_t, ui_layer_ref_t, UI_TEXT, UI_BUTTON, UI_LINK, &
         UI_SLIDER, UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, &
-        UI_CAPTION, LAYER_POINTS, LAYER_LINES, SCROLL_PADDING, SCROLLBAR_WIDTH, &
+        UI_CAPTION, LAYER_POINTS, LAYER_LINES, LAYER_IMAGE, SCROLL_PADDING, SCROLLBAR_WIDTH, &
         INPUT_PADDING, CONTROL_PADDING, style_weight
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
         input_set_key, input_type_text, input_set_time, input_has_events, KEY_NONE, &
@@ -45,6 +45,10 @@ module fortui_gui_raylib
     type, bind(C) :: rl_texture
         integer(c_int) :: id, width, height, mipmaps, format
     end type rl_texture
+
+    type, bind(C) :: rl_rectangle
+        real(c_float) :: x, y, width, height
+    end type rl_rectangle
 
     type, bind(C) :: rl_font
         integer(c_int) :: base_size, glyph_count, glyph_padding
@@ -235,6 +239,15 @@ module fortui_gui_raylib
         subroutine rl_unload_font(f) bind(C, name="UnloadFont")
             import :: rl_font
             type(rl_font), value :: f
+        end subroutine
+        subroutine rl_draw_texture_pro(t, source, dest, origin, rotation, tint) bind(C, &
+                name="DrawTexturePro")
+            import :: rl_texture, rl_rectangle, rl_vector2, c_float, rl_color
+            type(rl_texture), value :: t
+            type(rl_rectangle), value :: source, dest
+            type(rl_vector2), value :: origin
+            real(c_float), value :: rotation
+            type(rl_color), value :: tint
         end subroutine
         subroutine rl_set_texture_filter(t, filter) bind(C, name="SetTextureFilter")
             import :: rl_texture, c_int
@@ -968,6 +981,51 @@ contains
         end associate
     end subroutine realize_lines
 
+    subroutine draw_image(rl, store, ref, node)
+        !! Texture of an image layer (uploaded once per version), drawn into its
+        !! world rectangle under the canvas view.
+        type(raylib_backend_t), intent(inout), target :: rl
+        type(canvas_store_t), intent(in), target :: store
+        type(ui_layer_ref_t), intent(in) :: ref
+        type(ui_node_t), intent(in) :: node
+        logical :: fresh, attributes, indices
+        integer :: w, h
+        real :: z
+
+        associate(g => rl%gpu(ref%slot), l => store%layers(ref%slot))
+            w = l%image_width
+            h = l%image_height
+            if (w <= 0 .or. h <= 0) return
+            fresh = g%serial /= ref%serial .or. g%capacity /= w .or. g%tex_rows /= h
+            if (fresh) then
+                call free_gpu(g)
+                g%serial = ref%serial
+                g%kind = LAYER_IMAGE
+                g%capacity = w
+                g%tex_rows = h
+                g%tex = rl_load_texture(c_loc(l%rgba), int(w, c_int), int(h, c_int), &
+                    RL_PIXEL_RGBA8, 1_c_int)
+                call rl_set_texture_filter(image_texture(g), TEX_FILTER_BILINEAR)
+            end if
+            call rl%canvas%layer(ref, fresh, attributes, indices)
+            if (attributes .and. .not. fresh) call rl_update_texture(g%tex, 0_c_int, &
+                0_c_int, int(w, c_int), int(h, c_int), RL_PIXEL_RGBA8, c_loc(l%rgba))
+            z = node%canvas_view%zoom
+            call rl_draw_texture_pro(image_texture(g), &
+                rl_rectangle(0.0, 0.0, real(w, c_float), real(h, c_float)), &
+                rl_rectangle(node%x + node%canvas_view%pan_x + l%rect(1) * z, &
+                node%y + node%canvas_view%pan_y + l%rect(2) * z, l%rect(3) * z, &
+                l%rect(4) * z), rl_vector2(0.0, 0.0), 0.0_c_float, &
+                color(255, 255, 255, 255))
+        end associate
+    end subroutine draw_image
+
+    pure function image_texture(g) result(t)
+        type(gpu_layer_t), intent(in) :: g
+        type(rl_texture) :: t
+        t = rl_texture(g%tex, g%capacity, g%tex_rows, 1_c_int, RL_PIXEL_RGBA8)
+    end function image_texture
+
     subroutine ensure_scratch(rl, texels)
         type(raylib_backend_t), intent(inout) :: rl
         integer, intent(in) :: texels
@@ -1014,6 +1072,10 @@ contains
         call rl_disable_backface_culling()
         do j = node%layer_first, node%layer_first + node%layer_count - 1
             associate(ref => frame%layers(j))
+                if (ref%kind == LAYER_IMAGE) then
+                    call draw_image(rl, store, ref, node)
+                    cycle
+                end if
                 if (rl%points_shader == 0 .or. rl%lines_shader == 0) cycle
                 call realize_vertices(rl, store, ref%vertex_slot)
                 if (ref%kind == LAYER_POINTS) then

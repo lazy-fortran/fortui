@@ -95,6 +95,14 @@ make test-gui     # also runs the backend conformance scenario in a window
 make install      # library, modules and the DejaVu font licence under PREFIX
 ```
 
+Optional printing service (`-DENABLE_PRINT=1`, link `-lcups`):
+
+```sh
+make build-print
+make test-print   # libcups decodes the pages; FORTUI_PRINT_TEST_PRINTER=QUEUE
+                  # also submits a held job to that queue and cancels it
+```
+
 Browser (LFortran with target `wasm32-unknown-emscripten` and an emscripten SDK
 in `EMSDK_PATH`):
 
@@ -121,7 +129,34 @@ The GUI demo requests `ui_init("auto", ...)` and selects an available graphical
 backend first, then TUI. An explicit backend request must not silently fall back.
 Raylib and termbox2 are replaceable adapters rather than framework semantics.
 
-License: MIT. The API may change before 1.0.
+## Images and printing
+
+`canvas_image(key, generation, rgba, x, y, width, height)` draws a retained
+image into a world rectangle of a canvas; its pixels are uploaded once per
+generation (raylib texture, terminal raster).
+
+`fortui_print` is a printing service over CUPS. It lists printers and reports a
+printer's paper sizes with their margins and borderless variants, media types,
+trays, print qualities and raster resolution; from an IPP printer it also learns
+which paper is loaded where, the ink levels and the printer's own names for its
+media. The application composes each page as an sRGB raster of the whole sheet,
+which is sent as PWG raster (`fortui_pwg`), so the page raster alone decides
+scaling, cropping and borders. Without `-DENABLE_PRINT=1` every request returns
+`PRINT_UNSUPPORTED`. Requests block until CUPS has answered.
+
+## Dependencies and licences
+
+FortUI is MIT licensed ([LICENSE](LICENSE)). Each optional part links its
+dependency only when its build flag is given, so the core stays free of them.
+
+| Part | Needs | Licence |
+|---|---|---|
+| Core, headless, terminal | a Fortran 2008 compiler; termbox2 (bundled in `src/c`) | MIT |
+| GUI (`-DENABLE_GUI=1`) | raylib 5 or later; DejaVu fonts (bundled, embedded) | zlib; DejaVu/Bitstream Vera |
+| Printing (`-DENABLE_PRINT=1`) | libcups 2.3 or later | Apache-2.0 |
+| Browser | LFortran, emscripten | BSD-3-Clause; MIT/NCSA |
+
+The API may change before 1.0.
 
 AI assistance: this architecture documentation was prepared with GPT assistance;
 project maintainers retain responsibility for its content and technical decisions.

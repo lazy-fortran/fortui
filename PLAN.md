@@ -207,6 +207,15 @@ bounded work for a large collection, and no unsupported performance claims.
 - [ ] First desktop adapter supports ordinary native/hybrid controls and custom canvas.
 - [ ] Second independently implemented host validates shared abstractions.
 - [ ] Platform-specific menus, services, text, and accessibility evidence per host.
+- [x] Printing service over CUPS (`fortui_print`, `-DENABLE_PRINT=1`): printers,
+      media with margins/borderless variants, media types, trays, qualities,
+      raster resolution, live loaded paper and ink levels over IPP; pages as
+      PWG raster encoded in Fortran (`fortui_pwg`). Evidence 2026-11-14: libcups
+      2.4.20 decodes the encoder's pages unchanged; a held borderless job to a
+      Canon TS8700 IPP Everywhere queue was accepted as image/pwg-raster and
+      cancelled (`test_print` with `FORTUI_PRINT_TEST_PRINTER`).
+- [ ] Printing requests as asynchronous owned service requests (now blocking).
+- [x] Retained canvas images (`canvas_image`): raylib texture, terminal raster.
 - [ ] Browser semantic DOM controls plus custom canvas; explicit URL/history behavior.
 - [ ] Actual Fortran/WASM feature probes and runtime, including strings/callbacks.
       Evidence 2026-10-13: LFortran main `0cd29dede1` (LLVM backend, target

@@ -15,7 +15,7 @@ module fortui
         split_next, split_end
     use fortui_widgets, only: text, button, link, slider, checkbox, tabs, scroll_text, &
         text_input, canvas_begin, canvas_end, canvas_vertices, canvas_points, &
-        canvas_lines, canvas_label, ui_focus, ui_reveal
+        canvas_lines, canvas_label, canvas_image, ui_focus, ui_reveal
     use fortui_canvas, only: canvas_view_t, canvas_events_t, ui_rgba, canvas_to_world, &
         canvas_to_local, canvas_zoom_at
     use fortui_frame, only: UI_BODY, UI_CAPTION, UI_HEADING, UI_TITLE, UI_FILL, UI_CODE, &
@@ -42,7 +42,7 @@ module fortui
     public :: split_begin, split_next, split_end
     public :: text, button, link, slider, checkbox, tabs, scroll_text, text_input
     public :: canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_lines
-    public :: canvas_label, canvas_view_t, canvas_events_t, ui_rgba
+    public :: canvas_label, canvas_image, canvas_view_t, canvas_events_t, ui_rgba
     public :: canvas_to_world, canvas_to_local, canvas_zoom_at
     public :: UI_BODY, UI_CAPTION, UI_HEADING, UI_TITLE, UI_FILL, UI_CODE
     public :: UI_TONE_NORMAL, UI_TONE_POSITIVE, UI_TONE_NEGATIVE, UI_TONE_MUTED, UI_TONE_ACCENT

@@ -13,7 +13,7 @@ module fortui_raster
     !! depend on the thread count.
     use iso_fortran_env, only: int32
     use fortui_frame, only: ui_frame_t, ui_node_t, ui_layer_ref_t, LAYER_POINTS, &
-        LAYER_LINES
+        LAYER_LINES, LAYER_IMAGE
     use fortui_canvas, only: canvas_store_t
     !$ use omp_lib, only: omp_get_max_threads
     implicit none
@@ -291,7 +291,14 @@ contains
         integer :: i, n, a, ia, ib, aa, ab
         real :: scale, rad, thick
 
-        if (ref%slot <= 0 .or. ref%vertex_slot <= 0) return
+        if (ref%slot <= 0) return
+        if (ref%kind == LAYER_IMAGE) then
+            call raster_image(r, store%layers(ref%slot)%rgba, &
+                store%layers(ref%slot)%image_width, store%layers(ref%slot)%image_height, &
+                store%layers(ref%slot)%rect, node, map, y0, y1)
+            return
+        end if
+        if (ref%vertex_slot <= 0) return
         associate(l => store%layers(ref%slot))
             select case (ref%kind)
             case (LAYER_POINTS)
@@ -324,6 +331,45 @@ contains
             end select
         end associate
     end subroutine draw_layer
+
+    subroutine raster_image(r, rgba, iw, ih, rect, node, map, y0, y1)
+        !! Nearest-pixel image into rows [y0, y1): each raster pixel takes the
+        !! image pixel under its centre, blended by that pixel's alpha.
+        type(raster_t), intent(inout) :: r
+        integer(int32), intent(in) :: rgba(:)
+        integer, intent(in) :: iw, ih, y0, y1
+        real, intent(in) :: rect(4)
+        type(ui_node_t), intent(in) :: node
+        type(raster_map_t), intent(in) :: map
+        real :: x0, xr, yt, yb
+        integer :: px, py, ix, iy, a, p
+
+        if (iw <= 0 .or. ih <= 0 .or. rect(3) <= 0.0 .or. rect(4) <= 0.0) return
+        x0 = (node%x + node%canvas_view%pan_x + rect(1) * node%canvas_view%zoom - &
+            map%origin_x) * map%scale_x
+        xr = x0 + rect(3) * node%canvas_view%zoom * map%scale_x
+        yt = (node%y + node%canvas_view%pan_y + rect(2) * node%canvas_view%zoom - &
+            map%origin_y) * map%scale_y
+        yb = yt + rect(4) * node%canvas_view%zoom * map%scale_y
+        do py = max(y0, ceiling(yt - 0.5)), min(y1 - 1, r%height - 1)
+            if (py + 0.5 >= yb) exit
+            iy = min(ih, 1 + int((py + 0.5 - yt) / (yb - yt) * ih))
+            do px = max(0, ceiling(x0 - 0.5)), r%width - 1
+                if (px + 0.5 >= xr) exit
+                ix = min(iw, 1 + int((px + 0.5 - x0) / (xr - x0) * iw))
+                p = rgba(ix + (iy - 1) * iw)
+                a = alpha_of(p)
+                if (a == 0) cycle
+                associate(dst => r%rgb(1 + px + py * r%width))
+                    if (a == 255) then
+                        dst = rgb_of_rgba(p)
+                    else
+                        dst = rgb_blend(dst, rgb_of_rgba(p), a)
+                    end if
+                end associate
+            end do
+        end do
+    end subroutine raster_image
 
     pure integer function alpha_of(rgba) result(a)
         integer(int32), intent(in) :: rgba

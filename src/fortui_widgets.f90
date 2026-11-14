@@ -52,7 +52,7 @@ module fortui_widgets
 
     public :: text, button, link, slider, checkbox, tabs
     public :: canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_lines
-    public :: canvas_label, scroll_text, text_input, ui_focus, ui_reveal
+    public :: canvas_label, canvas_image, scroll_text, text_input, ui_focus, ui_reveal
 
 contains
 
@@ -827,6 +827,25 @@ contains
             node%layer_count = node%layer_count + 1
         end associate
     end subroutine add_layer_ref
+
+    subroutine canvas_image(key, generation, rgba, x, y, width, height)
+        !! Retained image drawn into the world rectangle (x, y, width, height):
+        !! pixels rgba(columns, rows) packed with ui_rgba, row 1 at the top. The
+        !! pixels are copied only when `generation` or the image size changes.
+        character(*), intent(in) :: key
+        integer, intent(in) :: generation
+        integer(int32), intent(in) :: rgba(:, :)
+        real, intent(in) :: x, y, width, height
+
+        type(fortui_context_t), pointer :: ctx
+        integer :: slot
+
+        ctx => get_default_context()
+        if (.not. canvas_ready(ctx, "canvas_image")) return
+        slot = ctx%canvas%submit_image(layer_key(ctx, key), generation, rgba, &
+            [x, y, width, height], ctx%frame_count)
+        if (slot > 0) call add_layer_ref(ctx, slot)
+    end subroutine canvas_image
 
     subroutine canvas_label(x, y, value, size, rgba)
         !! Text label centred horizontally below world point (x, y), at a fixed

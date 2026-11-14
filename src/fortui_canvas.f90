@@ -8,12 +8,12 @@ module fortui_canvas
     !! versions they realized, so data is uploaded only after a real change.
     use iso_fortran_env, only: int32
     use fortui_frame, only: canvas_view_t, ui_frame_t, ui_layer_ref_t, LAYER_POINTS, &
-        LAYER_LINES, LAYER_VERTICES
+        LAYER_LINES, LAYER_VERTICES, LAYER_IMAGE
     use fortui_error, only: report_error
     implicit none
     private
 
-    public :: canvas_view_t, LAYER_POINTS, LAYER_LINES, LAYER_VERTICES
+    public :: canvas_view_t, LAYER_POINTS, LAYER_LINES, LAYER_VERTICES, LAYER_IMAGE
 
     type, public :: canvas_events_t
         !! Pointer semantics for one canvas in one frame. World coordinates use the
@@ -69,6 +69,12 @@ module fortui_canvas
         logical :: world_size = .true.
         real :: min_pixels = 1.0
         real :: line_width = 1.0
+        ! Image layers: pixels in rgba (row by row from the top), their size, and
+        ! the world rectangle x, y, width, height they are drawn into (a moved
+        ! rectangle bumps index_version; images have no index buffer).
+        integer :: image_width = 0
+        integer :: image_height = 0
+        real :: rect(4) = 0.0
     end type canvas_layer_t
 
     type, public :: canvas_store_t
@@ -81,6 +87,7 @@ module fortui_canvas
         procedure :: submit_vertices => store_submit_vertices
         procedure :: submit_points => store_submit_points
         procedure :: submit_lines => store_submit_lines
+        procedure :: submit_image => store_submit_image
         procedure :: ref => store_ref
         procedure :: active_layers => store_active_layers
     end type canvas_store_t
@@ -250,6 +257,9 @@ contains
         to%world_size = from%world_size
         to%min_pixels = from%min_pixels
         to%line_width = from%line_width
+        to%image_width = from%image_width
+        to%image_height = from%image_height
+        to%rect = from%rect
     end subroutine move_layer
 
     subroutine release(layer)
@@ -425,6 +435,42 @@ contains
             l%has_data = .true.
         end associate
     end function store_submit_lines
+
+    integer function store_submit_image(self, key, generation, rgba, rect, frame_no) &
+            result(slot)
+        !! Image layer: pixels rgba(width, height), packed like ui_rgba with row 1 at
+        !! the top, drawn into the world rectangle rect = [x, y, width, height].
+        !! Pixels are copied when `generation` or the image size changes; the
+        !! rectangle may change every frame without a copy and then bumps
+        !! `index_version`, so that rasterizing backends redraw.
+        class(canvas_store_t), intent(inout) :: self
+        character(*), intent(in) :: key
+        integer, intent(in) :: generation, frame_no
+        integer(int32), intent(in) :: rgba(:, :)
+        real, intent(in) :: rect(4)
+        integer :: w, h, j
+
+        slot = self%acquire(key, LAYER_IMAGE, frame_no)
+        if (slot == 0) return
+        w = size(rgba, 1)
+        h = size(rgba, 2)
+        associate(l => self%layers(slot))
+            if (any(l%rect /= rect)) l%index_version = l%index_version + 1
+            l%rect = rect
+            if (l%has_data .and. l%generation == generation .and. &
+                l%image_width == w .and. l%image_height == h) return
+            if (allocated(l%rgba)) deallocate(l%rgba)
+            allocate(l%rgba(w * h))
+            do j = 1, h
+                l%rgba((j - 1) * w + 1:j * w) = rgba(:, j)
+            end do
+            l%image_width = w
+            l%image_height = h
+            l%generation = generation
+            l%version = l%version + 1
+            l%has_data = .true.
+        end associate
+    end function store_submit_image
 
     function store_ref(self, slot) result(ref)
         !! Frame descriptor of drawable layer `slot`.
