@@ -44,6 +44,16 @@ contains
         call check(ok, "zlib stream decodes")
         call check(n == size(data), "zlib length")
         if (n == size(data)) call check(all(out(1:n) == data), "zlib bytes")
+        ! Highly compressible data: the output outgrows its first buffer many
+        ! times while back-references copy from it.
+        deallocate(data)
+        allocate(data(2000000))
+        data = 7_int8
+        data(1:3) = [1_int8, 2_int8, 3_int8]
+        call zlib_compress(enc, data, size(data), 3000)
+        call zlib_decompress(enc%zlib(1:enc%zlib_len), out, n, ok)
+        call check(ok .and. n == size(data), "long runs decode")
+        if (n == size(data)) call check(all(out(1:n) == data), "long runs bytes")
     end subroutine test_zlib
 
     subroutine test_png()

@@ -109,8 +109,10 @@ contains
     end function bits
 
     subroutine put(s, b)
+        !! `b` by value: callers pass bytes of s%out itself (back-references),
+        !! which the growth below reallocates.
         type(stream_t), intent(inout) :: s
-        integer(int8), intent(in) :: b
+        integer(int8), value :: b
         integer(int8), allocatable :: grown(:)
         if (s%n == size(s%out)) then
             allocate(grown(2 * size(s%out)))
