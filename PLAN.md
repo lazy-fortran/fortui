@@ -222,8 +222,11 @@ bounded work for a large collection, and no unsupported performance claims.
 - [ ] Android and iOS through SDL3 once a Fortran compiler route (LFortran) works.
 - [ ] Fluent density (compact for dense scientific views) and Fluent system icons
       (MIT) with an icon widget.
-- [ ] Terminal look after IBM CUA (action bar, pull-down menus, pop-up windows
-      with shadows, function-key line), checked against CUA text-mode examples.
+- [x] Terminal look after IBM CUA (`tui_theme = cua|dark`): CUA colours, push
+      buttons, entry fields, check boxes, tabs on a band, scroll bars and the
+      function key line from labelled shortcuts.
+- [ ] CUA action bar with pull-down menus and pop-up windows with shadows
+      (needs a menu widget on every host).
 - [ ] Platform-specific menus, services, text, and accessibility evidence per host.
 - [x] Printing service over CUPS (`fortui_print`, `-DENABLE_PRINT=1`): printers,
       media with margins/borderless variants, media types, trays, qualities,

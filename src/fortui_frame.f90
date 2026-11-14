@@ -157,6 +157,11 @@ module fortui_frame
         integer :: label_count = 0
         ! Open-addressing index of node ids (0 = empty bucket).
         integer, allocatable :: buckets(:)
+        ! Shortcuts the application named this frame (ui_shortcut label=), for
+        ! hosts that show them: the terminal's function key line, tooltips.
+        character(len=32) :: hint_keys(24) = ""
+        character(len=40) :: hint_labels(24) = ""
+        integer :: hint_count = 0
     contains
         procedure :: reset => frame_reset
         procedure :: append => frame_append
@@ -243,6 +248,7 @@ contains
         self%box_count = 0
         self%layer_count = 0
         self%label_count = 0
+        self%hint_count = 0
         self%buckets = 0
     end subroutine frame_reset
 

@@ -96,7 +96,7 @@ module fortui_theme
 
     public :: theme_plain, theme_classic, theme_fluent, theme_named
     public :: theme_current, theme_set, theme_select, theme_requested
-    public :: theme_rgb, theme_names
+    public :: theme_rgb, theme_names, tui_theme_requested
 
 contains
 
@@ -353,15 +353,31 @@ contains
         !! FortUI config file, else `fallback`.
         character(*), intent(in) :: fallback
         character(len=:), allocatable :: name
-        character(len=512) :: value, path
+        name = setting("FORTUI_THEME", "theme", fallback)
+    end function theme_requested
+
+    function tui_theme_requested() result(name)
+        !! The terminal look: FORTUI_TUI_THEME, else `tui_theme =` in the config
+        !! file, else "cua" (IBM Common User Access colours on white panels);
+        !! "dark" keeps the same structure in dark colours.
+        character(len=:), allocatable :: name
+        name = lower(setting("FORTUI_TUI_THEME", "tui_theme", "cua"))
+    end function tui_theme_requested
+
+    function setting(env_name, key, fallback) result(value)
+        !! An environment variable, else `key = value` in
+        !! $XDG_CONFIG_HOME/fortui/config (~/.config/fortui/config), else `fallback`.
+        character(*), intent(in) :: env_name, key, fallback
+        character(len=:), allocatable :: value
+        character(len=512) :: line, path
         integer :: n, status, u, ios, eq
 
-        call get_environment_variable("FORTUI_THEME", value, n, status)
-        if (status == 0 .and. len_trim(value) > 0) then
-            name = trim(value)
+        call get_environment_variable(env_name, line, n, status)
+        if (status == 0 .and. len_trim(line) > 0) then
+            value = trim(line)
             return
         end if
-        name = fallback
+        value = fallback
         call get_environment_variable("XDG_CONFIG_HOME", path, n, status)
         if (status /= 0 .or. n == 0) then
             call get_environment_variable("HOME", path, n, status)
@@ -372,18 +388,18 @@ contains
         open (newunit=u, file=trim(path), status="old", action="read", iostat=ios)
         if (ios /= 0) return
         do
-            read (u, '(a)', iostat=ios) value
+            read (u, '(a)', iostat=ios) line
             if (ios /= 0) exit
-            value = adjustl(value)
-            if (value(1:1) == "#") cycle
-            eq = index(value, "=")
+            line = adjustl(line)
+            if (line(1:1) == "#") cycle
+            eq = index(line, "=")
             if (eq == 0) cycle
-            if (lower(trim(value(1:eq - 1))) == "theme") then
-                if (len_trim(value(eq + 1:)) > 0) name = trim(adjustl(value(eq + 1:)))
+            if (lower(trim(line(1:eq - 1))) == key) then
+                if (len_trim(line(eq + 1:)) > 0) value = trim(adjustl(line(eq + 1:)))
             end if
         end do
         close (u)
-    end function theme_requested
+    end function setting
 
     subroutine theme_select(name, ok)
         !! Make the built-in theme `name` current.

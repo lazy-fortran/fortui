@@ -18,7 +18,9 @@ module fortui_tui
     use iso_fortran_env, only: int32, int64
     use fortui_frame, only: ui_frame_t, ui_node_t, UI_TEXT, UI_BUTTON, UI_LINK, UI_SLIDER, &
         UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, UI_CAPTION, &
-        UI_HEADING, UI_TITLE, ui_scroll_padding
+        UI_HEADING, UI_TITLE, ui_scroll_padding, UI_EMPHASIS_PRIMARY, UI_TONE_NORMAL, &
+        UI_TONE_POSITIVE, UI_TONE_NEGATIVE, UI_TONE_MUTED, UI_TONE_ACCENT, UI_TONE_LINK, &
+        UI_TONE_ATTENTION, UI_TONE_STRONG, UI_TONE_KEYWORD, UI_TONE_HUNK
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
         input_set_key, input_type_text, input_key_press, MOD_CTRL, KEY_NONE, KEY_ENTER, KEY_ESCAPE, KEY_TAB, &
         KEY_BACKSPACE, KEY_DELETE, KEY_HOME, KEY_END, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, &
@@ -31,6 +33,7 @@ module fortui_tui
         raster_braille, rgb_of_rgba, rgb_to_xterm256
     use fortui_kitty, only: kitty_encoder_t, kitty_encode_image, kitty_delete, &
         KITTY_QUERY
+    use fortui_theme, only: tui_theme_requested
     implicit none
     private
 
@@ -70,16 +73,37 @@ module fortui_tui
     integer, parameter :: TB_BOLD = 16777216, TB_REVERSE = 67108864
     integer, parameter :: TB_HI_BLACK = 536870912
 
-    ! Presentation colours (0x00RRGGBB); the 256-colour mode uses the nearest
-    ! palette entries.
-    integer, parameter :: RGB_TEXT = 14212326, RGB_DISABLED = 7368816
-    integer, parameter :: RGB_HOVER = 8378088, RGB_FOCUS = 15782000
-    integer, parameter :: RGB_ACTIVE_BG = 14212326, RGB_ACTIVE_FG = 1052688
-    integer, parameter :: RGB_CHECK = 8446080, RGB_CAPTION = 9414848
-    integer, parameter :: RGB_TRACK = 8378088
-    ! Screen background: every cell gets an explicit colour, so the theme does not
-    ! depend on the terminal's default colours (light or dark).
-    integer, parameter :: RGB_BACKGROUND = 1580063
+    integer, parameter :: TB_UNDERLINE = 33554432
+
+    ! Colours (0x00RRGGBB) of a terminal look; the 256-colour mode uses the
+    ! nearest palette entries. Every cell gets an explicit colour, so the look
+    ! does not depend on the terminal's default colours.
+    type :: tui_palette_t
+        integer :: panel, text, emph, band, on_band, cursor, on_cursor, field, on_field
+        integer :: disabled, positive, negative, attention, dither
+        integer :: code(9)
+    end type tui_palette_t
+
+    ! IBM Common User Access (colours of IBM's CUA demonstration): white panels,
+    ! blue titles, instructions and prompts, cyan action and function key
+    ! bands, cyan entry fields, the red selection cursor.
+    type(tui_palette_t), parameter :: PALETTE_CUA = tui_palette_t( &
+        panel=int(z'FFFFFF'), text=int(z'000000'), emph=int(z'0057FF'), &
+        band=int(z'00FFFF'), on_band=int(z'000000'), cursor=int(z'FF0050'), &
+        on_cursor=int(z'FFFFFF'), field=int(z'00FFFF'), on_field=int(z'000000'), &
+        disabled=int(z'808080'), positive=int(z'008000'), negative=int(z'D00040'), &
+        attention=int(z'A06000'), dither=int(z'808080'), &
+        code=[int(z'0057FF'), int(z'A00000'), int(z'008000'), int(z'008080'), &
+        int(z'800080'), int(z'806000'), int(z'008000'), int(z'D00040'), int(z'0057FF')])
+    ! The same structure for dark terminals.
+    type(tui_palette_t), parameter :: PALETTE_DARK = tui_palette_t( &
+        panel=int(z'181C1F'), text=int(z'D8DEE6'), emph=int(z'6CB6FF'), &
+        band=int(z'1F4E79'), on_band=int(z'FFFFFF'), cursor=int(z'D7303A'), &
+        on_cursor=int(z'FFFFFF'), field=int(z'263238'), on_field=int(z'FFFFFF'), &
+        disabled=int(z'707070'), positive=int(z'7FD18B'), negative=int(z'FF7B72'), &
+        attention=int(z'E3B341'), dither=int(z'5A6570'), &
+        code=[int(z'FF7B72'), int(z'A5D6FF'), int(z'8B949E'), int(z'79C0FF'), &
+        int(z'FFA657'), int(z'D2A8FF'), int(z'7FD18B'), int(z'FF7B72'), int(z'6CB6FF')])
 
     character(len=*), parameter :: ESC = achar(27)
 
@@ -192,6 +216,9 @@ module fortui_tui
     end type tui_canvas_t
 
     type, extends(ui_backend_t), public :: tui_backend_t
+        type(tui_palette_t) :: pal = PALETTE_CUA
+        ! Rows the function key line takes at the bottom.
+        integer :: band_rows = 1
         !! termbox2 terminal backend: widgets as cells, canvases as braille or pixels.
         logical :: active = .false.
         logical :: quit_requested = .false.
@@ -480,13 +507,15 @@ contains
         self%pixel_mouse = replies%pixel_mouse .and. self%cell_px_w > 0 .and. &
             self%cell_px_h > 0
 
+        self%pal = PALETTE_CUA
+        if (tui_theme_requested() == "dark") self%pal = PALETTE_DARK
         mode = TB_OUTPUT_256
         if (self%color_mode == TUI_COLOR_TRUE) mode = TB_OUTPUT_TRUECOLOR
         if (tb_set_output_mode(mode) < 0 .or. &
             tb_set_input_mode(TB_INPUT_ESC + TB_INPUT_MOUSE) < 0 .or. &
             tb_hide_cursor() /= TB_OK .or. &
-            tb_set_clear_attrs(int(colour(self, RGB_TEXT), c_int32_t), &
-            int(colour(self, RGB_BACKGROUND), c_int32_t)) /= TB_OK) then
+            tb_set_clear_attrs(int(colour(self, self%pal%text), c_int32_t), &
+            int(colour(self, self%pal%panel), c_int32_t)) /= TB_OK) then
             call report_error("fortui_tui", "init", "termbox2 terminal setup failed")
             call tui_shutdown(self)
             return
@@ -631,7 +660,8 @@ contains
         integer :: w, h
 
         w = max(1, nint(real(tb_width()) * CELL_W_DP))
-        h = max(1, nint(real(tb_height()) * CELL_H_DP))
+        ! The bottom row is the function key line.
+        h = max(1, nint(real(max(1, tb_height() - self%band_rows)) * CELL_H_DP))
         if (w /= input%width .or. h /= input%height) input%resized = .true.
         input%width = w
         input%height = h
@@ -759,6 +789,7 @@ contains
                 call draw_node(self, frame%nodes(i))
             end if
         end do
+        call draw_key_line(self, frame)
         if (tb_present() /= TB_OK) call draw_failure(self)
         if (self%graphics == TUI_GRAPHICS_KITTY) call send_images(self)
     end subroutine tui_present
@@ -1012,113 +1043,204 @@ contains
     end function tui_caps
 
     subroutine draw_node(self, node)
+        !! One control in the terminal look: text on the panel, cyan push buttons
+        !! and entry fields, check boxes, tabs on a band, sliders, scrolling text
+        !! with a scroll bar, and the red cursor on the control with the focus.
         type(tui_backend_t), intent(inout) :: self
         type(ui_node_t), intent(in) :: node
-        integer :: x, y, w, h, fg, bg, knob, track, i
+        integer :: x, y, w, h, fg, bg, knob, i, lw
         real :: fraction
+        character(len=:), allocatable :: label
 
         x = max(0, nint(node%x / CELL_W_DP))
         y = max(0, nint(node%y / CELL_H_DP))
         w = max(1, nint(node%width / CELL_W_DP))
         h = max(1, nint(node%height / CELL_H_DP))
-
-        fg = colour(self, RGB_TEXT)
-        bg = colour(self, RGB_BACKGROUND)
-        if (node%disabled) fg = colour(self, RGB_DISABLED)
-        if (node%hovered) fg = colour(self, RGB_HOVER) + TB_BOLD
-        if (node%focused) fg = colour(self, RGB_FOCUS) + TB_BOLD
-        if (node%active) then
-            fg = colour(self, RGB_ACTIVE_FG) + TB_BOLD
-            bg = colour(self, RGB_ACTIVE_BG)
-        end if
-
-        select case (node%kind)
-        case (UI_TEXT, UI_LINK)
-            if (node%style == UI_HEADING .or. node%style == UI_TITLE) fg = fg + TB_BOLD
-            if (node%style == UI_CAPTION) fg = colour(self, RGB_CAPTION)
-            call draw_string(self, x, y, trim(node%text), fg, bg, w, node%ellipsis)
-        case (UI_BUTTON)
-            call put_cell(self, x, y, iachar('['), fg, bg)
-            call draw_string(self, x + 1, y, trim(node%text), fg, bg, max(0, w - 2), &
-                node%ellipsis)
-            call put_cell(self, x + w - 1, y, iachar(']'), fg, bg)
-        case (UI_TAB)
-            if (node%checked) fg = fg + TB_REVERSE
-            call draw_string(self, x, y, " " // trim(node%text) // " ", fg, bg, w, .true.)
-        case (UI_CHECKBOX)
-            call put_cell(self, x, y, iachar('['), fg, bg)
-            if (node%checked) then
-                call put_cell(self, x + 1, y, iachar('x'), &
-                    colour(self, RGB_CHECK) + TB_BOLD, bg)
-            else
-                call put_cell(self, x + 1, y, iachar(' '), fg, bg)
-            end if
-            call put_cell(self, x + 2, y, iachar(']'), fg, bg)
-            if (len_trim(node%text) > 0) call draw_string(self, x + 4, y, trim(node%text), &
-                fg, bg, max(0, w - 4), .true.)
-        case (UI_SLIDER)
-            if (node%max_value > node%min_value) then
-                fraction = (node%value - node%min_value) / (node%max_value - node%min_value)
-            else
-                fraction = 0.0
-            end if
-            fraction = max(0.0, min(1.0, fraction))
-            track = max(1, w - 2)
-            knob = nint(fraction * real(max(0, track - 1)))
-            call put_cell(self, x, y, iachar('['), fg, bg)
-            do i = 0, track - 1
-                if (i < knob) then
-                    call put_cell(self, x + 1 + i, y, iachar('='), &
-                        colour(self, RGB_TRACK), bg)
-                else if (i == knob) then
-                    call put_cell(self, x + 1 + i, y, iachar('|'), &
-                        colour(self, RGB_TEXT) + TB_BOLD, bg)
-                else
-                    call put_cell(self, x + 1 + i, y, iachar('-'), fg, bg)
+        associate(p => self%pal)
+            select case (node%kind)
+            case (UI_TEXT, UI_LINK)
+                call draw_text_node(self, node, x, y, w)
+            case (UI_BUTTON)
+                fg = colour(self, p%on_band)
+                bg = colour(self, p%band)
+                if (node%emphasis == UI_EMPHASIS_PRIMARY) fg = fg + TB_BOLD
+                if (node%hovered .or. node%active) fg = fg + TB_BOLD
+                if (node%focused .or. (node%active .and. node%hovered)) then
+                    fg = colour(self, p%on_cursor) + TB_BOLD
+                    bg = colour(self, p%cursor)
                 end if
-            end do
-            call put_cell(self, x + w - 1, y, iachar(']'), fg, bg)
-        case (UI_SCROLL_TEXT)
-            call draw_scroll_text(self, node, x, y, w, h, fg, bg)
-        case (UI_TEXT_INPUT)
-            call put_cell(self, x, y, iachar('['), fg, bg)
-            if (allocated(node%body)) then
-                if (len(node%body) > 0) then
-                    call draw_string(self, x + 1, y, node%body, fg, bg, max(0, w - 2), &
-                        .false.)
-                else
-                    call draw_string(self, x + 1, y, trim(node%text), &
-                        colour(self, RGB_DISABLED), bg, max(0, w - 2), .false.)
+                if (node%disabled) then
+                    fg = colour(self, p%disabled)
+                    bg = colour(self, p%band)
                 end if
-            end if
-            call put_cell(self, x + w - 1, y, iachar(']'), fg, bg)
-        case (UI_TEXT_AREA)
-            call draw_text_area(self, node, x, y, w, h, fg, bg)
-        end select
+                call fill(self, x, y, w, 1, bg)
+                label = trim(node%text)
+                lw = min(w - 2, utf8_length(label))
+                call draw_string(self, x + max(1, (w - lw) / 2), y, label, fg, bg, max(0, w - 2), &
+                    .true.)
+            case (UI_CHECKBOX)
+                fg = colour(self, merge(p%disabled, p%text, node%disabled))
+                bg = colour(self, p%panel)
+                call put_cell(self, x, y, merge(9746, 9744, node%checked), fg, bg)
+                if (len_trim(node%text) > 0) then
+                    if (node%focused) then
+                        call draw_string(self, x + 2, y, trim(node%text), &
+                            colour(self, p%on_cursor), colour(self, p%cursor), max(0, w - 2), &
+                            .true.)
+                    else
+                        call draw_string(self, x + 2, y, trim(node%text), fg, bg, max(0, w - 2), &
+                            .true.)
+                    end if
+                else if (node%focused) then
+                    call put_cell(self, x, y, merge(9746, 9744, node%checked), &
+                        colour(self, p%on_cursor), colour(self, p%cursor))
+                end if
+            case (UI_TAB)
+                if (node%checked) then
+                    fg = colour(self, p%emph) + TB_BOLD
+                    bg = colour(self, p%panel)
+                else
+                    fg = colour(self, p%on_band)
+                    bg = colour(self, p%band)
+                end if
+                if (node%focused) then
+                    fg = colour(self, p%on_cursor) + TB_BOLD
+                    bg = colour(self, p%cursor)
+                end if
+                if (node%disabled) fg = colour(self, p%disabled)
+                call fill(self, x, y, w, 1, bg)
+                label = trim(node%text)
+                lw = min(w, utf8_length(label))
+                call draw_string(self, x + max(0, (w - lw) / 2), y, label, fg, bg, w, .true.)
+            case (UI_SLIDER)
+                if (node%max_value > node%min_value) then
+                    fraction = (node%value - node%min_value) / (node%max_value - node%min_value)
+                else
+                    fraction = 0.0
+                end if
+                fraction = max(0.0, min(1.0, fraction))
+                bg = colour(self, p%panel)
+                knob = nint(fraction * real(max(0, w - 1)))
+                do i = 0, w - 1
+                    if (i < knob) then
+                        call put_cell(self, x + i, y, 9473, colour(self, p%emph), bg)
+                    else if (i > knob) then
+                        call put_cell(self, x + i, y, 9472, colour(self, p%dither), bg)
+                    end if
+                end do
+                if (node%focused) then
+                    call put_cell(self, x + knob, y, 9608, colour(self, p%cursor), bg)
+                else
+                    call put_cell(self, x + knob, y, 9608, colour(self, merge(p%disabled, &
+                        p%text, node%disabled)), bg)
+                end if
+            case (UI_SCROLL_TEXT)
+                call draw_scroll_text(self, node, x, y, w, h)
+            case (UI_TEXT_INPUT, UI_TEXT_AREA)
+                call draw_field(self, node, x, y, w, h)
+            end select
+        end associate
     end subroutine draw_node
 
-    subroutine draw_text_area(self, node, x, y, w, h, fg, bg)
-        !! The lines of the text between brackets, scrolled so that the caret's
-        !! line shows.
+    subroutine draw_text_node(self, node, x, y, w)
+        !! Body text on the panel; titles, headings and instructions (captions) in
+        !! the emphasis colour; links underlined; tone runs for code and diffs.
         type(tui_backend_t), intent(inout) :: self
         type(ui_node_t), intent(in) :: node
-        integer, intent(in) :: x, y, w, h, fg, bg
-        integer :: row, first, last, top, caret_line, i
+        integer, intent(in) :: x, y, w
+        integer :: fg, bg, k, first, last, col
+        character(len=:), allocatable :: str
 
-        do row = 0, h - 1
-            call put_cell(self, x, y + row, iachar('['), fg, bg)
-            call put_cell(self, x + w - 1, y + row, iachar(']'), fg, bg)
+        bg = colour(self, self%pal%panel)
+        fg = tone_attr(self, node%tone)
+        if (node%tone == UI_TONE_NORMAL .and. (node%style == UI_HEADING .or. &
+            node%style == UI_TITLE .or. node%style == UI_CAPTION)) fg = colour(self, self%pal%emph)
+        if (node%style == UI_HEADING .or. node%style == UI_TITLE) fg = fg + TB_BOLD
+        if (node%kind == UI_LINK) fg = colour(self, self%pal%emph) + TB_UNDERLINE
+        if (node%focused .and. node%kind == UI_LINK) then
+            fg = colour(self, self%pal%on_cursor)
+            bg = colour(self, self%pal%cursor)
+        end if
+        if (node%disabled) fg = colour(self, self%pal%disabled)
+        str = trim(node%text)
+        if (allocated(node%run_end) .and. .not. node%ellipsis) then
+            first = 1
+            col = 0
+            do k = 1, size(node%run_end)
+                last = min(len(str), node%run_end(k))
+                if (last >= first .and. col < w) then
+                    call draw_string(self, x + col, y, str(first:last), &
+                        tone_attr(self, node%run_tone(k)), bg, w - col, .false.)
+                    col = col + utf8_length(str(first:last))
+                end if
+                first = last + 1
+            end do
+            if (first <= len(str) .and. col < w) call draw_string(self, x + col, y, &
+                str(first:), fg, bg, w - col, .false.)
+        else
+            call draw_string(self, x, y, str, fg, bg, w, node%ellipsis)
+        end if
+    end subroutine draw_text_node
+
+    integer function tone_attr(self, tone) result(attr)
+        type(tui_backend_t), intent(in) :: self
+        integer, intent(in) :: tone
+        associate(p => self%pal)
+            select case (tone)
+            case (UI_TONE_POSITIVE); attr = colour(self, p%positive)
+            case (UI_TONE_NEGATIVE); attr = colour(self, p%negative)
+            case (UI_TONE_MUTED); attr = colour(self, p%disabled)
+            case (UI_TONE_ACCENT, UI_TONE_LINK); attr = colour(self, p%emph)
+            case (UI_TONE_ATTENTION); attr = colour(self, p%attention) + TB_BOLD
+            case (UI_TONE_STRONG); attr = colour(self, p%text) + TB_BOLD
+            case (UI_TONE_KEYWORD:UI_TONE_HUNK)
+                attr = colour(self, p%code(tone - UI_TONE_KEYWORD + 1))
+            case default; attr = colour(self, p%text)
+            end select
+        end associate
+    end function tone_attr
+
+    subroutine fill(self, x, y, w, h, bg)
+        type(tui_backend_t), intent(inout) :: self
+        integer, intent(in) :: x, y, w, h, bg
+        integer :: i, j
+        do j = 0, h - 1
+            do i = 0, w - 1
+                call put_cell(self, x + i, y + j, 32, bg, bg)
+            end do
         end do
+    end subroutine fill
+
+    subroutine draw_field(self, node, x, y, w, h)
+        !! Entry field (one line) or text area: cyan field emphasis, placeholder in
+        !! grey, the caret as a reversed cell, scrolled so the caret shows.
+        type(tui_backend_t), intent(inout) :: self
+        type(ui_node_t), intent(in) :: node
+        integer, intent(in) :: x, y, w, h
+        integer :: fg, bg, row, first, last, top, caret_line, caret_col, i, shift
+        integer :: line_start
+
+        fg = colour(self, merge(self%pal%disabled, self%pal%on_field, node%disabled))
+        bg = colour(self, self%pal%field)
+        call fill(self, x, y, w, h, bg)
         if (.not. allocated(node%body)) return
         if (len(node%body) == 0) then
-            call draw_string(self, x + 1, y, trim(node%text), colour(self, RGB_DISABLED), bg, &
-                max(0, w - 2), .false.)
+            if (.not. node%focused) call draw_string(self, x + 1, y, trim(node%text), &
+                colour(self, self%pal%disabled), bg, max(0, w - 2), .true.)
+            if (node%focused) call put_cell(self, x + 1, y, 32, bg, fg)
             return
         end if
         caret_line = 0
+        line_start = 1
         do i = 1, min(node%caret, len(node%body))
-            if (node%body(i:i) == new_line('a')) caret_line = caret_line + 1
+            if (node%body(i:i) == new_line('a')) then
+                caret_line = caret_line + 1
+                line_start = i + 1
+            end if
         end do
+        caret_col = 0
+        if (node%caret >= line_start) caret_col = utf8_length(node%body(line_start:node%caret))
+        shift = max(0, caret_col - (w - 3))
         top = max(0, caret_line - h + 1)
         first = 1
         row = -top
@@ -1130,30 +1252,135 @@ contains
                 last = first + last - 2
             end if
             if (row >= h) exit
-            if (row >= 0 .and. last >= first) call draw_string(self, x + 1, y + row, &
-                node%body(first:last), fg, bg, max(0, w - 2), .false.)
+            if (row >= 0 .and. last >= first) call draw_from(self, x + 1, y + row, &
+                node%body(first:last), merge(shift, 0, row + top == caret_line), fg, bg, &
+                max(0, w - 2))
             if (last >= len(node%body)) exit
             first = last + 2
             row = row + 1
             if (first > len(node%body)) exit
         end do
-    end subroutine draw_text_area
+        if (node%focused .and. caret_line - top < h) call put_cell(self, &
+            x + 1 + caret_col - shift, y + caret_line - top, caret_char(node%body, node%caret), &
+            bg, fg)
+    end subroutine draw_field
 
-    subroutine draw_scroll_text(self, node, x, y, w, h, fg, bg)
+    integer function caret_char(body, caret) result(cp)
+        !! The character under the caret (a space at the end of a line).
+        character(*), intent(in) :: body
+        integer, intent(in) :: caret
+        integer :: nb
+        cp = 32
+        if (caret + 1 > len(body)) return
+        if (body(caret + 1:caret + 1) == new_line('a')) return
+        call utf8_decode(body, caret + 1, cp, nb)
+    end function caret_char
+
+    subroutine draw_from(self, x, y, value, skip, fg, bg, limit)
+        !! `value` without its first `skip` code points.
+        type(tui_backend_t), intent(inout) :: self
+        integer, intent(in) :: x, y, skip, fg, bg, limit
+        character(*), intent(in) :: value
+        integer :: pos, cp, nb, k
+        pos = 1
+        do k = 1, skip
+            if (pos > len(value)) return
+            call utf8_decode(value, pos, cp, nb)
+            pos = pos + nb
+        end do
+        if (pos <= len(value)) call draw_string(self, x, y, value(pos:), fg, bg, limit, .false.)
+    end subroutine draw_from
+
+    subroutine draw_scroll_text(self, node, x, y, w, h)
+        !! Wrapped lines on the panel; when they do not fit, a scroll bar in the
+        !! last column: arrows, a dithered track and the thumb, as CUA draws it.
         type(tui_backend_t), intent(inout) :: self
         type(ui_node_t), intent(in) :: node
-        integer, intent(in) :: x, y, w, h, fg, bg
-        integer :: i, row
+        integer, intent(in) :: x, y, w, h
+        integer :: i, row, fg, bg, tw, th, ty
+        real :: total, max_scroll
 
+        fg = colour(self, self%pal%text)
+        bg = colour(self, self%pal%panel)
         if (.not. allocated(node%body) .or. .not. allocated(node%lines)) return
+        total = node%content_height + 2.0 * ui_scroll_padding()
+        tw = w
+        if (total > node%height .and. h >= 3) tw = w - 1
         do i = 1, node%line_count
             row = nint((ui_scroll_padding() + node%lines(i)%y - node%scroll) / CELL_H_DP)
             if (row < 0) cycle
             if (row >= h) exit
             if (node%lines(i)%last >= node%lines(i)%first) call draw_string(self, x, &
-                y + row, node%body(node%lines(i)%first:node%lines(i)%last), fg, bg, w, .false.)
+                y + row, node%body(node%lines(i)%first:node%lines(i)%last), fg, bg, tw, .false.)
+        end do
+        if (tw == w) return
+        max_scroll = max(1.0, total - node%height)
+        call put_cell(self, x + w - 1, y, 9650, fg, bg)
+        call put_cell(self, x + w - 1, y + h - 1, 9660, fg, bg)
+        th = max(1, nint(real(h - 2) * node%height / total))
+        ty = y + 1 + nint(node%scroll / max_scroll * real(h - 2 - th))
+        do row = y + 1, y + h - 2
+            if (row >= ty .and. row < ty + th) then
+                call put_cell(self, x + w - 1, row, 9608, fg, bg)
+            else
+                call put_cell(self, x + w - 1, row, 9617, colour(self, self%pal%dither), bg)
+            end if
         end do
     end subroutine draw_scroll_text
+
+    subroutine draw_key_line(self, frame)
+        !! The CUA function key line: the shortcuts the application named this
+        !! frame ("Ctrl+S=Save  Esc=Cancel") on the cyan band at the bottom.
+        type(tui_backend_t), intent(inout) :: self
+        type(ui_frame_t), intent(in) :: frame
+        integer :: y, col, k, fg, bg
+        character(len=:), allocatable :: item
+
+        if (self%band_rows < 1) return
+        y = self%rows - 1
+        fg = colour(self, self%pal%on_band)
+        bg = colour(self, self%pal%band)
+        call fill(self, 0, y, self%cols, 1, bg)
+        col = 1
+        do k = 1, frame%hint_count
+            item = key_name(trim(frame%hint_keys(k))) // "=" // trim(frame%hint_labels(k))
+            if (col + utf8_length(item) > self%cols) exit
+            call draw_string(self, col, y, item, fg, bg, self%cols - col, .false.)
+            col = col + utf8_length(item) + 2
+        end do
+    end subroutine draw_key_line
+
+    function key_name(chord) result(name)
+        !! "ctrl+s" -> "Ctrl+S", "mod+shift+p" -> "Ctrl+Shift+P", "Escape" -> "Esc".
+        character(*), intent(in) :: chord
+        character(len=:), allocatable :: name, part
+        integer :: a, b
+        name = ""
+        a = 1
+        do while (a <= len(chord))
+            b = index(chord(a:), "+")
+            if (b == 0 .or. a + b - 1 == len(chord)) then
+                part = chord(a:)
+                a = len(chord) + 1
+            else
+                part = chord(a:a + b - 2)
+                a = a + b
+            end if
+            select case (part)
+            case ("mod", "ctrl"); part = "Ctrl"
+            case ("shift"); part = "Shift"
+            case ("alt"); part = "Alt"
+            case ("meta"); part = "Meta"
+            case ("Escape", "escape"); part = "Esc"
+            case default
+                if (len(part) == 1) then
+                    if (part >= "a" .and. part <= "z") part = achar(iachar(part) - 32)
+                end if
+            end select
+            if (len(name) > 0) name = name // "+"
+            name = name // part
+        end do
+    end function key_name
 
     subroutine draw_string(self, x, y, value, fg, bg, limit, ellipsis)
         !! Draw UTF-8 text, one code point per cell (no wide-character evidence yet);

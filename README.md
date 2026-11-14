@@ -178,7 +178,16 @@ Raylib cannot draw bitmap fonts, so Classic text there uses an outline font.
 
 In the browser a theme applies only when the application passes `theme_name`
 (desktop-like web apps); otherwise the page keeps its own look and fonts, as a web
-page should. The terminal shows meaning, not a theme.
+page should.
+
+The terminal has its own look after IBM Common User Access (CUA): white panels,
+blue titles and instructions, cyan push buttons, entry fields and bands, the red
+cursor on the control with the focus, and a function key line at the bottom
+that lists the shortcuts the application labels
+(`ui_shortcut("ctrl+s", label="Save")` shows `Ctrl+S=Save`). `tui_theme = dark`
+in the config file or `FORTUI_TUI_THEME=dark` keeps that structure in dark
+colours; the default is `cua`. Every cell gets an explicit colour, so the look
+does not depend on the terminal's own colours.
 
 ## Images and printing
 

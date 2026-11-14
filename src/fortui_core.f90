@@ -279,7 +279,7 @@ contains
         if (pressed) ctx%followup = .true.
     end function ui_key_pressed
 
-    logical function ui_shortcut(chord, repeat) result(pressed)
+    logical function ui_shortcut(chord, repeat, label) result(pressed)
         !! Keyboard shortcut: asks for `chord` in this frame and is true in the
         !! frame in which it was pressed (which schedules a follow-up frame).
         !!
@@ -307,14 +307,30 @@ contains
         !! suppressed exactly for the chords of the last frame; hosts that do
         !! not report modifiers or repeats (a terminal knows Ctrl with a letter
         !! only) cannot press such chords.
+        !! `label` names the action for hosts that list shortcuts, such as the
+        !! terminal's function key line ("ctrl+s" with label "Save" shows
+        !! "Ctrl+S=Save").
         character(*), intent(in) :: chord
         logical, intent(in), optional :: repeat
+        character(*), intent(in), optional :: label
         type(fortui_context_t), pointer :: ctx
+        integer :: k
 
         pressed = .false.
         ctx => get_default_context()
         if (.not. associated(ctx)) return
         if (.not. ctx%in_frame) return
+        if (present(label)) then
+            associate(f => ctx%current_frame)
+                if (f%hint_count < size(f%hint_keys) .and. .not. any(f%hint_keys(1:f%hint_count) &
+                    == chord)) then
+                    k = f%hint_count + 1
+                    f%hint_keys(k) = chord
+                    f%hint_labels(k) = label
+                    f%hint_count = k
+                end if
+            end associate
+        end if
         pressed = input_shortcut(ctx%input, chord, repeat)
         if (pressed) ctx%followup = .true.
     end function ui_shortcut

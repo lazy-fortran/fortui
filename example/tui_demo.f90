@@ -6,9 +6,11 @@ program tui_demo
 
     logical :: checked
     integer :: value, stat
+    character(len=:), allocatable :: name
 
     checked = .false.
     value = 25
+    name = ""
 
     call ui_init(tui_backend_t(), 80, 24, "FortUI TUI demo", stat=stat)
     if (stat /= 0) error stop "No terminal available"
@@ -16,7 +18,10 @@ program tui_demo
     do while (.not. ui_should_close())
         call ui_frame_begin()
         if (ui_key_pressed(KEY_ESCAPE)) call ui_request_quit()
+        if (ui_shortcut("ctrl+q", label="Quit")) call ui_request_quit()
+        if (ui_shortcut("ctrl+r", label="Reset")) value = 25
         call text("FortUI TUI", style=UI_HEADING)
+        call text("Type a name, then press Enter.", style=UI_CAPTION)
         call row_begin(8.0)
         if (button("one", "One")) value = 10
         if (button("two", "Two")) value = 90
@@ -25,6 +30,7 @@ program tui_demo
         call text("Value " // ui_str(value))
         if (slider("value", 0, 100, value, step=5, width=240.0)) continue
         if (checkbox("check", checked, "Enabled")) continue
+        if (text_input("name", name, placeholder="Name", width=240.0)) continue
         call ui_present()
     end do
 
