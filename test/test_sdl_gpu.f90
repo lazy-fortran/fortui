@@ -25,7 +25,7 @@ program test_sdl_gpu
         end function
     end interface
 
-    if (.not. sdl_is_available()) then
+    if (.not. sdl_gpu_available()) then
         print '(a)', "sdl gpu: skipped (no GPU device or FORTUI_HEADLESS=1)"
         stop
     end if

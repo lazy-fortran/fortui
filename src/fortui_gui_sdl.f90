@@ -37,7 +37,7 @@ module fortui_gui_sdl
     private
 #ifdef ENABLE_SDL
 
-    public :: sdl_backend_t, sdl_is_available, sdl_read_pixels
+    public :: sdl_backend_t, sdl_is_available, sdl_gpu_available, sdl_read_pixels
 
     ! --- SDL constants -------------------------------------------------------------
     integer(c_int32_t), parameter :: SDL_INIT_VIDEO = int(z'20', c_int32_t)
@@ -336,6 +336,12 @@ module fortui_gui_sdl
         end function
         integer(c_int64_t) function SDL_GetTicksNS() bind(C, name="SDL_GetTicksNS")
             import :: c_int64_t
+        end function
+        logical(c_bool) function SDL_GPUSupportsShaderFormats(formats, name) &
+                bind(C, name="SDL_GPUSupportsShaderFormats")
+            import :: c_bool, c_int32_t, c_ptr
+            integer(c_int32_t), value :: formats
+            type(c_ptr), value :: name
         end function
         type(c_ptr) function SDL_CreateGPUDevice(formats, debug, name) &
                 bind(C, name="SDL_CreateGPUDevice")
@@ -657,19 +663,23 @@ contains
     end function sb_caps
 
     logical function sdl_is_available()
-        !! A GPU device can be created (and a display reached, unless headless
-        !! tests ask for none with FORTUI_HEADLESS=1).
+        !! SDL can reach a display (unless headless tests ask for none with
+        !! FORTUI_HEADLESS=1). The GPU is not probed here: starting a GPU driver
+        !! costs as much as the device itself, so init reports a missing GPU.
         character(len=8) :: v
         integer :: n, st
-        type(c_ptr) :: d
         sdl_is_available = .false.
         call get_environment_variable("FORTUI_HEADLESS", v, n, st)
         if (st == 0 .and. trim(v) == "1") return
-        if (.not. SDL_Init(SDL_INIT_VIDEO)) return
-        d = SDL_CreateGPUDevice(FORMAT_SPIRV, .false._c_bool, c_null_ptr)
-        sdl_is_available = c_associated(d)
-        if (c_associated(d)) call SDL_DestroyGPUDevice(d)
+        sdl_is_available = SDL_Init(SDL_INIT_VIDEO)
     end function sdl_is_available
+
+    logical function sdl_gpu_available()
+        !! A GPU driver takes SPIR-V shaders (tests that need a GPU ask first).
+        sdl_gpu_available = sdl_is_available()
+        if (sdl_gpu_available) sdl_gpu_available = SDL_GPUSupportsShaderFormats(FORMAT_SPIRV, &
+            c_null_ptr)
+    end function sdl_gpu_available
 
     function sdl_error() result(msg)
         character(len=:), allocatable :: msg
@@ -689,9 +699,21 @@ contains
             call report_error("fortui_gui_sdl", "init", "TTF_Init: " // sdl_error())
             return
         end if
+        if (.not. self%offscreen) then
+            ! The window first: it shows while the GPU driver starts.
+            self%window = SDL_CreateWindow(trim(self%config%title) // c_null_char, &
+                int(self%config%width, c_int), int(self%config%height, c_int), &
+                ior(WIN_RESIZABLE, WIN_HIGH_DENSITY))
+            if (.not. c_associated(self%window)) then
+                call report_error("fortui_gui_sdl", "init", "window: " // sdl_error())
+                return
+            end if
+        end if
         self%device = SDL_CreateGPUDevice(FORMAT_SPIRV, .false._c_bool, c_null_ptr)
         if (.not. c_associated(self%device)) then
             call report_error("fortui_gui_sdl", "init", "no GPU device: " // sdl_error())
+            if (c_associated(self%window)) call SDL_DestroyWindow(self%window)
+            self%window = c_null_ptr
             return
         end if
         if (self%offscreen) then
@@ -702,13 +724,6 @@ contains
                 format=TEX_RGBA8, usage=ior(TEXUSE_TARGET, TEXUSE_SAMPLER), &
                 width=self%pw, height=self%ph))
         else
-            self%window = SDL_CreateWindow(trim(self%config%title) // c_null_char, &
-                int(self%config%width, c_int), int(self%config%height, c_int), &
-                ior(WIN_RESIZABLE, WIN_HIGH_DENSITY))
-            if (.not. c_associated(self%window)) then
-                call report_error("fortui_gui_sdl", "init", "window: " // sdl_error())
-                return
-            end if
             if (.not. SDL_ClaimWindowForGPUDevice(self%device, self%window)) then
                 call report_error("fortui_gui_sdl", "init", "swapchain: " // sdl_error())
                 return

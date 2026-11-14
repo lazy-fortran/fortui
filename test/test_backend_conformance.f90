@@ -39,7 +39,7 @@ program test_backend_conformance
     end if
 #endif
 #ifdef ENABLE_SDL
-    if (sdl_is_available()) then
+    if (sdl_gpu_available()) then
         call scenario(sdl_backend_t(), "sdl")
     else
         print '(a)', "conformance: sdl backend skipped (no GPU or FORTUI_HEADLESS=1)"

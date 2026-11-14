@@ -100,7 +100,11 @@ module fortui_print
 
     integer(c_int), parameter :: MEDIA_FLAGS_DEFAULT = 0, MEDIA_FLAGS_READY = 8
     integer(c_int), parameter :: HTTP_STATUS_CONTINUE = 100, HTTP_STATUS_OK = 200
-    integer(c_int), parameter :: IPP_OP_GET_PRINTER_ATTRIBUTES = int(z'000B', c_int)
+    integer(c_int), parameter :: IPP_OP_GET_PRINTER_ATTRIBUTES = int(z'000B', c_int), &
+        IPP_OP_CUPS_GET_PRINTERS = int(z'4002', c_int)
+    ! A printer on the local network answers within milliseconds; an absent one
+    ! must not hold the application up.
+    integer(c_int), parameter :: DEVICE_TIMEOUT_MS = 400
     integer(c_int), parameter :: IPP_TAG_ZERO = 0, IPP_TAG_OPERATION = 1
     integer(c_int), parameter :: IPP_TAG_INTEGER = int(z'21', c_int)
     integer(c_int), parameter :: IPP_TAG_BEGIN_COLLECTION = int(z'34', c_int)
@@ -126,10 +130,20 @@ module fortui_print
         end subroutine
         type(c_ptr) function cupsGetNamedDest(http, name, instance) &
                 bind(C, name="cupsGetNamedDest")
-            import :: c_ptr, c_char
-            type(c_ptr), value :: http
-            character(kind=c_char), intent(in) :: name(*)
-            type(c_ptr), value :: instance
+            import :: c_ptr
+            type(c_ptr), value :: http, name, instance
+        end function
+        type(c_ptr) function ippFirstAttribute(ipp) bind(C, name="ippFirstAttribute")
+            import :: c_ptr
+            type(c_ptr), value :: ipp
+        end function
+        type(c_ptr) function ippNextAttribute(ipp) bind(C, name="ippNextAttribute")
+            import :: c_ptr
+            type(c_ptr), value :: ipp
+        end function
+        type(c_ptr) function ippGetName(attr) bind(C, name="ippGetName")
+            import :: c_ptr
+            type(c_ptr), value :: attr
         end function
         type(c_ptr) function cupsGetOption(name, n, options) bind(C, name="cupsGetOption")
             import :: c_ptr, c_char, c_int
@@ -370,36 +384,94 @@ contains
     end subroutine unsupported
 
     subroutine print_printers(printers, res)
-        !! The print queues CUPS knows, default first marked.
+        !! The print queues of the local CUPS server, the default one marked. One
+        !! CUPS-Get-Printers request: no browsing of the network, so it takes
+        !! milliseconds.
         type(print_printer_t), allocatable, intent(out) :: printers(:)
         type(print_result_t), intent(out) :: res
 #ifdef ENABLE_PRINT
-        type(c_ptr) :: dests
-        type(cups_dest_t), pointer :: d(:)
-        integer :: n, k
+        type(print_printer_t), allocatable :: found(:)
+        type(c_ptr) :: req, resp, attr, def, a
+        character(kind=c_char, len=32), target :: want(5)
+        type(c_ptr) :: values(5)
+        character(len=:), allocatable :: name, default_name
+        type(cups_dest_t), pointer :: d
+        integer :: k, n
 
         res%message = ""
-        dests = c_null_ptr
-        n = cupsGetDests(dests)
-        allocate(printers(max(n, 0)))
-        if (n <= 0) then
+        allocate(found(32))
+        n = 0
+        req = ippNewRequest(IPP_OP_CUPS_GET_PRINTERS)
+        want(1) = "printer-name" // c_null_char
+        want(2) = "printer-info" // c_null_char
+        want(3) = "printer-location" // c_null_char
+        want(4) = "printer-make-and-model" // c_null_char
+        want(5) = "device-uri" // c_null_char
+        do k = 1, 5
+            values(k) = c_loc(want(k))
+        end do
+        a = ippAddStrings(req, IPP_TAG_OPERATION, IPP_TAG_KEYWORD, &
+            cstr("requested-attributes"), 5_c_int, c_null_ptr, values)
+        resp = cupsDoRequest(c_null_ptr, req, cstr("/"))
+        if (c_associated(resp)) then
+            attr = ippFirstAttribute(resp)
+            do while (c_associated(attr))
+                name = f_str(ippGetName(attr))
+                if (len(name) == 0) then
+                    continue
+                else if (name == "printer-name") then
+                    n = n + 1
+                    if (n > size(found)) call grow(found)
+                    found(n)%name = f_str(ippGetString(attr, 0_c_int, c_null_ptr))
+                    found(n)%info = ""
+                    found(n)%location = ""
+                    found(n)%make_model = ""
+                    found(n)%device_uri = ""
+                else if (n > 0) then
+                    select case (name)
+                    case ("printer-info")
+                        found(n)%info = f_str(ippGetString(attr, 0_c_int, c_null_ptr))
+                    case ("printer-location")
+                        found(n)%location = f_str(ippGetString(attr, 0_c_int, c_null_ptr))
+                    case ("printer-make-and-model")
+                        found(n)%make_model = f_str(ippGetString(attr, 0_c_int, c_null_ptr))
+                    case ("device-uri")
+                        found(n)%device_uri = f_str(ippGetString(attr, 0_c_int, c_null_ptr))
+                    end select
+                end if
+                attr = ippNextAttribute(resp)
+            end do
+            call ippDelete(resp)
+        end if
+        allocate(printers(n))
+        if (n > 0) printers = found(1:n)
+        if (n == 0) then
             res%message = "no printers are set up"
             return
         end if
-        call c_f_pointer(dests, d, [n])
+        ! The user's default (lpoptions) or the server's, without browsing.
+        default_name = ""
+        def = cupsGetNamedDest(c_null_ptr, c_null_ptr, c_null_ptr)
+        if (c_associated(def)) then
+            call c_f_pointer(def, d)
+            default_name = f_str(d%name)
+            call cupsFreeDests(1_c_int, def)
+        end if
         do k = 1, n
-            printers(k)%name = f_str(d(k)%name)
-            printers(k)%is_default = d(k)%is_default /= 0
-            printers(k)%info = option(d(k), "printer-info")
-            printers(k)%location = option(d(k), "printer-location")
-            printers(k)%make_model = option(d(k), "printer-make-and-model")
-            printers(k)%device_uri = option(d(k), "device-uri")
+            printers(k)%is_default = printers(k)%name == default_name
         end do
-        call cupsFreeDests(int(n, c_int), dests)
 #else
         allocate(printers(0))
         call unsupported(res)
 #endif
+    contains
+        subroutine grow(list)
+            type(print_printer_t), allocatable, intent(inout) :: list(:)
+            type(print_printer_t), allocatable :: bigger(:)
+            allocate(bigger(2 * size(list)))
+            bigger(1:size(list)) = list
+            call move_alloc(bigger, list)
+        end subroutine grow
     end subroutine print_printers
 
     subroutine print_capabilities(printer, caps, res)
@@ -416,7 +488,7 @@ contains
         character(len=:), allocatable :: uri
 
         res%message = ""
-        dest = cupsGetNamedDest(c_null_ptr, cstr(printer), c_null_ptr)
+        dest = named_dest(printer)
         if (.not. c_associated(dest)) then
             res%status = PRINT_FAILED
             res%message = "no printer named '" // printer // "'"
@@ -509,7 +581,7 @@ contains
         character(len=16) :: num
 
         res%message = ""
-        dest = cupsGetNamedDest(c_null_ptr, cstr(job%printer), c_null_ptr)
+        dest = named_dest(job%printer)
         if (.not. c_associated(dest)) then
             res%status = PRINT_FAILED
             res%message = "no printer named '" // job%printer // "'"
@@ -599,7 +671,7 @@ contains
         type(c_ptr) :: dest
 
         res%message = ""
-        dest = cupsGetNamedDest(c_null_ptr, cstr(printer), c_null_ptr)
+        dest = named_dest(printer)
         if (.not. c_associated(dest)) then
             res%status = PRINT_FAILED
             res%message = "no printer named '" // printer // "'"
@@ -900,7 +972,7 @@ contains
             256_c_int, host, 256_c_int, port, resource, 256_c_int) < 0) return
         enc = HTTP_ENCRYPTION_IF_REQUESTED
         if (index(uri, "ipps://") == 1) enc = HTTP_ENCRYPTION_ALWAYS
-        http = httpConnect2(host, port, c_null_ptr, 0_c_int, enc, 1_c_int, 3000_c_int, &
+        http = httpConnect2(host, port, c_null_ptr, 0_c_int, enc, 1_c_int, DEVICE_TIMEOUT_MS, &
             c_null_ptr)
         if (.not. c_associated(http)) return
         req = ippNewRequest(IPP_OP_GET_PRINTER_ATTRIBUTES)
@@ -966,7 +1038,7 @@ contains
             256_c_int, host, 256_c_int, port, resource, 256_c_int) < 0) return
         enc = HTTP_ENCRYPTION_IF_REQUESTED
         if (index(uri, "https://") == 1) enc = HTTP_ENCRYPTION_ALWAYS
-        http = httpConnect2(host, port, c_null_ptr, 0_c_int, enc, 1_c_int, 3000_c_int, &
+        http = httpConnect2(host, port, c_null_ptr, 0_c_int, enc, 1_c_int, DEVICE_TIMEOUT_MS, &
             c_null_ptr)
         if (.not. c_associated(http)) return
         text = ""
@@ -997,6 +1069,13 @@ contains
         v = f_str(ippGetString(ippFindAttribute(col, cstr(name), IPP_TAG_ZERO), 0_c_int, &
             c_null_ptr))
     end function keyword_of
+
+    type(c_ptr) function named_dest(name) result(dest)
+        character(*), intent(in) :: name
+        character(kind=c_char, len=:), allocatable, target :: cname
+        cname = cstr(name)
+        dest = cupsGetNamedDest(c_null_ptr, c_loc(cname), c_null_ptr)
+    end function named_dest
 
     function option(d, name) result(v)
         type(cups_dest_t), intent(in) :: d

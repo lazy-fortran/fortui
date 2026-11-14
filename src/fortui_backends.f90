@@ -43,21 +43,38 @@ contains
         character(*), intent(in), optional :: theme
         class(ui_backend_t), allocatable :: backend
 
-        call create_backend(name, backend)
+        integer :: st
+        character(len=64) :: choice
+
+        call create_backend(name, backend, choice)
         if (.not. allocated(backend)) then
             call report_error("fortui_backends", "ui_init", "backend '" // trim(name) // &
                 "' is unknown or unavailable")
             if (present(stat)) stat = 1
             return
         end if
-        call ui_init_backend(backend, width, height, title, target_fps, vsync, stat, theme)
+        call ui_init_backend(backend, width, height, title, target_fps, vsync, st, theme)
+        ! "gui" and "auto" take the next host when SDL finds no GPU at start.
+        if (st /= 0 .and. backend%name() == "sdl" .and. any(trim(choice) == &
+            [character(8) :: "gui", "graphics", "window", "auto", ""])) then
+            deallocate(backend)
+#ifdef ENABLE_GUI
+            if (raylib_is_available()) allocate(raylib_backend_t :: backend)
+#endif
+            if (.not. allocated(backend) .and. trim(choice) /= "gui" .and. &
+                tui_is_available()) allocate(tui_backend_t :: backend)
+            if (allocated(backend)) call ui_init_backend(backend, width, height, title, &
+                target_fps, vsync, st, theme)
+        end if
+        if (present(stat)) stat = st
     end subroutine ui_init_named
 
-    subroutine create_backend(requested, backend)
+    subroutine create_backend(requested, backend, chosen)
         !! Allocate the backend for `requested` (FORTUI_BACKEND overrides it).
         !! `backend` stays unallocated when the choice is unknown or unavailable.
         character(*), intent(in) :: requested
         class(ui_backend_t), allocatable, intent(out) :: backend
+        character(len=64), intent(out), optional :: chosen
         character(len=64) :: choice, env_value
         integer :: status
 
