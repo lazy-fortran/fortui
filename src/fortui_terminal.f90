@@ -99,7 +99,7 @@ contains
         v%back = max(0, min(v%back, t%sb_count))
 
         call compose()
-        v%generation = v%generation + 1
+        v%generation = modulo(v%generation + 1, 2**30)
         call canvas_cells("cells", v%generation, cols, rows, cp, fg, bg, attr, 0.0, 0.0, &
             real(cols) * cw, real(rows) * ch, font_size, extend_edges=.true.)
         do k = 1, t%nplaces

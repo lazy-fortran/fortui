@@ -210,6 +210,11 @@ module fortui_gui_sdl
 
     character(len=*), parameter :: FALLBACK_FAMILIES(3) = [character(len=20) :: &
         "DejaVu Sans Mono", "Noto Sans Symbols 2", "Noto Color Emoji"]
+    type :: path_t
+        character(len=:), allocatable :: s
+    end type
+    type(path_t), save :: fallback_paths(3)
+    logical, save :: fallbacks_known = .false.
 
     type :: text_entry_t
         integer(int64) :: hash = 0
@@ -1065,12 +1070,18 @@ contains
         !! Installed fonts that cover what themes' faces lack, tried in order.
         type(font_slot_t), intent(inout) :: slot
         integer, intent(in) :: size_px
-        character(len=:), allocatable :: path
         integer :: j
+        ! Their files are looked up once per process.
+        if (.not. fallbacks_known) then
+            do j = 1, size(FALLBACK_FAMILIES)
+                call font_lookup(trim(FALLBACK_FAMILIES(j)), "", 0, fallback_paths(j)%s)
+            end do
+            fallbacks_known = .true.
+        end if
         do j = 1, size(FALLBACK_FAMILIES)
-            call font_lookup(trim(FALLBACK_FAMILIES(j)), "", 0, path)
-            if (len(path) == 0) cycle
-            slot%fallback(j) = TTF_OpenFont(path // c_null_char, real(size_px, c_float))
+            if (len(fallback_paths(j)%s) == 0) cycle
+            slot%fallback(j) = TTF_OpenFont(fallback_paths(j)%s // c_null_char, &
+                real(size_px, c_float))
             if (.not. c_associated(slot%fallback(j))) cycle
             if (.not. TTF_AddFallbackFont(slot%font, slot%fallback(j))) then
                 call TTF_CloseFont(slot%fallback(j))
@@ -1333,7 +1344,7 @@ contains
 
         self%presents = self%presents + 1
         if (.not. self%active) return
-        self%frame_no = self%frame_no + 1
+        self%frame_no = modulo(self%frame_no + 1, 2**30)
         if (.not. self%offscreen) call update_scale(self)
         measuring = .true.
         call self%canvas%sync(store)
@@ -1621,7 +1632,7 @@ contains
         n = size(self%texts)
         any_old = .false.
         do k = 1, n
-            if (c_associated(self%texts(k)%text) .and. self%frame_no - self%texts(k)%last > 120) &
+            if (c_associated(self%texts(k)%text) .and. modulo(self%frame_no - self%texts(k)%last, 2**30) > 120) &
                 any_old = .true.
         end do
         if (.not. any_old) return
@@ -1629,7 +1640,7 @@ contains
         allocate(self%texts(n))
         do k = 1, n
             if (.not. c_associated(keep(k)%text)) cycle
-            if (self%frame_no - keep(k)%last > 120) then
+            if (modulo(self%frame_no - keep(k)%last, 2**30) > 120) then
                 call TTF_DestroyText(keep(k)%text)
                 cycle
             end if

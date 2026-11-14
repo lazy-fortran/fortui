@@ -236,7 +236,7 @@ contains
                 call move_alloc(grown, self%layers)
                 slot = n + 1
             end if
-            self%next_serial = self%next_serial + 1
+            self%next_serial = modulo(self%next_serial, 2**30) + 1
             self%layers(slot) = canvas_layer_t(in_use=.true., key=key, &
                 serial=self%next_serial, kind=kind)
         end if

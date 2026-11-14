@@ -195,7 +195,9 @@ contains
         else
             call layout_reset(real(ctx%input%width), real(ctx%input%height), theme%margin)
         end if
-        ctx%frame_count = ctx%frame_count + 1
+        ! Counters wrap explicitly (only compared for equality), so months of
+        ! frames never overflow.
+        ctx%frame_count = modulo(ctx%frame_count + 1, 2**30)
         ctx%in_frame = .true.
     end subroutine ui_frame_begin
 

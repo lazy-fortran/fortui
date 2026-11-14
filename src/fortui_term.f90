@@ -76,6 +76,9 @@ module fortui_term
         ! The 16 ANSI colours (ui_rgba) when `own_palette`, else libvterm's.
         integer(int32) :: palette(16) = 0
         logical :: own_palette = .false.
+        ! Bold text in the first eight colours shows the bright eight, as VTE
+        ! and xterm do by default (ls draws directories in bold blue).
+        logical :: bold_bright = .true.
         ! The screen, row by row from the top (ui_rgba colours, CELL_* bits).
         integer(int32), allocatable :: cp(:), fg(:), bg(:), attr(:)
         ! Scrollback ring: sb_count lines, the newest at sb_head.
@@ -265,6 +268,12 @@ module fortui_term
             type(c_ptr), value :: screen
             integer(c_int8_t), intent(in) :: fg(4), bg(4)
         end subroutine
+        subroutine vterm_state_set_bold_highbright(state, on) &
+                bind(C, name="vterm_state_set_bold_highbright")
+            import :: c_ptr, c_int
+            type(c_ptr), value :: state
+            integer(c_int), value :: on
+        end subroutine
         subroutine vterm_state_set_palette_color(state, index, col) &
                 bind(C, name="vterm_state_set_palette_color")
             import :: c_ptr, c_int, c_int8_t
@@ -400,6 +409,7 @@ contains
         call vterm_screen_set_callbacks(t%screen, c_loc(screen_cbs), c_loc(t))
         call vterm_screen_set_unrecognised_fallbacks(t%screen, c_loc(fallbacks), c_loc(t))
         call vterm_screen_enable_altscreen(t%screen, 1_c_int)
+        call vterm_state_set_bold_highbright(t%state, merge(1_c_int, 0_c_int, t%bold_bright))
         call vterm_screen_enable_reflow(t%screen, .true._c_bool)
         call vterm_screen_set_damage_merge(t%screen, 3_c_int)
         call vterm_screen_reset(t%screen, 1_c_int)
@@ -548,7 +558,7 @@ contains
         if (t%dirty) then
             call refresh(t)
             t%dirty = .false.
-            t%generation = t%generation + 1
+            t%generation = modulo(t%generation + 1, 2**30)
             changed = .true.
         end if
 #else
@@ -1319,7 +1329,7 @@ contains
         end select
         image_id = id
         if (image_id == 0 .and. number > 0) then
-            t%image_serial = t%image_serial + 1
+            t%image_serial = modulo(t%image_serial + 1, 2**30)
             image_id = 1000000 + t%image_serial
         end if
         slot = store_image(t, image_id, rgba)
@@ -1419,7 +1429,7 @@ contains
         t%images(slot)%width = size(rgba, 1)
         t%images(slot)%height = size(rgba, 2)
         t%images(slot)%rgba = rgba
-        t%image_serial = t%image_serial + 1
+        t%image_serial = modulo(t%image_serial + 1, 2**30)
         t%images(slot)%generation = t%image_serial
     end function store_image
 
@@ -1461,7 +1471,7 @@ contains
                 call move_alloc(grown, t%places)
             end if
         end if
-        t%place_serial = t%place_serial + 1
+        t%place_serial = modulo(t%place_serial + 1, 2**30)
         t%nplaces = t%nplaces + 1
         t%places(t%nplaces) = term_place_t(image=slot, row=row, col=col, rows=max(1, rows), &
             cols=max(1, cols), z=z, serial=t%place_serial)

@@ -96,6 +96,10 @@ contains
         call check(iand(t%attr(4), CELL_DIM) == 0 .and. iand(t%fg(4), 255_int32) == 200, &
             "truecolour argument is not faint")
         call term_close(t)
+        ! Bold blue shows bright blue (palette 12), plain blue stays blue.
+        call run("printf '\033[34mb\033[1;34mB'")
+        call check(t%fg(1) /= t%fg(2), "bold is bright")
+        call term_close(t)
     end subroutine test_text
 
     subroutine test_device_attributes()
