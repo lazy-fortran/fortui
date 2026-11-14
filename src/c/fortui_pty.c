@@ -256,4 +256,11 @@ void fortui_pty_unwatch(void *handle) {
     free(w->buf);
     free(w);
 }
+#else
+/* Without the terminal emulator: no helpers are started. */
+int fortui_spawn_detached(const char *path, const char *arg) {
+    (void)path;
+    (void)arg;
+    return -1;
+}
 #endif
