@@ -38,6 +38,8 @@ module fortui_backend
         character(len=256) :: title = ""
         integer :: target_fps = 60
         logical :: vsync = .true.
+        ! Created hidden; ui_set_window_visible shows it.
+        logical :: hidden = .false.
     end type ui_window_config_t
 
     type, public :: ui_backend_stats_t
@@ -76,6 +78,7 @@ module fortui_backend
         procedure :: set_title => backend_set_title
         procedure :: waker => backend_waker
         procedure :: set_window_size => backend_set_window_size
+        procedure :: set_window_visible => backend_set_window_visible
     end type ui_backend_t
 
     abstract interface
@@ -174,6 +177,13 @@ contains
         integer, intent(in) :: width, height
         if (width + height < 0 .or. self%presents < 0) continue
     end subroutine backend_set_window_size
+
+    subroutine backend_set_window_visible(self, visible)
+        !! Show (and raise) or hide the window.
+        class(ui_backend_t), intent(inout) :: self
+        logical, intent(in) :: visible
+        if (visible .or. self%presents < 0) continue
+    end subroutine backend_set_window_visible
 
     function backend_waker(self) result(fn)
         !! A C function that wakes the host's event loop and may be called from

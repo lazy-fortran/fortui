@@ -43,6 +43,7 @@ module fortui_gui_sdl
 
     ! --- SDL constants -------------------------------------------------------------
     integer(c_int32_t), parameter :: SDL_INIT_VIDEO = int(z'20', c_int32_t)
+    integer(c_int64_t), parameter :: WIN_HIDDEN = int(z'8', c_int64_t)
     integer(c_int64_t), parameter :: WIN_RESIZABLE = int(z'20', c_int64_t), &
         WIN_HIGH_DENSITY = int(z'2000', c_int64_t)
     integer, parameter :: EV_QUIT = int(z'100'), EV_WIN_RESIZED = int(z'206'), &
@@ -287,6 +288,7 @@ module fortui_gui_sdl
         procedure :: set_title => sb_set_title
         procedure :: waker => sb_waker
         procedure :: set_window_size => sb_set_window_size
+        procedure :: set_window_visible => sb_set_window_visible
     end type sdl_backend_t
 
     ! Fonts of the SDL backend (one at a time), shared with text measurement.
@@ -321,6 +323,18 @@ module fortui_gui_sdl
             import :: c_bool, c_ptr, c_char
             type(c_ptr), value :: w
             character(kind=c_char), intent(in) :: title(*)
+        end function
+        logical(c_bool) function SDL_ShowWindow(w) bind(C, name="SDL_ShowWindow")
+            import :: c_bool, c_ptr
+            type(c_ptr), value :: w
+        end function
+        logical(c_bool) function SDL_HideWindow(w) bind(C, name="SDL_HideWindow")
+            import :: c_bool, c_ptr
+            type(c_ptr), value :: w
+        end function
+        logical(c_bool) function SDL_RaiseWindow(w) bind(C, name="SDL_RaiseWindow")
+            import :: c_bool, c_ptr
+            type(c_ptr), value :: w
         end function
         logical(c_bool) function SDL_SetWindowSize(w, width, height) &
                 bind(C, name="SDL_SetWindowSize")
@@ -770,6 +784,18 @@ contains
             int(real(height) * self%scale / density, c_int))) continue
     end subroutine sb_set_window_size
 
+    subroutine sb_set_window_visible(self, visible)
+        class(sdl_backend_t), intent(inout) :: self
+        logical, intent(in) :: visible
+        if (.not. c_associated(self%window)) return
+        if (visible) then
+            if (SDL_ShowWindow(self%window)) continue
+            if (SDL_RaiseWindow(self%window)) continue
+        else
+            if (SDL_HideWindow(self%window)) continue
+        end if
+    end subroutine sb_set_window_visible
+
     function sb_waker(self) result(fn)
         class(sdl_backend_t), intent(in) :: self
         type(c_funptr) :: fn
@@ -807,7 +833,8 @@ contains
             ! The window first: it shows while the GPU driver starts.
             self%window = SDL_CreateWindow(trim(self%config%title) // c_null_char, &
                 int(self%config%width, c_int), int(self%config%height, c_int), &
-                ior(WIN_RESIZABLE, WIN_HIGH_DENSITY))
+                ior(ior(WIN_RESIZABLE, WIN_HIGH_DENSITY), merge(WIN_HIDDEN, 0_c_int64_t, &
+                self%config%hidden)))
             if (.not. c_associated(self%window)) then
                 call report_error("fortui_gui_sdl", "init", "window: " // sdl_error())
                 return

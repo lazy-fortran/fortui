@@ -85,8 +85,30 @@ int fortui_pty_resize(int fd, int rows, int cols, int xpix, int ypix) {
 /* Exit status of the program once it ended (-1 while it runs). */
 int fortui_pty_exited(int pid) {
     int status = 0;
-    if (waitpid(pid, &status, WNOHANG) != pid) return -1;
+    pid_t got = waitpid(pid, &status, WNOHANG);
+    /* ECHILD: someone else reaped it (a process that ignores SIGCHLD reaps
+     * its children automatically); the program has ended, status unknown. */
+    if (got < 0 && errno == ECHILD) return 0;
+    if (got != pid) return -1;
     return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+}
+
+/* Start a detached program (its own session, no inherited terminal): for
+ * helpers such as fortterm's next spare instance. 0 on success. */
+int fortui_spawn_detached(const char *path, const char *arg) {
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        pid_t inner;
+        setsid();
+        inner = fork();
+        if (inner != 0) _exit(inner < 0 ? 1 : 0);
+        for (int fd = 3; fd < 1024; fd++) close(fd);
+        execl(path, path, arg, (char *)NULL);
+        _exit(127);
+    }
+    waitpid(pid, NULL, 0);
+    return 0;
 }
 
 /* Reader: a thread drains the program's output into a ring buffer, so that

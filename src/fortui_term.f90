@@ -720,6 +720,12 @@ contains
         more = key_int(keys, "m", 0)
         if (t%chunking) then
             ! Later chunks carry only m (and maybe q); the first one's keys count.
+            ! A transfer that never ends is dropped at 128 MB.
+            if (len(t%chunk_data) + len(payload) > 128 * 1024 * 1024) then
+                t%chunking = .false.
+                t%chunk_data = ""
+                return
+            end if
             t%chunk_data = t%chunk_data // payload
             if (more == 1) return
             keys = t%chunk_keys

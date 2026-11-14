@@ -100,6 +100,10 @@ contains
             call ui_request_frame()
         else if (t%alive .and. .not. c_associated(ui_waker())) then
             call ui_wake_after(1.0 / 60.0)
+        else if (.not. t%alive .and. t%pid > 0 .and. t%exit_status < 0) then
+            ! The output ended before the program's exit status could be
+            ! collected: look again shortly.
+            call ui_wake_after(0.05)
         end if
         v%back = max(0, min(v%back, t%sb_count))
 

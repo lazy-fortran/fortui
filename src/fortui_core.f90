@@ -30,7 +30,7 @@ module fortui_core
     public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale
     public :: ui_time, ui_wake_after
     public :: ui_clipboard_set, ui_clipboard_text, ui_set_title, ui_waker, ui_set_window_margin
-    public :: ui_set_window_size
+    public :: ui_set_window_size, ui_set_window_visible
     public :: ui_key_pressed, ui_text_width, ui_backend_capabilities, ui_backend_caps_t
     public :: ui_shortcut, ui_set_theme, ui_theme_name
     public :: ui_backend_description, ui_run, ui_run_step, ui_frame_proc
@@ -47,7 +47,7 @@ module fortui_core
 contains
 
     subroutine ui_init_backend(backend, width, height, title, target_fps, vsync, stat, &
-            theme_name)
+            theme_name, hidden)
         !! Start FortUI with `backend`, a backend value such as `headless_backend_t()`.
         !! The runtime keeps its own copy and creates the platform resources; a host
         !! that is unavailable is an error (stat /= 0), never a fallback.
@@ -63,6 +63,9 @@ contains
         logical, intent(in), optional :: vsync
         integer, intent(out), optional :: stat
         character(*), intent(in), optional :: theme_name
+        !! Create the window hidden (ui_set_window_visible shows it), so a
+        !! program can start ahead of time and appear at once later.
+        logical, intent(in), optional :: hidden
         character(len=:), allocatable :: wanted
         logical :: ok
         type(ui_backend_caps_t) :: caps
@@ -79,6 +82,7 @@ contains
         config%title = title
         if (present(target_fps)) config%target_fps = max(0, target_fps)
         if (present(vsync)) config%vsync = vsync
+        if (present(hidden)) config%hidden = hidden
 
         caps = backend%capabilities()
         if (caps%host_driven) then
@@ -502,6 +506,15 @@ contains
         if (.not. associated(ctx)) return
         if (ctx%initialized) call ctx%backend%set_window_size(width, height)
     end subroutine ui_set_window_size
+
+    subroutine ui_set_window_visible(visible)
+        !! Show (and raise) or hide the window.
+        logical, intent(in) :: visible
+        type(fortui_context_t), pointer :: ctx
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (ctx%initialized) call ctx%backend%set_window_visible(visible)
+    end subroutine ui_set_window_visible
 
     subroutine ui_set_title(title)
         !! The window title (the terminal's title on a terminal host).

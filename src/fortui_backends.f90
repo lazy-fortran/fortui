@@ -31,7 +31,8 @@ module fortui_backends
 
 contains
 
-    subroutine ui_init_named(name, width, height, title, target_fps, vsync, stat, theme)
+    subroutine ui_init_named(name, width, height, title, target_fps, vsync, stat, theme, &
+            hidden)
         !! Start FortUI with the backend called `name` (see the module notes) and,
         !! on graphical backends, `theme` unless the user chose one.
         character(*), intent(in) :: name
@@ -41,6 +42,7 @@ contains
         logical, intent(in), optional :: vsync
         integer, intent(out), optional :: stat
         character(*), intent(in), optional :: theme
+        logical, intent(in), optional :: hidden
         class(ui_backend_t), allocatable :: backend
 
         integer :: st
@@ -53,7 +55,8 @@ contains
             if (present(stat)) stat = 1
             return
         end if
-        call ui_init_backend(backend, width, height, title, target_fps, vsync, st, theme)
+        call ui_init_backend(backend, width, height, title, target_fps, vsync, st, theme, &
+            hidden)
         ! "gui" and "auto" take the next host when SDL finds no GPU at start.
         if (st /= 0 .and. backend%name() == "sdl" .and. any(trim(choice) == &
             [character(8) :: "gui", "graphics", "window", "auto", ""])) then
@@ -64,7 +67,7 @@ contains
             if (.not. allocated(backend) .and. trim(choice) /= "gui" .and. &
                 tui_is_available()) allocate(tui_backend_t :: backend)
             if (allocated(backend)) call ui_init_backend(backend, width, height, title, &
-                target_fps, vsync, st, theme)
+                target_fps, vsync, st, theme, hidden)
         end if
         if (present(stat)) stat = st
     end subroutine ui_init_named
