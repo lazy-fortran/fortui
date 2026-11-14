@@ -5,7 +5,9 @@ module fortui_paint
     !! all of them. Coordinates are physical pixels; edges of solid rectangles lie
     !! on whole pixels, so one-pixel lines stay one pixel wide and sharp. The
     !! classic painter draws Windows 95 controls from 1 px lines (2 px at scale 2);
-    !! the material painter draws Material Design 3 shapes with antialiased edges.
+    !! the fluent painter draws Fluent 2 controls (4 px corners, 1 px strokes, an
+    !! accessible underline on fields, a two-tone focus outline) with antialiased
+    !! rounded edges.
     !!
     !! Commands: filled rectangles with optional corner radius, border and a
     !! one-pixel checker pattern (dotted focus rectangles, scroll tracks), thick
@@ -213,19 +215,6 @@ contains
         out = ior(iand(c, int(z'00FFFFFF', int32)), ishft(int(iand(a, 255), int32), 24))
     end function with_alpha
 
-    pure integer(int32) function over(base, top, a) result(out)
-        !! `top` at opacity a/255 over the opaque `base` (state layers).
-        integer(int32), intent(in) :: base, top
-        integer, intent(in) :: a
-        integer :: k, b, t
-        out = ior(0_int32, ishft(255_int32, 24))
-        do k = 0, 2
-            b = int(iand(ishft(base, -8 * k), 255_int32))
-            t = int(iand(ishft(top, -8 * k), 255_int32))
-            out = ior(out, ishft(int((b * (255 - a) + t * a + 127) / 255, int32), 8 * k))
-        end do
-    end function over
-
     ! --- frame -----------------------------------------------------------------------
 
     subroutine paint_frame(frame, scale, width, height, list)
@@ -311,25 +300,25 @@ contains
             if (theme%kind == STYLE_CLASSIC) then
                 call classic_button(list, node)
             else
-                call material_button(list, node)
+                call fluent_button(list, node)
             end if
         case (UI_CHECKBOX)
             if (theme%kind == STYLE_CLASSIC) then
                 call classic_checkbox(list, node)
             else
-                call material_checkbox(list, node)
+                call fluent_checkbox(list, node)
             end if
         case (UI_SLIDER)
             if (theme%kind == STYLE_CLASSIC) then
                 call classic_slider(list, node)
             else
-                call material_slider(list, node)
+                call fluent_slider(list, node)
             end if
         case (UI_TAB)
             if (theme%kind == STYLE_CLASSIC) then
                 call classic_tab(list, node)
             else
-                call material_tab(list, node)
+                call fluent_tab(list, node)
             end if
         case (UI_TEXT_INPUT, UI_TEXT_AREA)
             call paint_field(list, node)
@@ -392,7 +381,7 @@ contains
     end subroutine paint_text_node
 
     subroutine focus_rect(list, x, y, w, h)
-        !! Keyboard focus: a dotted rectangle (classic) or a 3 px ring (material).
+        !! Keyboard focus: a dotted rectangle (classic) or the Fluent focus outline.
         type(paint_list_t), intent(inout) :: list
         real, intent(in) :: x, y, w, h
         if (theme%kind == STYLE_CLASSIC) then
@@ -404,7 +393,7 @@ contains
             call rect(list, x + w - u, y + u, u, h - 2.0 * u, theme%focus, stroke=0, &
                 pattern=PATTERN_CHECKER)
         else
-            call ring(list, x, y, w, h, 4.0 * s)
+            call fluent_focus(list, x, y, w, h, 4.0 * s)
         end if
     end subroutine focus_rect
 
@@ -636,126 +625,131 @@ contains
         end if
     end subroutine classic_tab
 
-    ! --- material 3 ------------------------------------------------------------------
+    ! --- fluent 2 ---------------------------------------------------------------------
 
-    subroutine material_button(list, node)
-        !! Tonal (normal), filled (primary) or text (quiet) button, fully rounded,
-        !! with hover/press state layers and a focus ring.
+    subroutine fluent_focus(list, x, y, w, h, r)
+        !! Fluent focus indicator: a 2 px outline in the focus colour over the
+        !! control's edge with a 1 px inner line in the background colour.
+        type(paint_list_t), intent(inout) :: list
+        real, intent(in) :: x, y, w, h, r
+        call rect(list, x, y, w, h, 0, radius=r, border=2.0 * s, stroke=theme%focus)
+        call rect(list, x + 2.0 * s, y + 2.0 * s, w - 4.0 * s, h - 4.0 * s, 0, &
+            radius=max(0.0, r - 2.0 * s), border=1.0 * s, stroke=theme%surface)
+    end subroutine fluent_focus
+
+    subroutine fluent_button(list, node)
+        !! Secondary (normal), primary (brand) and subtle (quiet) buttons: 4 px
+        !! corners, a 1 px stroke on secondary buttons, Body1 Strong labels, hover
+        !! and pressed fills from the Fluent neutral ramp.
         type(paint_list_t), intent(inout) :: list
         type(ui_node_t), intent(in) :: node
         real :: x, y, w, h, r
-        integer(int32) :: fill, ink
-        integer :: weight, layer
-        logical :: filled
+        integer(int32) :: fill, stroke, ink
+        integer :: weight
         character(len=:), allocatable :: str
 
         call node_box(node, x, y, w, h)
         weight = style_weight(ROLE_LABEL)
-        r = 0.5 * h
-        filled = node%emphasis /= UI_EMPHASIS_QUIET
+        r = theme%control_radius * s
         select case (node%emphasis)
         case (UI_EMPHASIS_PRIMARY)
             fill = theme%primary
+            if (node%hovered) fill = theme%dark_shadow
+            if (node%active .and. node%hovered) fill = theme%caption
+            stroke = 0
             ink = theme%on_primary
         case (UI_EMPHASIS_QUIET)
-            fill = theme%window
-            ink = theme%primary
+            fill = 0
+            if (node%hovered) fill = theme%hilight
+            if (node%active .and. node%hovered) fill = theme%light
+            stroke = 0
+            ink = theme%on_surface
         case default
-            fill = theme%tonal
-            ink = theme%on_tonal
+            fill = theme%surface
+            stroke = theme%outline_variant
+            if (node%hovered) then
+                fill = theme%hilight
+                stroke = theme%shadow
+            end if
+            if (node%active .and. node%hovered) fill = theme%light
+            ink = theme%on_surface
         end select
-        layer = 0
-        if (node%hovered) layer = 20
-        if (node%active) layer = 26
-        if (node%focused) layer = max(layer, 26)
         if (node%disabled) then
-            if (filled) call rect(list, x, y, w, h, with_alpha(theme%on_surface, 31), radius=r)
+            fill = merge(0, theme%surface_high, node%emphasis == UI_EMPHASIS_QUIET)
+            stroke = merge(0, theme%light, node%emphasis == UI_EMPHASIS_QUIET)
             ink = theme%disabled
-        else
-            if (filled .or. layer > 0) call rect(list, x, y, w, h, over(fill, ink, layer), &
-                radius=r)
         end if
+        if (fill /= 0 .or. stroke /= 0) call rect(list, x, y, w, h, fill, radius=r, &
+            border=merge(1.0 * s, 0.0, stroke /= 0), stroke=stroke)
         str = trim(node%text)
         if (node%ellipsis) str = text_fit(str, node%text_size, w / s - 2.0 * ui_pad(), weight)
         call label(list, str, x, y, h, node%text_size, weight, ink, .true., w)
-        if (node%focused .and. .not. node%disabled) call ring(list, x, y, w, h, r)
-    end subroutine material_button
+        if (node%focused .and. .not. node%disabled) call fluent_focus(list, x, y, w, h, r)
+    end subroutine fluent_button
 
-    subroutine ring(list, x, y, w, h, r)
-        !! M3 focus indicator: 3 dp outline 2 dp outside the shape.
-        type(paint_list_t), intent(inout) :: list
-        real, intent(in) :: x, y, w, h, r
-        real :: o
-        o = 5.0 * s
-        call rect(list, x - o, y - o, w + 2.0 * o, h + 2.0 * o, 0, radius=r + o, &
-            border=3.0 * s, stroke=theme%focus)
-    end subroutine ring
-
-    subroutine material_checkbox(list, node)
+    subroutine fluent_checkbox(list, node)
+        !! 16 px box with 2 px corners: an accessible 1 px stroke, brand fill and a
+        !! white check when checked.
         type(paint_list_t), intent(inout) :: list
         type(ui_node_t), intent(in) :: node
-        real :: x, y, w, h, b, bx, by, lx, cx, cy, q
-        integer :: weight, layer
-        integer(int32) :: tint
+        real :: x, y, w, h, b, bx, by, lx, q
+        integer :: weight
+        integer(int32) :: ink
 
         call node_box(node, x, y, w, h)
         weight = style_weight(1)
         b = real(nint(theme%check_size * s))
-        bx = x + real(nint(11.0 * s))
+        bx = x
         by = y + real(floor(0.5 * (h - b)))
-        cx = bx + 0.5 * b
-        cy = by + 0.5 * b
-        tint = merge(theme%primary, theme%on_surface, node%checked)
-        layer = 0
-        if (node%hovered) layer = 20
-        if (node%active .or. node%focused) layer = 26
-        if (layer > 0 .and. .not. node%disabled) call rect(list, cx - 20.0 * s, cy - 20.0 * s, &
-            40.0 * s, 40.0 * s, with_alpha(tint, layer), radius=20.0 * s)
         if (node%checked) then
-            call rect(list, bx, by, b, b, merge(theme%disabled, theme%primary, node%disabled), &
-                radius=2.0 * s)
-            q = b / 18.0
-            call line(list, bx + 4.3 * q, by + 9.2 * q, bx + 7.6 * q, by + 12.5 * q, 2.0 * s, &
-                merge(theme%window, theme%on_primary, node%disabled))
-            call line(list, bx + 7.6 * q, by + 12.5 * q, bx + 14.0 * q, by + 5.8 * q, 2.0 * s, &
-                merge(theme%window, theme%on_primary, node%disabled))
+            call rect(list, bx, by, b, b, merge(theme%disabled, merge(theme%dark_shadow, &
+                theme%primary, node%hovered), node%disabled), radius=2.0 * s)
+            q = b / 16.0
+            call line(list, bx + 3.5 * q, by + 8.2 * q, bx + 6.5 * q, by + 11.2 * q, 1.5 * s, &
+                theme%on_primary)
+            call line(list, bx + 6.5 * q, by + 11.2 * q, bx + 12.5 * q, by + 5.0 * q, 1.5 * s, &
+                theme%on_primary)
         else
-            call rect(list, bx, by, b, b, 0, radius=2.0 * s, border=2.0 * s, &
-                stroke=merge(theme%disabled, theme%on_surface_muted, node%disabled))
+            call rect(list, bx, by, b, b, theme%field, radius=2.0 * s, border=1.0 * s, &
+                stroke=merge(theme%disabled, merge(theme%on_surface, theme%outline, &
+                node%hovered), node%disabled))
         end if
-        lx = bx + b + real(nint((11.0 + theme%check_gap) * s))
+        lx = bx + b + real(nint(theme%check_gap * s))
+        ink = merge(theme%disabled, theme%on_surface, node%disabled)
         if (len_trim(node%text) > 0) call label(list, trim(node%text), lx, y, h, &
-            node%text_size, weight, merge(theme%disabled, theme%on_surface, node%disabled))
-    end subroutine material_checkbox
+            node%text_size, weight, ink)
+        if (node%focused) call fluent_focus(list, bx - 3.0 * s, by - 3.0 * s, b + 6.0 * s, &
+            b + 6.0 * s, 4.0 * s)
+    end subroutine fluent_checkbox
 
-    subroutine material_slider(list, node)
-        !! 4 dp track (active part in primary) and a 20 dp handle.
+    subroutine fluent_slider(list, node)
+        !! 4 px rail in the accessible stroke colour, brand progress, and a 20 px
+        !! thumb: a white disc with a brand centre that grows under the pointer.
         type(paint_list_t), intent(inout) :: list
         type(ui_node_t), intent(in) :: node
-        real :: x, y, w, h, t, r, cx, cy
-        integer(int32) :: active, inactive
+        real :: x, y, w, h, t, r, cx, cy, ri
+        integer(int32) :: active
         call node_box(node, x, y, w, h)
         r = 0.5 * real(nint(theme%slider_thumb * s))
         t = 4.0 * s
         cy = y + 0.5 * h
         cx = x + r + slider_fraction(node) * (w - 2.0 * r)
-        active = theme%primary
-        inactive = theme%tonal
-        if (node%disabled) then
-            active = theme%disabled
-            inactive = with_alpha(theme%on_surface, 31)
-        end if
-        call rect(list, x + r, cy - 0.5 * t, w - 2.0 * r, t, inactive, radius=0.5 * t)
+        active = merge(theme%disabled, merge(theme%dark_shadow, theme%primary, node%hovered), &
+            node%disabled)
+        call rect(list, x + r, cy - 0.5 * t, w - 2.0 * r, t, merge(theme%light, theme%outline, &
+            node%disabled), radius=0.5 * t)
         call rect(list, x + r, cy - 0.5 * t, cx - x - r, t, active, radius=0.5 * t)
-        if ((node%hovered .or. node%active .or. node%focused) .and. .not. node%disabled) &
-            call rect(list, cx - 20.0 * s, cy - 20.0 * s, 40.0 * s, 40.0 * s, &
-            with_alpha(theme%primary, merge(26, 20, node%active .or. node%focused)), &
-            radius=20.0 * s)
-        call rect(list, cx - r, cy - r, 2.0 * r, 2.0 * r, active, radius=r)
-    end subroutine material_slider
+        call rect(list, cx - r, cy - r, 2.0 * r, 2.0 * r, theme%surface, radius=r, &
+            border=1.0 * s, stroke=theme%outline_variant)
+        ri = merge(0.35, 0.3, node%hovered .or. node%active) * 2.0 * r
+        call rect(list, cx - ri, cy - ri, 2.0 * ri, 2.0 * ri, active, radius=ri)
+        if (node%focused) call fluent_focus(list, cx - r - 3.0 * s, cy - r - 3.0 * s, &
+            2.0 * r + 6.0 * s, 2.0 * r + 6.0 * s, r + 3.0 * s)
+    end subroutine fluent_slider
 
-    subroutine material_tab(list, node)
-        !! Primary tab: label, 3 dp indicator under it when selected, divider.
+    subroutine fluent_tab(list, node)
+        !! TabList tab: Body1 label (semibold when selected), a 3 px brand
+        !! indicator under the label, a grey one under a hovered tab.
         type(paint_list_t), intent(inout) :: list
         type(ui_node_t), intent(in) :: node
         real :: x, y, w, h, tw
@@ -763,26 +757,29 @@ contains
         integer(int32) :: ink
         character(len=:), allocatable :: str
         call node_box(node, x, y, w, h)
-        weight = style_weight(ROLE_LABEL)
-        if (node%hovered .or. node%active) call rect(list, x, y, w, h, over(theme%window, &
-            theme%on_surface, merge(26, 20, node%active)))
-        call rect(list, x, y + h - u, w, u, theme%outline_variant)
-        ink = merge(theme%primary, theme%on_surface_muted, node%checked)
+        weight = merge(style_weight(ROLE_LABEL), style_weight(1), node%checked)
+        ink = merge(theme%on_surface, theme%on_surface_muted, node%checked .or. node%hovered)
         if (node%disabled) ink = theme%disabled
-        str = text_fit(trim(node%text), node%text_size, w / s - 16.0, weight)
+        str = text_fit(trim(node%text), node%text_size, w / s - 20.0, weight)
         call label(list, str, x, y, h, node%text_size, weight, ink, .true., w)
         tw = real(nint(text_width(str, node%text_size, weight) * s))
-        if (node%checked) call rect(list, x + real(floor(0.5 * (w - tw))), y + h - 3.0 * s, &
-            tw, 3.0 * s, theme%primary, radius=1.5 * s)
-        if (node%focused) call rect(list, x + 2.0 * s, y + 2.0 * s, w - 4.0 * s, &
-            h - 4.0 * s, 0, radius=4.0 * s, border=3.0 * s, stroke=theme%focus)
-    end subroutine material_tab
+        if (node%checked) then
+            call rect(list, x + real(floor(0.5 * (w - tw))), y + h - 3.0 * s - 6.0 * s, tw, &
+                3.0 * s, theme%primary, radius=1.5 * s)
+        else if (node%hovered .and. .not. node%disabled) then
+            call rect(list, x + real(floor(0.5 * (w - tw))), y + h - 3.0 * s - 6.0 * s, tw, &
+                3.0 * s, theme%shadow, radius=1.5 * s)
+        end if
+        if (node%focused) call fluent_focus(list, x + 2.0 * s, y + 4.0 * s, w - 4.0 * s, &
+            h - 8.0 * s, 4.0 * s)
+    end subroutine fluent_tab
+
 
     ! --- fields and scrolling text ---------------------------------------------------
 
     subroutine paint_field(list, node)
         !! Single- and multi-line text fields: sunken white field (classic) or an
-        !! outlined field (material), placeholder, text and caret.
+        !! Fluent field with its underline, placeholder, text and caret.
         type(paint_list_t), intent(inout) :: list
         type(ui_node_t), intent(in) :: node
         real :: x, y, w, h, pad, lh, tx, ty, caret_x, shift
@@ -794,13 +791,18 @@ contains
         if (theme%kind == STYLE_CLASSIC) then
             call sunken_field(list, x, y, w, h, merge(theme%face, theme%field, node%disabled))
         else
-            call rect(list, x, y, w, h, theme%field, radius=theme%field_radius * s)
-            if (node%focused) then
-                call rect(list, x, y, w, h, 0, radius=theme%field_radius * s, border=2.0 * s, &
-                    stroke=theme%primary)
-            else
-                call rect(list, x, y, w, h, 0, radius=theme%field_radius * s, border=1.0 * s, &
-                    stroke=merge(theme%on_surface, theme%outline, node%hovered))
+            ! Fluent: 1 px stroke, a darker bottom stroke that turns into a 2 px
+            ! brand underline with the focus.
+            call rect(list, x, y, w, h, merge(theme%surface_high, theme%field, node%disabled), &
+                radius=4.0 * s, border=1.0 * s, stroke=merge(theme%light, &
+                merge(theme%shadow, theme%outline_variant, node%hovered), node%disabled))
+            if (.not. node%disabled) then
+                call clip(list, x, y + h - 4.0 * s, w, 4.0 * s)
+                call rect(list, x, y, w, h, 0, radius=4.0 * s, border=1.0 * s, &
+                    stroke=merge(theme%on_surface_muted, theme%outline, node%hovered))
+                call unclip(list)
+                if (node%focused) call rect(list, x + 1.0 * s, y + h - 2.0 * s, w - 2.0 * s, &
+                    2.0 * s, theme%primary, radius=1.0 * s)
             end if
         end if
         call clip(list, x + 2.0 * u, y + 2.0 * u, w - 4.0 * u, h - 4.0 * u)
@@ -879,7 +881,8 @@ contains
         if (theme%kind == STYLE_CLASSIC) then
             call rect(list, real(nint(x)), y, u, lh, theme%on_field)
         else
-            call rect(list, real(nint(x)), y + 2.0 * s, 2.0 * s, lh - 4.0 * s, theme%primary)
+            call rect(list, real(nint(x)), y + 2.0 * s, real(max(1, nint(s))), lh - 4.0 * s, &
+                theme%on_field)
         end if
     end subroutine caret
 
@@ -896,7 +899,8 @@ contains
         if (theme%kind == STYLE_CLASSIC) then
             call sunken_field(list, x, y, w, h, theme%field)
         else
-            call rect(list, x, y, w, h, theme%surface_low, radius=12.0 * s)
+            call rect(list, x, y, w, h, theme%surface, radius=4.0 * s, border=1.0 * s, &
+                stroke=theme%outline_variant)
         end if
         call clip(list, x + 2.0 * u, y + 2.0 * u, w - 4.0 * u, h - 4.0 * u)
         top = y + pad - real(nint(node%scroll * s))
@@ -933,9 +937,9 @@ contains
         else
             th = max(24.0 * s, h * node%height / total)
             ty = y + node%scroll / max_scroll * (h - th)
-            call rect(list, x + w - sw + 3.0 * s, ty + 2.0 * s, sw - 6.0 * s, th - 4.0 * s, &
-                with_alpha(theme%on_surface_muted, merge(160, 97, node%hovered)), &
-                radius=0.5 * (sw - 6.0 * s))
+            call rect(list, x + w - sw + 2.0 * s, ty + 2.0 * s, sw - 4.0 * s, th - 4.0 * s, &
+                with_alpha(theme%on_surface_muted, merge(200, 140, node%hovered)), &
+                radius=0.5 * (sw - 4.0 * s))
         end if
     end subroutine paint_scroll_text
 

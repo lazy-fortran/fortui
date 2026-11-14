@@ -1,7 +1,7 @@
 program theme_gallery
     !! Every control in every state, for comparing themes and backends:
     !!   FORTUI_THEME=classic fpm run --example theme_gallery
-    !! Keys: 1 classic, 2 material, 3 material-dark.
+    !! Keys: 1 classic, 2 fluent, 3 fluent-dark.
     use iso_fortran_env, only: int32
     use fortui
     use fortui_backends, only: ui_init
@@ -34,8 +34,8 @@ contains
     subroutine frame()
         if (ui_key_pressed(KEY_ESCAPE)) call ui_request_quit()
         if (ui_shortcut("1")) call ui_set_theme("classic")
-        if (ui_shortcut("2")) call ui_set_theme("material")
-        if (ui_shortcut("3")) call ui_set_theme("material-dark")
+        if (ui_shortcut("2")) call ui_set_theme("fluent")
+        if (ui_shortcut("3")) call ui_set_theme("fluent-dark")
         call split_begin("main", first=420.0, gap=16.0)
         call column_begin(8.0)
         call text("Theme gallery", style=UI_TITLE)

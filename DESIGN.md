@@ -219,7 +219,7 @@ integration. Judge their responsibilities and dependencies, not ideological puri
 | Semantics | Text/button/link/slider/checkbox/tabs/text field/scroll text/canvas nodes | Roles, commands, owned variable-length data, relationships |
 | Identity/input | Container-scoped ids and loop keys with duplicate reports; previous-frame routing | Generations, capture/focus/edit lifecycle |
 | Layout | Logical rows/columns, fill widths, two/three-pane splits | Intrinsic/adaptive layout and virtualization |
-| Backends | Headless, termbox2 TUI, SDL3 GPU and raylib desktop with Classic and Material themes, browser DOM | Native/hybrid where it pays, mobile (SDL3) and additional renderers |
+| Backends | Headless, termbox2 TUI, SDL3 GPU and raylib desktop with Fluent 2 and Classic themes, browser DOM | Native/hybrid where it pays, mobile (SDL3) and additional renderers |
 | Text/accessibility | Basic labels | Editing/IME/shaping and verified host accessibility |
 | Performance | Retained frame/storage foundation | Dependency invalidation and measured incremental work |
 

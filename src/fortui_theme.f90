@@ -8,20 +8,21 @@ module fortui_theme
     !! - "classic": Windows 95 as the Chicago95 desktop theme draws it: grey
     !!   #C0C0C0 faces, two-pixel bevels, 11 px bitmap Helvetica (Chicago95 fonts),
     !!   More Perfect DOS VGA for code.
-    !! - "material", "material-dark": Material Design 3 baseline colour schemes,
-    !!   Roboto and Roboto Mono, the M3 type scale and component metrics.
+    !! - "fluent", "fluent-dark": Microsoft Fluent 2 (Fluent UI web themes):
+    !!   Segoe UI or its open counterpart Selawik, Cascadia Mono, 32 px controls with
+    !!   visible strokes, the default for desktop apps.
     !! - "plain": the semantic default of headless and terminal backends.
     !!
     !! Fonts are never shipped: a theme names font families that fontconfig finds
     !! among the installed fonts, and backends fall back with a warning.
     !! Graphical backends take the theme from FORTUI_THEME, else from `theme =`
     !! in $XDG_CONFIG_HOME/fortui/config (~/.config/fortui/config), else the
-    !! application's default (ui_init theme=, else "material").
+    !! application's default (ui_init theme=, else "fluent").
     use iso_fortran_env, only: int32
     implicit none
     private
 
-    integer, parameter, public :: STYLE_PLAIN = 0, STYLE_CLASSIC = 1, STYLE_MATERIAL = 2
+    integer, parameter, public :: STYLE_PLAIN = 0, STYLE_CLASSIC = 1, STYLE_FLUENT = 3
 
     ! Text roles, the order of style tokens UI_BODY .. UI_CODE in fortui_frame.
     integer, parameter, public :: ROLE_BODY = 1, ROLE_CAPTION = 2, ROLE_HEADING = 3, &
@@ -93,7 +94,7 @@ module fortui_theme
     !! The current theme; read it here, change it with theme_set or theme_select.
     type(ui_theme_t), public, protected, save, target :: theme
 
-    public :: theme_plain, theme_classic, theme_material, theme_named
+    public :: theme_plain, theme_classic, theme_fluent, theme_named
     public :: theme_current, theme_set, theme_select, theme_requested
     public :: theme_rgb, theme_names
 
@@ -116,7 +117,7 @@ contains
 
     function theme_names() result(names)
         character(len=16) :: names(3)
-        names = [character(16) :: "classic", "material", "material-dark"]
+        names = [character(16) :: "fluent", "fluent-dark", "classic"]
     end function theme_names
 
     pure function theme_plain() result(t)
@@ -202,99 +203,110 @@ contains
             theme_rgb(int(z'000080'))]
     end function theme_classic
 
-    pure function theme_material(dark) result(t)
-        !! Material Design 3 baseline scheme (seed #6750A4) with the M3 type
-        !! scale: Body Medium 14, Body Small 12, Title Medium 16, Title Large 22,
-        !! Label Large 14; 40 dp buttons, 18 dp check boxes, 48 dp tabs.
+    pure function theme_fluent(dark) result(t)
+        !! Microsoft Fluent 2 as the Fluent UI web themes define it (webLightTheme,
+        !! webDarkTheme): neutral greys with visible 1 px strokes, brand blue
+        !! #0F6CBD, 4 px corners, 32 px controls, Body1 14/20, Caption1 12,
+        !! Subtitle2 16 semibold, Subtitle1 20 semibold.
         logical, intent(in) :: dark
         type(ui_theme_t) :: t
-        t%kind = STYLE_MATERIAL
+        t%kind = STYLE_FLUENT
         t%dark = dark
-        t%name = merge("material-dark", "material     ", dark)
-        t%text_size = [14.0, 12.0, 16.0, 22.0, 13.0, 14.0]
-        t%text_face = [FACE_REGULAR, FACE_REGULAR, FACE_STRONG, FACE_REGULAR, FACE_MONO, &
+        t%name = merge("fluent-dark", "fluent     ", dark)
+        t%text_size = [14.0, 12.0, 16.0, 20.0, 13.0, 14.0]
+        t%text_face = [FACE_REGULAR, FACE_REGULAR, FACE_STRONG, FACE_STRONG, FACE_MONO, &
             FACE_STRONG]
         t%line_factor = 20.0 / 14.0
-        t%fonts(FACE_REGULAR) = ui_font_t(families=[character(64) :: "Roboto", "", "", ""], &
-            style="Regular", package="Roboto (ttf-roboto)")
-        t%fonts(FACE_STRONG) = ui_font_t(families=[character(64) :: "Roboto", "", "", ""], &
-            style="Medium", package="Roboto (ttf-roboto)")
-        t%fonts(FACE_MONO) = ui_font_t(families=[character(64) :: "Roboto Mono", "", "", ""], &
-            style="Regular", package="Roboto Mono (ttf-roboto-mono)")
-        t%control_height = 40.0
-        t%control_padding = 24.0
-        t%control_min_width = 64.0
-        t%input_padding = 16.0
-        t%scroll_padding = 12.0
-        t%scrollbar_width = 12.0
-        t%check_size = 18.0
-        t%check_gap = 12.0
-        t%tab_height = 48.0
+        t%fonts(FACE_REGULAR) = ui_font_t(families=[character(64) :: &
+            "Segoe UI Variable Text", "Segoe UI", "Selawik", ""], style="Regular", &
+            package="Selawik (github.com/microsoft/Selawik)")
+        t%fonts(FACE_STRONG) = ui_font_t(families=[character(64) :: &
+            "Segoe UI Variable Text", "Segoe UI", "Selawik", ""], style="Semibold", &
+            package="Selawik (github.com/microsoft/Selawik)")
+        t%fonts(FACE_MONO) = ui_font_t(families=[character(64) :: "Cascadia Mono", "", "", &
+            ""], style="Regular", package="Cascadia Mono (ttf-cascadia-code)")
+        t%control_height = 32.0
+        t%control_padding = 12.0
+        t%control_min_width = 96.0
+        t%input_padding = 10.0
+        t%scroll_padding = 10.0
+        t%scrollbar_width = 10.0
+        t%check_size = 16.0
+        t%check_gap = 8.0
+        t%tab_height = 44.0
         t%slider_thumb = 20.0
-        t%control_radius = 20.0
+        t%control_radius = 4.0
         t%field_radius = 4.0
         t%gap = 8.0
         t%margin = 16.0
         if (.not. dark) then
-            t%window = theme_rgb(int(z'FEF7FF'))
-            t%surface = t%window
-            t%surface_low = theme_rgb(int(z'F7F2FA'))
-            t%surface_high = theme_rgb(int(z'ECE6F0'))
-            t%on_surface = theme_rgb(int(z'1D1B20'))
-            t%on_surface_muted = theme_rgb(int(z'49454F'))
-            t%primary = theme_rgb(int(z'6750A4'))
+            t%window = theme_rgb(int(z'F5F5F5'))
+            t%surface = theme_rgb(int(z'FFFFFF'))
+            t%surface_low = theme_rgb(int(z'FFFFFF'))
+            t%surface_high = theme_rgb(int(z'F0F0F0'))
+            t%on_surface = theme_rgb(int(z'242424'))
+            t%on_surface_muted = theme_rgb(int(z'616161'))
+            t%disabled = theme_rgb(int(z'BDBDBD'))
+            t%primary = theme_rgb(int(z'0F6CBD'))
             t%on_primary = theme_rgb(int(z'FFFFFF'))
-            t%tonal = theme_rgb(int(z'E8DEF8'))
-            t%on_tonal = theme_rgb(int(z'1D192B'))
-            t%outline = theme_rgb(int(z'79747E'))
-            t%outline_variant = theme_rgb(int(z'CAC4D0'))
-            t%focus = theme_rgb(int(z'625B71'))
-            t%link = t%primary
-            t%positive = theme_rgb(int(z'386A20'))
-            t%negative = theme_rgb(int(z'B3261E'))
-            t%attention = theme_rgb(int(z'7D5700'))
-            t%code = [theme_rgb(int(z'6750A4')), theme_rgb(int(z'386A20')), &
-                theme_rgb(int(z'79747E')), theme_rgb(int(z'7D5260')), &
-                theme_rgb(int(z'006A6A')), theme_rgb(int(z'7D5700')), &
-                theme_rgb(int(z'386A20')), theme_rgb(int(z'B3261E')), &
-                theme_rgb(int(z'625B71'))]
+            t%tonal = theme_rgb(int(z'FFFFFF'))
+            t%on_tonal = theme_rgb(int(z'242424'))
+            t%outline = theme_rgb(int(z'616161'))
+            t%outline_variant = theme_rgb(int(z'D1D1D1'))
+            t%field = theme_rgb(int(z'FFFFFF'))
+            t%focus = theme_rgb(int(z'000000'))
+            t%link = theme_rgb(int(z'115EA3'))
+            t%positive = theme_rgb(int(z'107C10'))
+            t%negative = theme_rgb(int(z'C50F1F'))
+            t%attention = theme_rgb(int(z'BC4B09'))
+            ! hover, pressed, selected fills of neutral controls
+            t%hilight = theme_rgb(int(z'F5F5F5'))
+            t%light = theme_rgb(int(z'E0E0E0'))
+            t%shadow = theme_rgb(int(z'C7C7C7'))
+            t%dark_shadow = theme_rgb(int(z'115EA3'))
+            t%caption = theme_rgb(int(z'0C3B5E'))
+            t%code = [theme_rgb(int(z'0F6CBD')), theme_rgb(int(z'A31515')), &
+                theme_rgb(int(z'107C10')), theme_rgb(int(z'098658')), &
+                theme_rgb(int(z'267F99')), theme_rgb(int(z'AF00DB')), &
+                theme_rgb(int(z'107C10')), theme_rgb(int(z'C50F1F')), &
+                theme_rgb(int(z'616161'))]
         else
-            t%window = theme_rgb(int(z'141218'))
-            t%surface = t%window
-            t%surface_low = theme_rgb(int(z'1D1B20'))
-            t%surface_high = theme_rgb(int(z'2B2930'))
-            t%on_surface = theme_rgb(int(z'E6E0E9'))
-            t%on_surface_muted = theme_rgb(int(z'CAC4D0'))
-            t%primary = theme_rgb(int(z'D0BCFF'))
-            t%on_primary = theme_rgb(int(z'381E72'))
-            t%tonal = theme_rgb(int(z'4A4458'))
-            t%on_tonal = theme_rgb(int(z'E8DEF8'))
-            t%outline = theme_rgb(int(z'938F99'))
-            t%outline_variant = theme_rgb(int(z'49454F'))
-            t%focus = theme_rgb(int(z'CCC2DC'))
-            t%link = t%primary
-            t%positive = theme_rgb(int(z'9CD67D'))
-            t%negative = theme_rgb(int(z'F2B8B5'))
-            t%attention = theme_rgb(int(z'FFB95C'))
-            t%code = [theme_rgb(int(z'D0BCFF')), theme_rgb(int(z'9CD67D')), &
-                theme_rgb(int(z'938F99')), theme_rgb(int(z'EFB8C8')), &
-                theme_rgb(int(z'4CDADA')), theme_rgb(int(z'FFB95C')), &
-                theme_rgb(int(z'9CD67D')), theme_rgb(int(z'F2B8B5')), &
-                theme_rgb(int(z'CCC2DC'))]
+            t%window = theme_rgb(int(z'1F1F1F'))
+            t%surface = theme_rgb(int(z'292929'))
+            t%surface_low = theme_rgb(int(z'292929'))
+            t%surface_high = theme_rgb(int(z'333333'))
+            t%on_surface = theme_rgb(int(z'FFFFFF'))
+            t%on_surface_muted = theme_rgb(int(z'ADADAD'))
+            t%disabled = theme_rgb(int(z'5C5C5C'))
+            t%primary = theme_rgb(int(z'115EA3'))
+            t%on_primary = theme_rgb(int(z'FFFFFF'))
+            t%tonal = theme_rgb(int(z'292929'))
+            t%on_tonal = theme_rgb(int(z'FFFFFF'))
+            t%outline = theme_rgb(int(z'ADADAD'))
+            t%outline_variant = theme_rgb(int(z'666666'))
+            t%field = theme_rgb(int(z'292929'))
+            t%focus = theme_rgb(int(z'FFFFFF'))
+            t%link = theme_rgb(int(z'479EF5'))
+            t%positive = theme_rgb(int(z'54B054'))
+            t%negative = theme_rgb(int(z'DC626D'))
+            t%attention = theme_rgb(int(z'FAA06B'))
+            t%hilight = theme_rgb(int(z'3D3D3D'))
+            t%light = theme_rgb(int(z'1F1F1F'))
+            t%shadow = theme_rgb(int(z'757575'))
+            t%dark_shadow = theme_rgb(int(z'0F6CBD'))
+            t%caption = theme_rgb(int(z'0C3B5E'))
+            t%code = [theme_rgb(int(z'479EF5')), theme_rgb(int(z'CE9178')), &
+                theme_rgb(int(z'6A9955')), theme_rgb(int(z'B5CEA8')), &
+                theme_rgb(int(z'4EC9B0')), theme_rgb(int(z'C586C0')), &
+                theme_rgb(int(z'54B054')), theme_rgb(int(z'DC626D')), &
+                theme_rgb(int(z'ADADAD'))]
         end if
-        t%disabled = theme_rgb(rgb_of(t%on_surface), 97)
-        t%field = t%surface
         t%on_field = t%on_surface
-        t%selection = theme_rgb(rgb_of(t%primary), 64)
+        t%selection = theme_rgb(rgb_of(t%primary), 80)
         t%on_selection = t%on_surface
         t%face = t%surface
-        t%hilight = t%surface
-        t%light = t%surface
-        t%shadow = t%outline
-        t%dark_shadow = t%outline
-        t%caption = t%primary
-        t%on_caption = t%on_primary
-    end function theme_material
+        t%on_caption = theme_rgb(int(z'FFFFFF'))
+    end function theme_fluent
 
     pure integer function rgb_of(c)
         !! 0xRRGGBB of a packed colour.
@@ -313,10 +325,10 @@ contains
         select case (lower(trim(adjustl(name))))
         case ("classic", "windows95", "win95", "chicago95")
             t = theme_classic()
-        case ("material", "material-light")
-            t = theme_material(.false.)
-        case ("material-dark")
-            t = theme_material(.true.)
+        case ("fluent", "fluent-light", "fluent2")
+            t = theme_fluent(.false.)
+        case ("fluent-dark")
+            t = theme_fluent(.true.)
         case ("plain")
             t = theme_plain()
         case default

@@ -7,7 +7,7 @@ program test_theme
     use iso_c_binding
     use iso_fortran_env, only: int32
     use fortui_theme, only: ui_theme_t, theme, theme_named, theme_select, theme_requested, &
-        theme_rgb, STYLE_CLASSIC, STYLE_MATERIAL
+        theme_rgb, STYLE_CLASSIC, STYLE_FLUENT
     use fortui_frame, only: ui_frame_t, ui_node_t, UI_BUTTON, UI_CHECKBOX, UI_EMPHASIS_PRIMARY, &
         ui_control_height
     use fortui_paint, only: paint_list_t, paint_frame, PAINT_RECT, PAINT_TEXT, PATTERN_CHECKER
@@ -31,7 +31,7 @@ program test_theme
     call test_requested()
     call test_classic_button()
     call test_classic_checkbox()
-    call test_material_button()
+    call test_fluent_button()
 
     if (failures > 0) then
         print '(i0,a)', failures, " theme checks failed"
@@ -56,8 +56,10 @@ contains
         call theme_named("Classic", t, ok)
         call check(ok .and. t%kind == STYLE_CLASSIC .and. t%control_height == 23.0, &
             "classic: 23 px buttons")
-        call theme_named("material-dark", t, ok)
-        call check(ok .and. t%kind == STYLE_MATERIAL .and. t%dark, "material-dark")
+        call theme_named("fluent-dark", t, ok)
+        call check(ok .and. t%kind == STYLE_FLUENT .and. t%dark, "fluent-dark")
+        call theme_named("material", t, ok)
+        call check(.not. ok, "material is gone")
         call theme_named("no-such-theme", t, ok)
         call check(.not. ok, "unknown names are refused")
         call check(theme_rgb(int(z'C0C0C0')) == int(z'FFC0C0C0', int32), &
@@ -77,13 +79,13 @@ contains
         close (u)
         rc = setenv("XDG_CONFIG_HOME" // c_null_char, trim(dir) // c_null_char, 1_c_int)
         rc = unsetenv("FORTUI_THEME" // c_null_char)
-        call check(theme_requested("material") == "classic", "config file theme")
-        rc = setenv("FORTUI_THEME" // c_null_char, "material-dark" // c_null_char, 1_c_int)
-        call check(theme_requested("material") == "material-dark", "environment wins")
+        call check(theme_requested("fluent") == "classic", "config file theme")
+        rc = setenv("FORTUI_THEME" // c_null_char, "fluent-dark" // c_null_char, 1_c_int)
+        call check(theme_requested("fluent") == "fluent-dark", "environment wins")
         rc = unsetenv("FORTUI_THEME" // c_null_char)
         rc = setenv("XDG_CONFIG_HOME" // c_null_char, trim(dir) // "/none" // c_null_char, &
             1_c_int)
-        call check(theme_requested("material") == "material", "application default")
+        call check(theme_requested("fluent") == "fluent", "application default")
     end subroutine test_requested
 
     subroutine paint_one(node, w, h, list)
@@ -193,27 +195,39 @@ contains
             .and. px(5, 9) == theme_rgb(int(z'000000')), "check glyph")
     end subroutine test_classic_checkbox
 
-    subroutine test_material_button()
-        !! Filled primary button: one fully rounded rectangle in the primary colour.
+    subroutine test_fluent_button()
+        !! Fluent 2: a secondary button is one 4 px rounded white rectangle with a
+        !! 1 px #D1D1D1 stroke, a primary one is brand blue #0F6CBD without stroke.
         type(ui_node_t) :: node
         type(paint_list_t) :: list
         logical :: ok
         integer :: k, n
-        call theme_select("material", ok)
-        call check(ui_control_height() == 40.0, "material metrics in composition")
+        call theme_select("fluent", ok)
+        call check(ui_control_height() == 32.0, "fluent metrics in composition")
         node%kind = UI_BUTTON
         node%text = "Save"
         node%width = 100.0
-        node%height = 40.0
+        node%height = 32.0
+        call paint_one(node, 120, 50, list)
+        n = 0
+        do k = 1, list%n
+            associate(c => list%cmds(k))
+                if (c%kind == PAINT_RECT .and. c%radius == 4.0 .and. c%border == 1.0 .and. &
+                    c%fill == theme_rgb(int(z'FFFFFF')) .and. &
+                    c%stroke == theme_rgb(int(z'D1D1D1'))) n = n + 1
+            end associate
+        end do
+        call check(n == 1, "secondary: white, 4 px corners, 1 px #D1D1D1 stroke")
         node%emphasis = UI_EMPHASIS_PRIMARY
         call paint_one(node, 120, 50, list)
         n = 0
         do k = 1, list%n
-            if (list%cmds(k)%kind == PAINT_RECT .and. list%cmds(k)%radius == 20.0 .and. &
-                list%cmds(k)%fill == theme%primary) n = n + 1
+            associate(c => list%cmds(k))
+                if (c%kind == PAINT_RECT .and. c%radius == 4.0 .and. c%border == 0.0 .and. &
+                    c%fill == theme_rgb(int(z'0F6CBD'))) n = n + 1
+            end associate
         end do
-        call check(n == 1, "fully rounded primary fill")
-        call check(theme%primary == theme_rgb(int(z'6750A4')), "M3 baseline primary #6750A4")
-    end subroutine test_material_button
+        call check(n == 1, "primary: brand blue #0F6CBD")
+    end subroutine test_fluent_button
 
 end program test_theme

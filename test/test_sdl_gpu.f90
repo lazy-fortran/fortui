@@ -3,7 +3,7 @@ program test_sdl_gpu
     !! without -DENABLE_SDL=1 or without a GPU):
     !! - a classic button has the Windows 95 bevel pixels on screen;
     !! - its label is drawn (dark glyph pixels inside the face);
-    !! - a material button's rounded corner is antialiased;
+    !! - a fluent button's rounded corner is antialiased;
     !! - a press and release that arrive between two frames activate a button;
     !! - a canvas image shows in the first frame it is composed in.
     use iso_c_binding
@@ -30,7 +30,7 @@ program test_sdl_gpu
         stop
     end if
     call test_classic_pixels()
-    call test_material_corner()
+    call test_fluent_corner()
     call test_quick_click()
     call test_image_first_frame()
 #else
@@ -108,24 +108,24 @@ contains
         call ui_shutdown()
     end subroutine test_classic_pixels
 
-    subroutine test_material_corner()
-        !! Material margin 16: the filled OK pill is the primary colour #6750A4
-        !! inside and blended where its left edge crosses a pixel.
+    subroutine test_fluent_corner()
+        !! Fluent margin 16: the primary OK button (32 px high, 4 px corners) is
+        !! brand blue #0F6CBD inside and blended at its rounded top-left corner.
         type(sdl_backend_t) :: b
         integer(int8), allocatable :: px(:, :, :)
         integer :: w, h, stat, r
         b%offscreen = .true.
-        call ui_init(b, 200, 140, "test", stat=stat, theme_name="material")
+        call ui_init(b, 200, 140, "test", stat=stat, theme_name="fluent")
         if (stat /= 0) return
-        call ui_set_theme("material")
+        call ui_set_theme("fluent")
         call compose()
         call read_frame(px, w, h)
         if (w /= 200) return
-        call check(rgb_is(px, 24, 36, int(z'6750A4')), "primary fill")
-        r = iand(int(px(1, 16 + 1, 36 + 1)), 255)
-        call check(r /= int(z'67') .and. r /= int(z'FE'), "antialiased corner")
+        call check(rgb_is(px, 20, 32, int(z'0F6CBD')), "primary fill")
+        r = iand(int(px(1, 17 + 1, 16 + 1)), 255)
+        call check(r /= int(z'0F') .and. r /= int(z'F5'), "antialiased corner")
         call ui_shutdown()
-    end subroutine test_material_corner
+    end subroutine test_fluent_corner
 
     subroutine test_quick_click()
         !! Press and release of the left button queued before one frame (a quick
@@ -157,9 +157,9 @@ contains
         integer(c_int32_t) :: red(4, 4)
         type(canvas_view_t) :: view
         b%offscreen = .true.
-        call ui_init(b, 100, 100, "test", stat=stat, theme_name="material")
+        call ui_init(b, 100, 100, "test", stat=stat, theme_name="fluent")
         if (stat /= 0) return
-        call ui_set_theme("material")
+        call ui_set_theme("fluent")
         red = ui_rgba(255, 0, 0)
         call ui_frame_begin()
         call canvas_begin("c", view, width=60.0, height=60.0, fill=ui_rgba(0, 0, 255))

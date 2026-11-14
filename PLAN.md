@@ -209,16 +209,21 @@ bounded work for a large collection, and no unsupported performance claims.
       SDL3 GPU backend (`fortui_gui_sdl`) and raylib draw the same theme painter
       display list (`fortui_paint`). Evidence 2026-11-14 (Linux/X11, Vulkan, RTX
       5060 Ti): `test_sdl_gpu` reads back an offscreen frame with the Windows 95
-      button bevel pixels, drawn glyphs, an antialiased Material corner and a
+      button bevel pixels, drawn glyphs, an antialiased Fluent corner and a
       quick click; A/B against Windows 95 screenshots matches bevel colours.
-- [x] Themes (`fortui_theme`): classic (Windows 95 via Chicago95 fonts) and
-      material/material-dark (M3 baseline, Roboto); user choice through
+- [x] Themes (`fortui_theme`): fluent/fluent-dark (Fluent 2, the default;
+      Selawik or Segoe UI, Cascadia Mono) and classic (Windows 95 via Chicago95
+      fonts), both first class; Material was removed; user choice through
       FORTUI_THEME or ~/.config/fortui/config; installed fonts via fontconfig,
       none shipped; opt-in themes in the browser through data-theme.
 - [ ] Group boxes, drop-down choices, scrolling containers and file dialogs
       (SDL dialogs) in both themes; tabs sized to their labels in classic.
 - [ ] SDL GPU on macOS (Metal shaders) and Windows; Wayland evidence.
 - [ ] Android and iOS through SDL3 once a Fortran compiler route (LFortran) works.
+- [ ] Fluent density (compact for dense scientific views) and Fluent system icons
+      (MIT) with an icon widget.
+- [ ] Terminal look after IBM CUA (action bar, pull-down menus, pop-up windows
+      with shadows, function-key line), checked against CUA text-mode examples.
 - [ ] Platform-specific menus, services, text, and accessibility evidence per host.
 - [x] Printing service over CUPS (`fortui_print`, `-DENABLE_PRINT=1`): printers,
       media with margins/borderless variants, media types, trays, qualities,

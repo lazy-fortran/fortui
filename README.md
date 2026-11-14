@@ -9,8 +9,8 @@ The current implementation is an experimental pre-1.0 prototype: basic semantic
 controls, previous-frame input routing, headless tests, a termbox2 TUI, an SDL3
 desktop backend drawing with the SDL GPU API, a raylib backend, and a browser
 backend with DOM controls. Desktop apps choose between two themes drawn the same
-on every backend: Classic (Windows 95 as the Chicago95 desktop shows it) and
-Material (Material Design 3, light and dark). Native widgets, browser canvas,
+on every backend: Fluent (Microsoft Fluent 2, light and dark, the default) and
+Classic (Windows 95 as the Chicago95 desktop shows it). Native widgets, browser canvas,
 mobile, full text/IME/accessibility, commands, and incremental transaction
 scheduling are roadmap work.
 
@@ -55,9 +55,9 @@ Applications can also inject a backend value without the registry, for example
 `call ui_init(headless_backend_t(), 800, 600, "test")` in tests or
 `call ui_init(sdl_backend_t(), 1200, 800, "app", theme_name="classic")`.
 `fortui_testing` provides synthetic input and frame queries for automation.
-Buttons take an `emphasis`: `UI_EMPHASIS_PRIMARY` for a view's main action (a
-filled Material button, the Classic default button), `UI_EMPHASIS_QUIET` for a
-text button.
+Buttons take an `emphasis`: `UI_EMPHASIS_PRIMARY` for a view's main action (the
+Fluent primary button, the Classic default button), `UI_EMPHASIS_QUIET` for a
+subtle button.
 
 Widgets describe semantics; adapters realize them. Application state remains
 caller-owned, while FortUI retains UI-local interaction state and resources.
@@ -162,13 +162,16 @@ same on SDL and raylib. Square edges sit on whole pixels and glyphs are drawn
   two-pixel bevels, default buttons with a black frame, dotted focus rectangles,
   sunken fields, 16 px scroll bars with arrows, 11 px bitmap Helvetica from the
   Chicago95 fonts and More Perfect DOS VGA for code.
-- `material`, `material-dark`: Material Design 3 baseline schemes with Roboto and
-  Roboto Mono, the M3 type scale, filled, tonal and text buttons, state layers
-  and focus rings.
+- `fluent`, `fluent-dark` (default): Microsoft Fluent 2 as the Fluent UI web
+  themes define it: neutral greys with visible 1 px strokes, brand blue, 4 px
+  corners, 32 px controls, fields with a darker underline that turns into a brand
+  underline with the focus, the Fluent type ramp and two-tone focus outlines;
+  Segoe UI where installed, else its open metric twin Selawik, Cascadia Mono for
+  code.
 
 The user chooses with `FORTUI_THEME`, else `theme = classic` in
 `~/.config/fortui/config` (`$XDG_CONFIG_HOME/fortui/config`); otherwise the
-application's `theme_name`, else `material`. `ui_set_theme(name)` switches at
+application's `theme_name`, else `fluent`. `ui_set_theme(name)` switches at
 run time. FortUI ships no fonts: themes find their fonts among the installed ones
 with fontconfig and fall back with a warning naming the package to install.
 Raylib cannot draw bitmap fonts, so Classic text there uses an outline font.
@@ -211,7 +214,7 @@ Theme fonts are used from the system at run time, never shipped or linked:
 | Theme | Fonts (Arch Linux package) | Licence |
 |---|---|---|
 | classic | Chicago95 fonts (`chicago95-fonts`), More Perfect DOS VGA (`ttf-perfectdos`) | GPL-3.0-or-later; free |
-| material | Roboto (`ttf-roboto`), Roboto Mono (`ttf-roboto-mono`) | OFL-1.1 |
+| fluent | Segoe UI if installed, else Selawik ([microsoft/Selawik](https://github.com/microsoft/Selawik)); Cascadia Mono (`ttf-cascadia-code`) | Microsoft; OFL-1.1; OFL-1.1 |
 
 The API may change before 1.0.
 

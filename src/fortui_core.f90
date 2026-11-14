@@ -51,7 +51,7 @@ contains
         !! target_fps = 0 means unlimited (useful for benchmarks with vsync off).
         !! Desktop backends use the theme the user asked for (FORTUI_THEME, else
         !! `theme =` in ~/.config/fortui/config), else `theme_name`, else
-        !! "material"; the browser uses `theme_name` only (else the page's own
+        !! "fluent"; the browser uses `theme_name` only (else the page's own
         !! look); headless and terminal backends use the plain metrics.
         class(ui_backend_t), intent(in) :: backend
         integer, intent(in) :: width, height
@@ -85,14 +85,14 @@ contains
             if (present(theme_name)) call theme_select(theme_name, ok)
             if (.not. ok) call theme_set(theme_plain())
         else if (caps%graphical) then
-            wanted = "material"
+            wanted = "fluent"
             if (present(theme_name)) wanted = theme_name
             wanted = theme_requested(wanted)
             call theme_select(wanted, ok)
             if (.not. ok) then
-                write (0, '(a)') "fortui: unknown theme '" // wanted // &
-                    "' (classic, material, material-dark); using material"
-                call theme_select("material", ok)
+                write (0, '(a)') "fortui: unknown theme '" // wanted // "' (fluent, " // &
+                    "fluent-dark, classic); using fluent"
+                call theme_select("fluent", ok)
             end if
         else
             call theme_set(theme_plain())
@@ -116,8 +116,8 @@ contains
     end subroutine ui_init_backend
 
     subroutine ui_set_theme(name, stat)
-        !! Switch to the built-in theme `name` at run time (classic, material,
-        !! material-dark); the next frame is laid out and drawn with it.
+        !! Switch to the built-in theme `name` at run time (fluent, fluent-dark,
+        !! classic); the next frame is drawn with it.
         character(*), intent(in) :: name
         integer, intent(out), optional :: stat
         type(fortui_context_t), pointer :: ctx

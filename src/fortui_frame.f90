@@ -52,8 +52,8 @@ module fortui_frame
     integer, parameter, public :: WIDTH_NATURAL = 0, WIDTH_FIXED = 1, WIDTH_FILL = 2
 
     ! How strongly a button asks to be pressed: the usual action, the primary
-    ! (default) action of a view, or a quiet one (Material: tonal, filled and text
-    ! buttons; Classic: push button, default push button, push button).
+    ! (default) action of a view, or a quiet one (Fluent: secondary, primary and
+    ! subtle buttons; Classic: push button, default push button, push button).
     integer, parameter, public :: UI_EMPHASIS_NORMAL = 0, UI_EMPHASIS_PRIMARY = 1, &
         UI_EMPHASIS_QUIET = 2
 
