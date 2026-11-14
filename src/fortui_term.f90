@@ -856,8 +856,10 @@ contains
         end associate
         call place(t, slot, t%cursor_row, t%cursor_col, rows, cols, key_int(keys, "z", 0))
         if (key_int(keys, "C", 0) /= 1) then
-            t%motion = repeat(achar(10), max(0, rows - 1)) // achar(27) // "[" // &
-                itoa(t%cursor_col + cols + 1) // "G"
+            ! Cursor down (never scrolls) to the image's last row, then past its
+            ! last column.
+            t%motion = achar(27) // "[" // itoa(t%cursor_col + cols + 1) // "G"
+            if (rows > 1) t%motion = achar(27) // "[" // itoa(rows - 1) // "B" // t%motion
         end if
     end subroutine kitty_put
 

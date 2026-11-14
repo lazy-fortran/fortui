@@ -445,6 +445,11 @@ contains
         call check(.not. r%truecolor, "XTGETTCAP without RGB")
         r = tui_parse_replies("")
         call check(.not. r%device_attributes, "no reply")
+        call check(r%background == -1 .and. r%sixel .eqv. .false., "no background reply")
+        r = tui_parse_replies(E // "]11;rgb:1e1e/1e1e/2020" // E // "" // E // "[?62;4;22c")
+        call check(r%background == int(z'1E1E20') .and. r%sixel, "OSC 11 background, sixel")
+        r = tui_parse_replies(E // "]11;rgb:ff/ff/ff" // achar(7) // E // "[?62c")
+        call check(r%background == int(z'FFFFFF'), "OSC 11 with two hex digits")
     end subroutine test_replies
 
     subroutine test_pointer_mapping()

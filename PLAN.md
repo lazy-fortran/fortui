@@ -222,11 +222,13 @@ bounded work for a large collection, and no unsupported performance claims.
 - [ ] Android and iOS through SDL3 once a Fortran compiler route (LFortran) works.
 - [ ] Fluent density (compact for dense scientific views) and Fluent system icons
       (MIT) with an icon widget.
-- [x] Terminal look after IBM CUA (`tui_theme = cua|dark`): CUA colours, push
-      buttons, entry fields, check boxes, tabs on a band, scroll bars and the
-      function key line from labelled shortcuts.
-- [ ] CUA action bar with pull-down menus and pop-up windows with shadows
-      (needs a menu widget on every host).
+- [x] Terminal look (`tui_theme = auto|light|dark`, auto from the terminal's
+      background): push buttons, entry fields, `[X]` check boxes, tabs on a
+      band, scroll bars and the function key line from labelled shortcuts.
+- [ ] Terminal palettes after real text-mode programs (3270/ISPF, Turbo
+      Vision), checked against screenshots.
+- [ ] Action bar with pull-down menus and pop-up windows with shadows (needs a
+      menu widget on every host).
 - [x] Terminal emulator (`-DENABLE_TERM=1`): Fortran engine (fortui_vt, ring of
       lines, reader thread with ring buffer), pseudo-terminal,
       kitty graphics and sixel decoded in Fortran (inflate, PNG, sixel), images

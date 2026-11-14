@@ -79,6 +79,7 @@ module fortui_backend
         procedure :: waker => backend_waker
         procedure :: set_window_size => backend_set_window_size
         procedure :: set_window_visible => backend_set_window_visible
+        procedure :: maximize_window => backend_maximize_window
     end type ui_backend_t
 
     abstract interface
@@ -184,6 +185,12 @@ contains
         logical, intent(in) :: visible
         if (visible .or. self%presents < 0) continue
     end subroutine backend_set_window_visible
+
+    subroutine backend_maximize_window(self)
+        !! Fill the screen's work area with the window.
+        class(ui_backend_t), intent(inout) :: self
+        if (self%presents < 0) continue
+    end subroutine backend_maximize_window
 
     function backend_waker(self) result(fn)
         !! A C function that wakes the host's event loop and may be called from

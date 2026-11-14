@@ -361,11 +361,11 @@ contains
     end function theme_requested
 
     function tui_theme_requested() result(name)
-        !! The terminal look: FORTUI_TUI_THEME, else `tui_theme =` in the config
-        !! file, else "cua" (IBM Common User Access colours on white panels);
-        !! "dark" keeps the same structure in dark colours.
+        !! The terminal colours: FORTUI_TUI_THEME, else `tui_theme =` in the
+        !! config file, else "auto": "dark" on a terminal with a dark background,
+        !! else "light".
         character(len=:), allocatable :: name
-        name = lower(setting("FORTUI_TUI_THEME", "tui_theme", "cua"))
+        name = lower(setting("FORTUI_TUI_THEME", "tui_theme", "auto"))
     end function tui_theme_requested
 
     function setting(env_name, key, fallback) result(value)

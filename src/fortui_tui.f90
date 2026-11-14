@@ -87,10 +87,9 @@ module fortui_tui
         integer :: code(9)
     end type tui_palette_t
 
-    ! IBM Common User Access (colours of IBM's CUA demonstration): white panels,
-    ! blue titles, instructions and prompts, cyan action and function key
-    ! bands, cyan entry fields, the red selection cursor.
-    type(tui_palette_t), parameter :: PALETTE_CUA = tui_palette_t( &
+    ! Light: white panels, blue titles and instructions, cyan buttons, fields
+    ! and bands, a red cursor on the focused control.
+    type(tui_palette_t), parameter :: PALETTE_LIGHT = tui_palette_t( &
         panel=int(z'FFFFFF'), text=int(z'000000'), emph=int(z'0057FF'), &
         band=int(z'00FFFF'), on_band=int(z'000000'), cursor=int(z'FF0050'), &
         on_cursor=int(z'FFFFFF'), field=int(z'00FFFF'), on_field=int(z'000000'), &
@@ -201,6 +200,8 @@ module fortui_tui
         logical :: device_attributes = .false.
         ! The device attributes list 4: sixel graphics.
         logical :: sixel = .false.
+        ! Background colour (OSC 11 reply) as 0x00RRGGBB, -1 when unknown.
+        integer :: background = -1
         integer :: cell_px_w = 0
         integer :: cell_px_h = 0
     end type tui_replies_t
@@ -221,7 +222,7 @@ module fortui_tui
     end type tui_canvas_t
 
     type, extends(ui_backend_t), public :: tui_backend_t
-        type(tui_palette_t) :: pal = PALETTE_CUA
+        type(tui_palette_t) :: pal = PALETTE_LIGHT
         ! Rows the function key line takes at the bottom.
         integer :: band_rows = 1
         !! termbox2 terminal backend: widgets as cells, canvases as braille or pixels.
@@ -344,6 +345,9 @@ contains
         end if
         ! XTGETTCAP: the terminfo capability RGB is known.
         if (index(reply, ESC // "P1+r524742") > 0) r%truecolor = .true.
+        ! OSC 11: the background as rgb:RRRR/GGGG/BBBB (or 2 hex digits each).
+        p = index(reply, ESC // "]11;rgb:")
+        if (p > 0) r%background = xcolor(reply(p + 9:))
         p = index(reply, ESC // "[?")
         do while (p > 0)
             q = p + 3
@@ -450,7 +454,7 @@ contains
 
         ! In-band queries, terminated by a device-attributes request that every
         ! terminal answers.
-        query = ESC // "[16t" // ESC // "[?1016$p"
+        query = ESC // "[16t" // ESC // "[?1016$p" // ESC // "]11;?" // ESC // "\"
         if (trim(want_graphics) == "auto" .and. .not. in_tmux) query = KITTY_QUERY // query
         colorterm = env_lower("COLORTERM", "") == "truecolor" .or. &
             env_lower("COLORTERM", "") == "24bit"
@@ -520,8 +524,16 @@ contains
         self%pixel_mouse = replies%pixel_mouse .and. self%cell_px_w > 0 .and. &
             self%cell_px_h > 0
 
-        self%pal = PALETTE_CUA
-        if (tui_theme_requested() == "dark") self%pal = PALETTE_DARK
+        self%pal = PALETTE_LIGHT
+        select case (tui_theme_requested())
+        case ("dark")
+            self%pal = PALETTE_DARK
+        case ("light")
+            continue
+        case default
+            ! Follow the terminal: dark palette on a dark background.
+            if (dark_background(replies%background)) self%pal = PALETTE_DARK
+        end select
         mode = TB_OUTPUT_256
         if (self%color_mode == TUI_COLOR_TRUE) mode = TB_OUTPUT_TRUECOLOR
         if (tb_set_output_mode(mode) < 0 .or. &
@@ -539,6 +551,62 @@ contains
         self%quit_requested = .false.
         tui_init = .true.
     end function tui_init
+
+    logical function dark_background(rgb)
+        !! The terminal's background is dark (from its OSC 11 reply, else from
+        !! COLORFGBG "fg;bg" with a background colour below 7 or 8).
+        integer, intent(in) :: rgb
+        character(len=32) :: v
+        integer :: n, st, semi, idx, ios
+        real :: luma
+        dark_background = .false.
+        if (rgb >= 0) then
+            luma = 0.2126 * real(iand(ishft(rgb, -16), 255)) + 0.7152 * &
+                real(iand(ishft(rgb, -8), 255)) + 0.0722 * real(iand(rgb, 255))
+            dark_background = luma < 128.0
+            return
+        end if
+        call get_environment_variable("COLORFGBG", v, n, st)
+        if (st /= 0 .or. n == 0) return
+        semi = index(v, ";", back=.true.)
+        read (v(semi + 1:n), *, iostat=ios) idx
+        if (ios == 0) dark_background = idx < 7 .or. idx == 8
+    end function dark_background
+
+    pure integer function xcolor(spec) result(rgb)
+        !! "RRRR/GGGG/BBBB..." (1 to 4 hex digits per channel) to 0x00RRGGBB.
+        character(*), intent(in) :: spec
+        integer :: k, a, b, v, ch, d, n
+        rgb = -1
+        a = 1
+        v = 0
+        do ch = 1, 3
+            b = a
+            n = 0
+            v = 0
+            do while (b <= len(spec))
+                d = index("0123456789abcdef", spec(b:b))
+                if (d == 0) d = index("0123456789ABCDEF", spec(b:b))
+                if (d == 0) exit
+                if (n < 2) v = 16 * v + d - 1
+                n = n + 1
+                b = b + 1
+            end do
+            if (n == 0) return
+            if (n == 1) v = 17 * v
+            if (ch == 1) then
+                k = v
+            else
+                k = 256 * k + v
+            end if
+            if (ch < 3) then
+                if (b > len(spec)) return
+                if (spec(b:b) /= "/") return
+            end if
+            a = b + 1
+        end do
+        rgb = k
+    end function xcolor
 
     function query_terminal(query) result(replies)
         character(*), intent(in) :: query
@@ -1150,21 +1218,27 @@ contains
                 call draw_string(self, x + max(1, (w - lw) / 2), y, label, fg, bg, max(0, w - 2), &
                     .true.)
             case (UI_CHECKBOX)
+                ! "[X]" as text-mode programs draw check boxes: every terminal
+                ! font has the characters, unlike the ballot box symbols.
                 fg = colour(self, merge(p%disabled, p%text, node%disabled))
                 bg = colour(self, p%panel)
-                call put_cell(self, x, y, merge(9746, 9744, node%checked), fg, bg)
+                knob = merge(iachar("X"), 32, node%checked)
+                if (node%focused .and. len_trim(node%text) == 0) then
+                    fg = colour(self, p%on_cursor)
+                    bg = colour(self, p%cursor)
+                end if
+                call put_cell(self, x, y, iachar("["), fg, bg)
+                call put_cell(self, x + 1, y, knob, fg, bg)
+                call put_cell(self, x + 2, y, iachar("]"), fg, bg)
                 if (len_trim(node%text) > 0) then
                     if (node%focused) then
-                        call draw_string(self, x + 2, y, trim(node%text), &
-                            colour(self, p%on_cursor), colour(self, p%cursor), max(0, w - 2), &
+                        call draw_string(self, x + 4, y, trim(node%text), &
+                            colour(self, p%on_cursor), colour(self, p%cursor), max(0, w - 3), &
                             .true.)
                     else
-                        call draw_string(self, x + 2, y, trim(node%text), fg, bg, max(0, w - 2), &
+                        call draw_string(self, x + 4, y, trim(node%text), fg, bg, max(0, w - 3), &
                             .true.)
                     end if
-                else if (node%focused) then
-                    call put_cell(self, x, y, merge(9746, 9744, node%checked), &
-                        colour(self, p%on_cursor), colour(self, p%cursor))
                 end if
             case (UI_TAB)
                 if (node%checked) then
@@ -1364,7 +1438,7 @@ contains
 
     subroutine draw_scroll_text(self, node, x, y, w, h)
         !! Wrapped lines on the panel; when they do not fit, a scroll bar in the
-        !! last column: arrows, a dithered track and the thumb, as CUA draws it.
+        !! last column: arrows, a dithered track and the thumb.
         type(tui_backend_t), intent(inout) :: self
         type(ui_node_t), intent(in) :: node
         integer, intent(in) :: x, y, w, h
@@ -1400,7 +1474,7 @@ contains
     end subroutine draw_scroll_text
 
     subroutine draw_key_line(self, frame)
-        !! The CUA function key line: the shortcuts the application named this
+        !! The function key line: the shortcuts the application named this
         !! frame ("Ctrl+S=Save  Esc=Cancel") on the cyan band at the bottom.
         type(tui_backend_t), intent(inout) :: self
         type(ui_frame_t), intent(in) :: frame

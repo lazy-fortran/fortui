@@ -289,6 +289,7 @@ module fortui_gui_sdl
         procedure :: waker => sb_waker
         procedure :: set_window_size => sb_set_window_size
         procedure :: set_window_visible => sb_set_window_visible
+        procedure :: maximize_window => sb_maximize_window
     end type sdl_backend_t
 
     ! Fonts of the SDL backend (one at a time), shared with text measurement.
@@ -329,6 +330,10 @@ module fortui_gui_sdl
             type(c_ptr), value :: w
         end function
         logical(c_bool) function SDL_HideWindow(w) bind(C, name="SDL_HideWindow")
+            import :: c_bool, c_ptr
+            type(c_ptr), value :: w
+        end function
+        logical(c_bool) function SDL_MaximizeWindow(w) bind(C, name="SDL_MaximizeWindow")
             import :: c_bool, c_ptr
             type(c_ptr), value :: w
         end function
@@ -783,6 +788,13 @@ contains
         if (SDL_SetWindowSize(self%window, int(real(width) * self%scale / density, c_int), &
             int(real(height) * self%scale / density, c_int))) continue
     end subroutine sb_set_window_size
+
+    subroutine sb_maximize_window(self)
+        class(sdl_backend_t), intent(inout) :: self
+        if (c_associated(self%window)) then
+            if (SDL_MaximizeWindow(self%window)) continue
+        end if
+    end subroutine sb_maximize_window
 
     subroutine sb_set_window_visible(self, visible)
         class(sdl_backend_t), intent(inout) :: self

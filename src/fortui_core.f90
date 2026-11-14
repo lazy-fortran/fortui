@@ -30,7 +30,7 @@ module fortui_core
     public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale
     public :: ui_time, ui_wake_after
     public :: ui_clipboard_set, ui_clipboard_text, ui_set_title, ui_waker, ui_set_window_margin
-    public :: ui_set_window_size, ui_set_window_visible
+    public :: ui_set_window_size, ui_set_window_visible, ui_maximize_window
     public :: ui_key_pressed, ui_text_width, ui_backend_capabilities, ui_backend_caps_t
     public :: ui_shortcut, ui_set_theme, ui_theme_name
     public :: ui_backend_description, ui_run, ui_run_step, ui_frame_proc
@@ -506,6 +506,14 @@ contains
         if (.not. associated(ctx)) return
         if (ctx%initialized) call ctx%backend%set_window_size(width, height)
     end subroutine ui_set_window_size
+
+    subroutine ui_maximize_window()
+        !! Fill the screen's work area with the window.
+        type(fortui_context_t), pointer :: ctx
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (ctx%initialized) call ctx%backend%maximize_window()
+    end subroutine ui_maximize_window
 
     subroutine ui_set_window_visible(visible)
         !! Show (and raise) or hide the window.

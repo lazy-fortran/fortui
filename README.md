@@ -182,14 +182,14 @@ In the browser a theme applies only when the application passes `theme_name`
 (desktop-like web apps); otherwise the page keeps its own look and fonts, as a web
 page should.
 
-The terminal has its own look after IBM Common User Access (CUA): white panels,
-blue titles and instructions, cyan push buttons, entry fields and bands, the red
-cursor on the control with the focus, and a function key line at the bottom
-that lists the shortcuts the application labels
-(`ui_shortcut("ctrl+s", label="Save")` shows `Ctrl+S=Save`). `tui_theme = dark`
-in the config file or `FORTUI_TUI_THEME=dark` keeps that structure in dark
-colours; the default is `cua`. Every cell gets an explicit colour, so the look
-does not depend on the terminal's own colours.
+The terminal has its own look in the text-mode tradition: push buttons, entry
+fields and bands in solid colour, the focused control in a highlight colour,
+`[X]` check boxes, and a function key line at the bottom that lists the
+shortcuts the application labels (`ui_shortcut("ctrl+s", label="Save")` shows
+`Ctrl+S=Save`). Its colours are `tui_theme = auto` (the default: dark on a
+terminal with a dark background, which FortUI asks the terminal for), `light`
+or `dark`, in the config file or `FORTUI_TUI_THEME`. Every cell gets an
+explicit colour, so the look does not depend on the terminal's own palette.
 
 ## Terminal emulator
 

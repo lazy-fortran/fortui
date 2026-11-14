@@ -23,6 +23,7 @@ program test_term
     call test_kitty()
     call test_kitty_chunks()
     call test_clear()
+    call test_kitty_bottom()
     call test_scroll()
     call test_keys()
     if (failures > 0) error stop "terminal emulator tests failed"
@@ -152,6 +153,16 @@ contains
         call check(t%cp(3) == iachar("X"), "cursor after a 2-cell kitty image")
         call term_close(t)
     end subroutine test_kitty_chunks
+
+    subroutine test_kitty_bottom()
+        ! An image three rows tall on the last row: the cursor stops at the
+        ! bottom and the screen does not scroll (fortui's terminal host draws
+        ! images there and repaints only cells it changed).
+        call run("printf '\033[24;1H\033_Ga=T,f=24,s=1,v=1,c=2,r=3;/wAA\033\\X'")
+        call check(t%nplaces == 1 .and. t%sb_count == 0, "image at the bottom: no scrolling")
+        call check(t%cp(23 * t%cols + 3) == iachar("X"), "cursor after the image, last row")
+        call term_close(t)
+    end subroutine test_kitty_bottom
 
     subroutine test_clear()
         ! clear (ESC [H ESC [2J ESC [3J) erases the image with the text.
