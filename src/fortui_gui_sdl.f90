@@ -18,18 +18,20 @@ module fortui_gui_sdl
     use iso_c_binding
     use iso_fortran_env, only: int8, int32, int64
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t
-    use fortui_frame, only: ui_frame_t, ui_layer_ref_t, LAYER_POINTS, LAYER_IMAGE
+    use fortui_frame, only: ui_frame_t, ui_layer_ref_t, LAYER_POINTS, LAYER_IMAGE, LAYER_CELLS, &
+        CELL_UNDERLINE, CELL_STRIKE, CELL_CONT, CELL_WIDE
+    use fortui_canvas, only: canvas_layer_t
     use fortui_canvas, only: canvas_store_t
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
         input_type_text, input_set_time, input_key_press, input_has_events, KEY_NONE, &
         KEY_ENTER, KEY_ESCAPE, KEY_TAB, KEY_BACKSPACE, KEY_DELETE, KEY_HOME, KEY_END, &
         KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_ARROW_UP, KEY_ARROW_DOWN, KEY_PAGE_UP, &
-        KEY_PAGE_DOWN, KEY_SPACE, KEY_INSERT, MOD_CTRL, MOD_ALT, MOD_SHIFT, MOD_META
+        KEY_PAGE_DOWN, KEY_SPACE, KEY_INSERT, KEY_F1, MOD_CTRL, MOD_ALT, MOD_SHIFT, MOD_META
     use fortui_paint, only: paint_list_t, paint_frame, paint_face, PAINT_RECT, PAINT_LINE, &
         PAINT_TEXT, PAINT_CLIP, PAINT_UNCLIP, PAINT_CANVAS, PATTERN_CHECKER
-    use fortui_theme, only: theme, FACE_REGULAR
+    use fortui_theme, only: theme, FACE_REGULAR, FACE_MONO
     use fortui_text, only: text_use_measurement
-    use fortui_fontconfig, only: font_for
+    use fortui_fontconfig, only: font_for, font_lookup
     use fortui_sdl_shaders, only: shape_vert_spv, shape_frag_spv, textured_vert_spv, &
         textured_frag_spv
     use fortui_error, only: report_error
@@ -202,7 +204,12 @@ module fortui_gui_sdl
         integer :: face = 0, px = 0
         type(c_ptr) :: font = c_null_ptr
         integer :: height = 0, ascent = 0
+        ! Fonts for characters the face lacks (symbols, box drawing, emoji).
+        type(c_ptr) :: fallback(3) = c_null_ptr
     end type
+
+    character(len=*), parameter :: FALLBACK_FAMILIES(3) = [character(len=20) :: &
+        "DejaVu Sans Mono", "Noto Sans Symbols 2", "Noto Color Emoji"]
 
     type :: text_entry_t
         integer(int64) :: hash = 0
@@ -270,6 +277,10 @@ module fortui_gui_sdl
         procedure :: should_close => sb_should_close
         procedure :: install_text_metrics => sb_metrics
         procedure :: capabilities => sb_caps
+        procedure :: clipboard_set => sb_clipboard_set
+        procedure :: clipboard_get => sb_clipboard_get
+        procedure :: set_title => sb_set_title
+        procedure :: waker => sb_waker
     end type sdl_backend_t
 
     ! Fonts of the SDL backend (one at a time), shared with text measurement.
@@ -288,6 +299,26 @@ module fortui_gui_sdl
             import :: c_int32_t
             integer(c_int32_t), value :: flags
         end subroutine
+        logical(c_bool) function SDL_SetClipboardText(text) bind(C, name="SDL_SetClipboardText")
+            import :: c_bool, c_char
+            character(kind=c_char), intent(in) :: text(*)
+        end function
+        type(c_ptr) function SDL_GetClipboardText() bind(C, name="SDL_GetClipboardText")
+            import :: c_ptr
+        end function
+        subroutine SDL_free(p) bind(C, name="SDL_free")
+            import :: c_ptr
+            type(c_ptr), value :: p
+        end subroutine
+        logical(c_bool) function SDL_SetWindowTitle(w, title) bind(C, name="SDL_SetWindowTitle")
+            import :: c_bool, c_ptr, c_char
+            type(c_ptr), value :: w
+            character(kind=c_char), intent(in) :: title(*)
+        end function
+        logical(c_bool) function SDL_PushEvent(ev) bind(C, name="SDL_PushEvent")
+            import :: c_bool, c_int8_t
+            integer(c_int8_t), intent(inout) :: ev(128)
+        end function
         type(c_ptr) function SDL_GetError() bind(C, name="SDL_GetError")
             import :: c_ptr
         end function
@@ -581,6 +612,11 @@ module fortui_gui_sdl
             character(kind=c_char), intent(in) :: file(*)
             real(c_float), value :: size
         end function
+        logical(c_bool) function TTF_AddFallbackFont(font, fallback) &
+                bind(C, name="TTF_AddFallbackFont")
+            import :: c_bool, c_ptr
+            type(c_ptr), value :: font, fallback
+        end function
         subroutine TTF_CloseFont(f) bind(C, name="TTF_CloseFont")
             import :: c_ptr
             type(c_ptr), value :: f
@@ -681,6 +717,47 @@ contains
             c_null_ptr)
     end function sdl_gpu_available
 
+    subroutine sb_clipboard_set(self, text)
+        class(sdl_backend_t), intent(inout) :: self
+        character(*), intent(in) :: text
+        if (.not. self%active) return
+        if (SDL_SetClipboardText(text // c_null_char)) continue
+    end subroutine sb_clipboard_set
+
+    subroutine sb_clipboard_get(self, text)
+        class(sdl_backend_t), intent(inout) :: self
+        character(len=:), allocatable, intent(out) :: text
+        type(c_ptr) :: p
+        text = ""
+        if (.not. self%active) return
+        p = SDL_GetClipboardText()
+        if (.not. c_associated(p)) return
+        text = f_str(p)
+        call SDL_free(p)
+    end subroutine sb_clipboard_get
+
+    subroutine sb_set_title(self, title)
+        class(sdl_backend_t), intent(inout) :: self
+        character(*), intent(in) :: title
+        if (.not. c_associated(self%window)) return
+        if (SDL_SetWindowTitle(self%window, title // c_null_char)) continue
+    end subroutine sb_set_title
+
+    function sb_waker(self) result(fn)
+        class(sdl_backend_t), intent(in) :: self
+        type(c_funptr) :: fn
+        fn = c_null_funptr
+        if (self%active .and. .not. self%offscreen) fn = c_funloc(sdl_wake)
+    end function sb_waker
+
+    subroutine sdl_wake() bind(C)
+        !! Called from other threads: an empty user event ends SDL_WaitEvent.
+        integer(c_int8_t) :: ev(128)
+        ev = 0
+        ev(1:4) = transfer(int(z'8000', c_int32_t), ev(1:4))
+        if (SDL_PushEvent(ev)) continue
+    end subroutine sdl_wake
+
     function sdl_error() result(msg)
         character(len=:), allocatable :: msg
         msg = f_str(SDL_GetError())
@@ -759,10 +836,7 @@ contains
         do k = 1, size(self%texts)
             if (c_associated(self%texts(k)%text)) call TTF_DestroyText(self%texts(k)%text)
         end do
-        do k = 1, nfonts
-            call TTF_CloseFont(fonts(k)%font)
-        end do
-        nfonts = 0
+        call close_font_cache()
         do k = 1, size(self%layers)
             call free_layer(self, self%layers(k))
         end do
@@ -918,6 +992,7 @@ contains
         else
             call TTF_SetFontHinting(fonts(k)%font, HINT_LIGHT)
         end if
+        call add_fallbacks(fonts(k), size_px)
         fonts(k)%height = int(TTF_GetFontHeight(fonts(k)%font))
         fonts(k)%ascent = int(TTF_GetFontAscent(fonts(k)%font))
         nfonts = k
@@ -937,10 +1012,31 @@ contains
         call close_font_cache()
     end subroutine close_fonts
 
+    subroutine add_fallbacks(slot, size_px)
+        !! Installed fonts that cover what themes' faces lack, tried in order.
+        type(font_slot_t), intent(inout) :: slot
+        integer, intent(in) :: size_px
+        character(len=:), allocatable :: path
+        integer :: j
+        do j = 1, size(FALLBACK_FAMILIES)
+            call font_lookup(trim(FALLBACK_FAMILIES(j)), "", 0, path)
+            if (len(path) == 0) cycle
+            slot%fallback(j) = TTF_OpenFont(path // c_null_char, real(size_px, c_float))
+            if (.not. c_associated(slot%fallback(j))) cycle
+            if (.not. TTF_AddFallbackFont(slot%font, slot%fallback(j))) then
+                call TTF_CloseFont(slot%fallback(j))
+                slot%fallback(j) = c_null_ptr
+            end if
+        end do
+    end subroutine add_fallbacks
+
     subroutine close_font_cache()
-        integer :: k
+        integer :: k, j
         do k = 1, nfonts
             if (c_associated(fonts(k)%font)) call TTF_CloseFont(fonts(k)%font)
+            do j = 1, size(fonts(k)%fallback)
+                if (c_associated(fonts(k)%fallback(j))) call TTF_CloseFont(fonts(k)%fallback(j))
+            end do
             fonts(k) = font_slot_t()
         end do
         nfonts = 0
@@ -1144,6 +1240,7 @@ contains
         case (int(z'4000004B')); key = KEY_PAGE_UP
         case (int(z'4000004E')); key = KEY_PAGE_DOWN
         case (int(z'40000049')); key = KEY_INSERT
+        case (int(z'4000003A'):int(z'40000045')); key = KEY_F1 + sym - int(z'4000003A')
         case default; key = KEY_NONE
         end select
         if (key /= KEY_NONE) then
@@ -1571,6 +1668,10 @@ contains
                         ref%vertex_slot, .false.)
                     fresh = self%layers(ref%slot)%serial /= ref%serial
                     call self%canvas%layer(ref, fresh, attributes, indices)
+                    if (ref%kind == LAYER_CELLS) then
+                        call record_cells(self, store%layers(ref%slot), ox, oy, z)
+                        cycle
+                    end if
                     call prepare_layer(self, store, ref)
                     if (ref%kind == LAYER_IMAGE) then
                         associate(l => store%layers(ref%slot))
@@ -1603,6 +1704,92 @@ contains
         end associate
         self%clip = saved
     end subroutine record_canvas
+
+    subroutine record_cells(self, l, ox, oy, z)
+        !! A cell grid: background runs, then one glyph per cell (whole cells, so
+        !! the grid stays exact whatever the font's advances), then underlines
+        !! and strike-throughs. Three batches however many cells change.
+        type(sdl_backend_t), intent(inout) :: self
+        type(canvas_layer_t), intent(in) :: l
+        real, intent(in) :: ox, oy, z
+        real :: x0, y0, cw, ch, px, c(4), t
+        integer :: r, col, k, first, cp, nb
+        character(len=4) :: buf
+
+        if (l%cols <= 0 .or. l%rows <= 0 .or. .not. allocated(l%cp)) return
+        x0 = ox + l%rect(1) * z
+        y0 = oy + l%rect(2) * z
+        cw = l%rect(3) * z / real(l%cols)
+        ch = l%rect(4) * z / real(l%rows)
+        px = l%cell_size * self%scale
+        do r = 0, l%rows - 1
+            k = r * l%cols
+            first = 0
+            do col = 1, l%cols
+                if (col < l%cols) then
+                    if (l%bg(k + col + 1) == l%bg(k + first + 1)) cycle
+                end if
+                if (alpha(l%bg(k + first + 1)) > 0) then
+                    call unpack(l%bg(k + first + 1), c)
+                    call add_shape(self, [x0 + real(first) * cw, y0 + real(r) * ch, &
+                        real(col - first) * cw, ch], c, c, [0.0, 0.0, 0.0, 0.0])
+                end if
+                first = col
+            end do
+        end do
+        do r = 0, l%rows - 1
+            do col = 0, l%cols - 1
+                k = r * l%cols + col + 1
+                cp = l%cp(k)
+                if (cp <= 32 .or. iand(l%attr(k), CELL_CONT) /= 0) cycle
+                call encode(cp, buf, nb)
+                call add_text(self, buf(1:nb), real(nint(x0 + real(col) * cw)), &
+                    y0 + real(r) * ch, ch, FACE_MONO, px, l%fg(k))
+            end do
+        end do
+        t = max(1.0, real(nint(self%scale)))
+        do k = 1, l%cols * l%rows
+            if (iand(l%attr(k), CELL_UNDERLINE + CELL_STRIKE) == 0) cycle
+            r = (k - 1) / l%cols
+            col = modulo(k - 1, l%cols)
+            call unpack(l%fg(k), c)
+            px = cw
+            if (iand(l%attr(k), CELL_WIDE) /= 0) px = 2.0 * cw
+            if (iand(l%attr(k), CELL_UNDERLINE) /= 0) call add_shape(self, [x0 + real(col) * cw, &
+                real(nint(y0 + real(r + 1) * ch - 2.0 * t)), px, t], c, c, [0.0, 0.0, 0.0, 0.0])
+            if (iand(l%attr(k), CELL_STRIKE) /= 0) call add_shape(self, [x0 + real(col) * cw, &
+                real(nint(y0 + (real(r) + 0.5) * ch)), px, t], c, c, [0.0, 0.0, 0.0, 0.0])
+        end do
+    contains
+        pure integer function alpha(rgba)
+            integer(int32), intent(in) :: rgba
+            alpha = iand(ishft(rgba, -24), 255_int32)
+        end function alpha
+        pure subroutine encode(cp, out, n)
+            integer, intent(in) :: cp
+            character(len=4), intent(out) :: out
+            integer, intent(out) :: n
+            if (cp < 128) then
+                out(1:1) = achar(cp)
+                n = 1
+            else if (cp < 2048) then
+                out(1:1) = achar(ior(192, ishft(cp, -6)))
+                out(2:2) = achar(ior(128, iand(cp, 63)))
+                n = 2
+            else if (cp < 65536) then
+                out(1:1) = achar(ior(224, ishft(cp, -12)))
+                out(2:2) = achar(ior(128, iand(ishft(cp, -6), 63)))
+                out(3:3) = achar(ior(128, iand(cp, 63)))
+                n = 3
+            else
+                out(1:1) = achar(ior(240, ishft(cp, -18)))
+                out(2:2) = achar(ior(128, iand(ishft(cp, -12), 63)))
+                out(3:3) = achar(ior(128, iand(ishft(cp, -6), 63)))
+                out(4:4) = achar(ior(128, iand(cp, 63)))
+                n = 4
+            end if
+        end subroutine encode
+    end subroutine record_cells
 
     subroutine add_label(self, str, cx, y, size, rgba, fill)
         !! Canvas label centred below its anchor; without a colour of its own it

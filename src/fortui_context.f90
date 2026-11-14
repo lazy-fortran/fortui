@@ -32,6 +32,8 @@ module fortui_context
         logical :: initialized = .false.
         logical :: in_frame = .false.
         logical :: should_quit = .false.
+        ! Free space around the window's content; negative: the theme's.
+        real :: window_margin = -1.0
         ! Whether keys of the current frame went to a focused text field.
         logical :: text_focused = .false.
         ! Identities asked for by ui_focus and ui_reveal, applied at present.

@@ -11,7 +11,7 @@ program test_fortui
     use fortui_text, only: text_fit, text_width, utf8_length, text_set_metrics, &
         text_set_mono_metrics, text_use_fixed_metrics, TEXT_STYLE_MONO, TEXT_MAX_CODEPOINT
     use fortui_tui, only: tui_map_key
-    use fortui_input, only: KEY_NONE
+    use fortui_input, only: KEY_NONE, KEY_F1, KEY_F12
     implicit none
 
     integer :: stat, sel, deg, k, n_before
@@ -317,9 +317,9 @@ contains
             tui_map_key(65535 - 19) == KEY_ARROW_DOWN .and. &
             tui_map_key(65535 - 20) == KEY_ARROW_LEFT .and. &
             tui_map_key(65535 - 21) == KEY_ARROW_RIGHT, "TUI arrows")
-        call check(tui_map_key(65535) == KEY_NONE .and. &
-            tui_map_key(65535 - 23) == KEY_NONE, &
-            "TUI function and mouse codes are not named keys")
+        call check(tui_map_key(65535) == KEY_F1 .and. tui_map_key(65535 - 11) == KEY_F12, &
+            "TUI function keys")
+        call check(tui_map_key(65535 - 23) == KEY_NONE, "TUI mouse codes are not named keys")
     end subroutine test_tui_keys
 
     subroutine check(condition, message)

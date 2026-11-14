@@ -20,20 +20,22 @@ module fortui_tui
         UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, UI_CAPTION, &
         UI_HEADING, UI_TITLE, ui_scroll_padding, UI_EMPHASIS_PRIMARY, UI_TONE_NORMAL, &
         UI_TONE_POSITIVE, UI_TONE_NEGATIVE, UI_TONE_MUTED, UI_TONE_ACCENT, UI_TONE_LINK, &
-        UI_TONE_ATTENTION, UI_TONE_STRONG, UI_TONE_KEYWORD, UI_TONE_HUNK
+        UI_TONE_ATTENTION, UI_TONE_STRONG, UI_TONE_KEYWORD, UI_TONE_HUNK, LAYER_CELLS, &
+        CELL_BOLD, CELL_UNDERLINE, CELL_ITALIC, CELL_CONT
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
         input_set_key, input_type_text, input_key_press, MOD_CTRL, KEY_NONE, KEY_ENTER, KEY_ESCAPE, KEY_TAB, &
         KEY_BACKSPACE, KEY_DELETE, KEY_HOME, KEY_END, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, &
-        KEY_ARROW_UP, KEY_ARROW_DOWN, KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_INSERT, KEY_SPACE
+        KEY_ARROW_UP, KEY_ARROW_DOWN, KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_INSERT, KEY_SPACE, KEY_F1
     use fortui_text, only: utf8_decode, utf8_encode, utf8_length, text_use_cell_metrics
     use fortui_error, only: report_error
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t
-    use fortui_canvas, only: canvas_store_t
+    use fortui_canvas, only: canvas_store_t, canvas_layer_t
     use fortui_raster, only: raster_t, raster_map_t, raster_resize, raster_canvas, &
         raster_braille, rgb_of_rgba, rgb_to_xterm256
-    use fortui_kitty, only: kitty_encoder_t, kitty_encode_image, kitty_delete, &
+    use fortui_kitty, only: kitty_encoder_t, kitty_encode_image, kitty_delete, base64_encode, &
         KITTY_QUERY
     use fortui_theme, only: tui_theme_requested
+    use fortui_sixel, only: sixel_encode
     implicit none
     private
 
@@ -41,7 +43,8 @@ module fortui_tui
     real, parameter, public :: CELL_H_DP = 16.0
 
     integer, parameter, public :: TUI_COLOR_256 = 1, TUI_COLOR_TRUE = 2
-    integer, parameter, public :: TUI_GRAPHICS_BRAILLE = 1, TUI_GRAPHICS_KITTY = 2
+    integer, parameter, public :: TUI_GRAPHICS_BRAILLE = 1, TUI_GRAPHICS_KITTY = 2, &
+        TUI_GRAPHICS_SIXEL = 3
 
     ! Braille: a dot is set when its pixel differs from the canvas background by
     ! at least this much in some channel (0..255).
@@ -73,7 +76,7 @@ module fortui_tui
     integer, parameter :: TB_BOLD = 16777216, TB_REVERSE = 67108864
     integer, parameter :: TB_HI_BLACK = 536870912
 
-    integer, parameter :: TB_UNDERLINE = 33554432
+    integer, parameter :: TB_UNDERLINE = 33554432, TB_ITALIC = 134217728
 
     ! Colours (0x00RRGGBB) of a terminal look; the 256-colour mode uses the
     ! nearest palette entries. Every cell gets an explicit colour, so the look
@@ -196,6 +199,8 @@ module fortui_tui
         logical :: truecolor = .false.
         logical :: pixel_mouse = .false.
         logical :: device_attributes = .false.
+        ! The device attributes list 4: sixel graphics.
+        logical :: sixel = .false.
         integer :: cell_px_w = 0
         integer :: cell_px_h = 0
     end type tui_replies_t
@@ -255,6 +260,8 @@ module fortui_tui
         procedure :: should_close => tui_should_close
         procedure :: install_text_metrics => tui_metrics
         procedure :: capabilities => tui_caps
+        procedure :: clipboard_set => tui_clipboard_set
+        procedure :: set_title => tui_set_title
     end type tui_backend_t
 
     public :: tui_is_available, tui_map_key, tui_ctrl_letter, tui_parse_replies, tui_cell_to_logical
@@ -345,7 +352,10 @@ contains
                 q = q + 1
             end do
             if (q <= len(reply)) then
-                if (reply(q:q) == "c") r%device_attributes = .true.
+                if (reply(q:q) == "c") then
+                    r%device_attributes = .true.
+                    if (index(";" // reply(p + 3:q - 1) // ";", ";4;") > 0) r%sixel = .true.
+                end if
             end if
             if (q > len(reply)) exit
             p = index(reply(q:), ESC // "[?")
@@ -404,11 +414,7 @@ contains
         want_graphics = env_lower("FORTUI_TUI_GRAPHICS", "auto")
         want_color = env_lower("FORTUI_TUI_COLOR", "auto")
         select case (trim(want_graphics))
-        case ("auto", "braille", "kitty")
-        case ("sixel")
-            call report_error("fortui_tui", "init", "FORTUI_TUI_GRAPHICS=sixel is not " // &
-                "implemented; use braille, kitty or auto")
-            return
+        case ("auto", "braille", "kitty", "sixel")
         case default
             call report_error("fortui_tui", "init", "FORTUI_TUI_GRAPHICS='" // &
                 trim(want_graphics) // "' is not one of auto, braille, kitty, sixel")
@@ -481,11 +487,18 @@ contains
         case ("kitty")
             self%graphics = TUI_GRAPHICS_KITTY
             self%graphics_note = "kitty pixels (FORTUI_TUI_GRAPHICS)"
+        case ("sixel")
+            self%graphics = TUI_GRAPHICS_SIXEL
+            self%graphics_note = "sixel pixels (FORTUI_TUI_GRAPHICS)"
         case default
             if (replies%kitty_graphics .and. self%cell_px_w > 0 .and. &
                 self%cell_px_h > 0) then
                 self%graphics = TUI_GRAPHICS_KITTY
                 self%graphics_note = "kitty pixels (terminal reply)"
+            else if (replies%sixel .and. self%cell_px_w > 0 .and. self%cell_px_h > 0) then
+                ! Also inside tmux, which keeps sixel images with its panes.
+                self%graphics = TUI_GRAPHICS_SIXEL
+                self%graphics_note = "sixel pixels (terminal reply)"
             else
                 self%graphics = TUI_GRAPHICS_BRAILLE
                 if (in_tmux) then
@@ -493,11 +506,11 @@ contains
                 else if (.not. replies%device_attributes) then
                     self%graphics_note = "braille (terminal did not answer queries)"
                 else
-                    self%graphics_note = "braille (no kitty graphics reply)"
+                    self%graphics_note = "braille (no kitty or sixel graphics reply)"
                 end if
             end if
         end select
-        if (self%graphics == TUI_GRAPHICS_KITTY .and. &
+        if (self%graphics /= TUI_GRAPHICS_BRAILLE .and. &
             (self%cell_px_w <= 0 .or. self%cell_px_h <= 0)) then
             call report_error("fortui_tui", "init", "kitty graphics need the cell " // &
                 "size in pixels, which the terminal did not report")
@@ -697,7 +710,7 @@ contains
                 call input_set_key(input, tui_map_key(key))
             end if
         case (TB_EVENT_RESIZE)
-            if (self%graphics == TUI_GRAPHICS_KITTY .or. self%pixel_mouse) &
+            if (self%graphics /= TUI_GRAPHICS_BRAILLE .or. self%pixel_mouse) &
                 call update_cell_pixels(self, none)
             call report_size(self, input)
             input%resized = .true.
@@ -757,6 +770,7 @@ contains
         case (TB_KEY_BACKSPACE, TB_KEY_BACKSPACE2); key = KEY_BACKSPACE
         case (TB_KEY_DELETE); key = KEY_DELETE
         case (TB_KEY_INSERT); key = KEY_INSERT
+        case (65535 - 11:65535); key = KEY_F1 + 65535 - tb_key
         case (TB_KEY_HOME); key = KEY_HOME
         case (TB_KEY_END); key = KEY_END
         case (TB_KEY_PGUP); key = KEY_PAGE_UP
@@ -791,7 +805,7 @@ contains
         end do
         call draw_key_line(self, frame)
         if (tb_present() /= TB_OK) call draw_failure(self)
-        if (self%graphics == TUI_GRAPHICS_KITTY) call send_images(self)
+        if (self%graphics /= TUI_GRAPHICS_BRAILLE) call send_images(self)
     end subroutine tui_present
 
     subroutine send_images(self)
@@ -802,13 +816,15 @@ contains
         integer :: i
         integer(int64) :: t0, t1, rate
         character(len=32) :: move
+        character(len=:), allocatable :: six
 
         if (.not. allocated(self%canvases)) return
         do i = 1, size(self%canvases)
             associate(c => self%canvases(i))
                 if (len_trim(c%id) == 0) cycle
                 if (.not. c%seen) then
-                    if (c%placed) call tty_send(kitty_delete(c%image_id))
+                    if (c%placed .and. self%graphics == TUI_GRAPHICS_KITTY) &
+                        call tty_send(kitty_delete(c%image_id))
                     c = tui_canvas_t()
                     cycle
                 end if
@@ -816,14 +832,26 @@ contains
                 c%pending = .false.
                 if (c%raster%width <= 0 .or. c%raster%height <= 0) cycle
                 call system_clock(t0, rate)
+                write(move, '(a,i0,a,i0,a)') ESC // "7" // ESC // "[", c%cy + 1, ";", &
+                    c%cx + 1, "H"
+                if (self%graphics == TUI_GRAPHICS_SIXEL) then
+                    ! Sixel images are pixels in the cells: no id, nothing to delete;
+                    ! redrawn cells cover them.
+                    call sixel_encode(c%raster%rgb, c%raster%width, c%raster%height, six)
+                    call system_clock(t1)
+                    self%encode_ms = real(t1 - t0) * 1000.0 / real(rate)
+                    call tty_send(trim(move) // six // ESC // "8")
+                    c%placed = .true.
+                    self%images_sent = self%images_sent + 1
+                    self%image_bytes = self%image_bytes + len(six)
+                    cycle
+                end if
                 call kitty_encode_image(self%kitty, c%raster%rgb, c%raster%width, &
                     c%raster%height, c%image_id, c%cols, c%rows)
                 call system_clock(t1)
                 self%encode_ms = real(t1 - t0) * 1000.0 / real(rate)
                 self%encode_ms_total = self%encode_ms_total + self%encode_ms
                 self%encode_ms_max = max(self%encode_ms_max, self%encode_ms)
-                write(move, '(a,i0,a,i0,a)') ESC // "7" // ESC // "[", c%cy + 1, ";", &
-                    c%cx + 1, "H"
                 call tty_send(trim(move) // self%kitty%out(1:self%kitty%out_len) // &
                     ESC // "8")
                 c%placed = .true.
@@ -906,7 +934,12 @@ contains
         cols = min(max(1, nint(node%width / CELL_W_DP)), self%cols - cx)
         rows = min(max(1, nint(node%height / CELL_H_DP)), self%rows - cy)
         if (cols <= 0 .or. rows <= 0) return
-        if (self%graphics == TUI_GRAPHICS_KITTY) then
+        do j = node%layer_first, node%layer_first + node%layer_count - 1
+            if (frame%layers(j)%kind /= LAYER_CELLS) cycle
+            call draw_cells(self, store%layers(frame%layers(j)%slot), node)
+            return
+        end do
+        if (self%graphics /= TUI_GRAPHICS_BRAILLE) then
             dx = self%cell_px_w
             dy = self%cell_px_h
             if (cols * dx > MAX_IMAGE_SIDE .or. rows * dy > MAX_IMAGE_SIDE) return
@@ -965,6 +998,44 @@ contains
             call draw_labels(self, frame, node, cx, cy, cols, rows, bg)
         end associate
     end subroutine draw_canvas
+
+    subroutine draw_cells(self, l, node)
+        !! A cell layer one terminal cell per cell (clipped to the canvas).
+        type(tui_backend_t), intent(inout) :: self
+        type(canvas_layer_t), intent(in) :: l
+        type(ui_node_t), intent(in) :: node
+        integer :: x0, y0, r, col, k, fg, bg, cx1, cy1
+
+        if (.not. allocated(l%cp)) return
+        x0 = nint((node%x + l%rect(1) * node%canvas_view%zoom + node%canvas_view%pan_x) &
+            / CELL_W_DP)
+        y0 = nint((node%y + l%rect(2) * node%canvas_view%zoom + node%canvas_view%pan_y) &
+            / CELL_H_DP)
+        cx1 = nint((node%x + node%width) / CELL_W_DP)
+        cy1 = nint((node%y + node%height) / CELL_H_DP)
+        do r = 0, min(l%rows, cy1 - y0) - 1
+            do col = 0, min(l%cols, cx1 - x0) - 1
+                k = r * l%cols + col + 1
+                if (iand(l%attr(k), CELL_CONT) /= 0) cycle
+                fg = colour(self, to_rgb(l%fg(k)))
+                if (iand(l%attr(k), CELL_BOLD) /= 0) fg = fg + TB_BOLD
+                if (iand(l%attr(k), CELL_UNDERLINE) /= 0) fg = fg + TB_UNDERLINE
+                if (iand(l%attr(k), CELL_ITALIC) /= 0) fg = fg + TB_ITALIC
+                if (iand(ishft(l%bg(k), -24), 255_int32) == 0) then
+                    bg = colour(self, self%pal%panel)
+                else
+                    bg = colour(self, to_rgb(l%bg(k)))
+                end if
+                call put_cell(self, x0 + col, y0 + r, max(32, int(l%cp(k))), fg, bg)
+            end do
+        end do
+    contains
+        pure integer(int32) function to_rgb(rgba)
+            integer(int32), intent(in) :: rgba
+            to_rgb = ior(ior(ishft(iand(rgba, 255_int32), 16), &
+                iand(rgba, 65280_int32)), iand(ishft(rgba, -16), 255_int32))
+        end function to_rgb
+    end subroutine draw_cells
 
     subroutine draw_labels(self, frame, node, cx, cy, cols, rows, bg)
         !! Canvas labels as text cells centred under their anchor, clipped to the
@@ -1409,6 +1480,28 @@ contains
         if (tb_set_cell(int(x, c_int), int(y, c_int), int(ch, c_int32_t), &
             int(fg, c_int32_t), int(bg, c_int32_t)) /= TB_OK) call draw_failure(self)
     end subroutine put_cell
+
+    subroutine tui_clipboard_set(self, text)
+        !! OSC 52: the terminal puts the text on the system clipboard (also over
+        !! ssh, where terminals allow it).
+        class(tui_backend_t), intent(inout) :: self
+        character(*), intent(in) :: text
+        integer(c_int8_t), allocatable :: bytes(:)
+        character(len=:), allocatable :: b64
+        integer :: n
+        if (len(text) == 0 .or. .not. self%active) return
+        bytes = transfer(text, bytes)
+        n = 4 * ((len(text) + 2) / 3)
+        allocate(character(len=n) :: b64)
+        call base64_encode(bytes, len(text), b64, 0)
+        call tty_send(ESC // "]52;c;" // b64 // ESC // "\")
+    end subroutine tui_clipboard_set
+
+    subroutine tui_set_title(self, title)
+        class(tui_backend_t), intent(inout) :: self
+        character(*), intent(in) :: title
+        if (self%active) call tty_send(ESC // "]2;" // title // ESC // "\")
+    end subroutine tui_set_title
 
     logical function tui_is_available()
         character(len=256) :: value

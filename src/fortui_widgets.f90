@@ -23,10 +23,10 @@ module fortui_widgets
     use fortui_input, only: input_activated, input_focused, input_active, input_hovered, &
         input_wheel_for, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_ARROW_UP, KEY_ARROW_DOWN, &
         KEY_BACKSPACE, KEY_DELETE, KEY_HOME, KEY_END, KEY_ENTER, KEY_PAGE_UP, KEY_PAGE_DOWN, &
-        input_host_value, input_host_submitted
+        input_host_value, input_host_submitted, key_press_t
     use fortui_canvas, only: canvas_events_t, canvas_to_world
     use fortui_text, only: text_width, text_line_height, text_wrap, text_caret_from_x, &
-        utf8_boundary, utf8_prev, utf8_next, ui_str, TEXT_DEFAULT_SIZE
+        utf8_boundary, utf8_prev, utf8_next, ui_str, TEXT_DEFAULT_SIZE, TEXT_STYLE_MONO
     use fortui_error, only: report_error
     implicit none
     private
@@ -54,7 +54,7 @@ module fortui_widgets
 
     public :: text, button, link, slider, checkbox, tabs
     public :: canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_lines
-    public :: canvas_label, canvas_image, scroll_text, text_input, ui_focus, ui_reveal
+    public :: canvas_label, canvas_image, canvas_cells, canvas_keys, ui_cell_metrics, scroll_text, text_input, ui_focus, ui_reveal
 
 contains
 
@@ -544,7 +544,7 @@ contains
 
     ! --- canvas -----------------------------------------------------------------------
 
-    subroutine canvas_begin(id, view_state, events, width, height, fill)
+    subroutine canvas_begin(id, view_state, events, width, height, fill, keyboard)
         !! Declare a custom-graphics canvas. Size defaults to the remaining space of
         !! the current container. Pointer events are reported in canvas coordinates;
         !! a click or double click schedules a follow-up frame.
@@ -554,6 +554,8 @@ contains
         type(canvas_events_t) :: ev
         real, intent(in), optional :: width, height
         integer(int32), intent(in), optional :: fill
+        !! Takes every key while it has the focus, Tab included (canvas_keys).
+        logical, intent(in), optional :: keyboard
 
         type(fortui_context_t), pointer :: ctx
         type(ui_node_t) :: node
@@ -576,6 +578,7 @@ contains
         node%kind = UI_CANVAS
         node%id = full
         node%focusable = .true.
+        if (present(keyboard)) node%keyboard = keyboard
         node%canvas_view = view_state
         if (present(fill)) node%fill = fill
         call layout_get_cursor(node%x, node%y)
@@ -620,6 +623,7 @@ contains
             ev%double_clicked = len_trim(inp%double_click_id) > 0 .and. &
                 trim(inp%double_click_id) == full
             ev%wheel = input_wheel_for(inp, full)
+            ev%focused = node%focused
             s%dragging = ev%dragging
             s%captured = ev%captured
         end associate
@@ -866,6 +870,63 @@ contains
             [x, y, width, height], ctx%frame_count)
         if (slot > 0) call add_layer_ref(ctx, slot)
     end subroutine canvas_image
+
+    subroutine canvas_keys(presses, n)
+        !! This frame's key presses for the open canvas when it has the focus and
+        !! was begun with `keyboard`, in the order they happened: typed
+        !! characters (KEY_NONE with their code point) and named keys, with
+        !! modifiers. Presses an application shortcut asked for are left out.
+        type(key_press_t), allocatable, intent(out) :: presses(:)
+        integer, intent(out) :: n
+        type(fortui_context_t), pointer :: ctx
+        integer :: i
+
+        n = 0
+        allocate(presses(0))
+        ctx => get_default_context()
+        if (.not. canvas_ready(ctx, "canvas_keys")) return
+        associate(node => ctx%current_frame%nodes(ctx%canvas_node), inp => ctx%input)
+            if (.not. (node%keyboard .and. node%focused)) return
+            deallocate(presses)
+            allocate(presses(max(1, inp%press_shown)))
+            do i = 1, inp%press_shown
+                if (inp%presses(i)%wanted .and. .not. inp%presses(i)%consumed) cycle
+                n = n + 1
+                presses(n) = inp%presses(i)
+            end do
+        end associate
+    end subroutine canvas_keys
+
+    subroutine canvas_cells(key, generation, cols, rows, cp, fg, bg, attr, x, y, width, &
+            height, size)
+        !! Retained grid of cols x rows character cells drawn into the world
+        !! rectangle (x, y, width, height) with the monospace face at logical
+        !! `size`: code points, foreground and background colours (ui_rgba) and
+        !! CELL_* attributes, row by row from the top. A terminal draws one cell
+        !! per character cell; pixel hosts draw each glyph into its cell.
+        character(*), intent(in) :: key
+        integer, intent(in) :: generation, cols, rows
+        integer(int32), intent(in) :: cp(:), fg(:), bg(:), attr(:)
+        real, intent(in) :: x, y, width, height, size
+
+        type(fortui_context_t), pointer :: ctx
+        integer :: slot
+
+        ctx => get_default_context()
+        if (.not. canvas_ready(ctx, "canvas_cells")) return
+        slot = ctx%canvas%submit_cells(layer_key(ctx, key), generation, cols, rows, cp, fg, &
+            bg, attr, [x, y, width, height], size, ctx%frame_count)
+        if (slot > 0) call add_layer_ref(ctx, slot)
+    end subroutine canvas_cells
+
+    subroutine ui_cell_metrics(size, cell_width, cell_height)
+        !! Logical size of one character cell of the monospace face at `size`
+        !! (one terminal cell on a terminal host).
+        real, intent(in) :: size
+        real, intent(out) :: cell_width, cell_height
+        cell_width = max(1.0, text_width("M", size, TEXT_STYLE_MONO))
+        cell_height = max(1.0, text_line_height(size))
+    end subroutine ui_cell_metrics
 
     subroutine canvas_label(x, y, value, size, rgba)
         !! Text label centred horizontally below world point (x, y), at a fixed

@@ -8,7 +8,7 @@ module fortui_core
         input_scroll, input_set_key, input_type_text, input_set_time, input_key_arrived, &
         KEY_ESCAPE, input_apply_host, input_host_event, input_key_press, &
         input_sort_presses, input_shortcut, input_commit_chords, input_presses_wait, FOCUS_PLAIN, &
-        FOCUS_CONTROL, FOCUS_RANGE, FOCUS_FIELD, FOCUS_EDITOR
+        FOCUS_CONTROL, FOCUS_RANGE, FOCUS_FIELD, FOCUS_EDITOR, FOCUS_TERMINAL
     use fortui_layout, only: layout_reset, layout_check_balance, layout_boxes
     use fortui_frame, only: UI_TEXT_INPUT, UI_TEXT_AREA, UI_NONE, UI_SLIDER, &
         UI_SCROLL_TEXT, style_weight
@@ -16,6 +16,7 @@ module fortui_core
     use fortui_text, only: text_use_fixed_metrics, text_width
     use fortui_error, only: report_error
     use fortui_theme, only: theme, theme_select, theme_requested, theme_set, theme_plain
+    use iso_c_binding, only: c_funptr, c_null_funptr
     implicit none
     private
 
@@ -28,6 +29,7 @@ module fortui_core
     public :: ui_should_close, ui_request_quit, ui_is_initialized, ui_get_backend
     public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale
     public :: ui_time, ui_wake_after
+    public :: ui_clipboard_set, ui_clipboard_text, ui_set_title, ui_waker, ui_set_window_margin
     public :: ui_key_pressed, ui_text_width, ui_backend_capabilities, ui_backend_caps_t
     public :: ui_shortcut, ui_set_theme, ui_theme_name
     public :: ui_backend_description, ui_run, ui_run_step, ui_frame_proc
@@ -165,13 +167,17 @@ contains
         ctx%text_focused = focused_kind(ctx) == UI_TEXT_INPUT .or. &
             focused_kind(ctx) == UI_TEXT_AREA
         ! Shortcuts: what the focused control does with keys itself.
-        select case (focused_kind(ctx))
-        case (UI_NONE); focus_level = FOCUS_PLAIN
-        case (UI_TEXT_INPUT); focus_level = FOCUS_FIELD
-        case (UI_TEXT_AREA); focus_level = FOCUS_EDITOR
-        case (UI_SLIDER, UI_SCROLL_TEXT); focus_level = FOCUS_RANGE
-        case default; focus_level = FOCUS_CONTROL
-        end select
+        if (focused_keyboard(ctx)) then
+            focus_level = FOCUS_TERMINAL
+        else
+            select case (focused_kind(ctx))
+            case (UI_NONE); focus_level = FOCUS_PLAIN
+            case (UI_TEXT_INPUT); focus_level = FOCUS_FIELD
+            case (UI_TEXT_AREA); focus_level = FOCUS_EDITOR
+            case (UI_SLIDER, UI_SCROLL_TEXT); focus_level = FOCUS_RANGE
+            case default; focus_level = FOCUS_CONTROL
+            end select
+        end if
         press_time = ui_time()
         if (ctx%inject_time >= 0.0d0) press_time = ctx%inject_time
         call input_sort_presses(ctx%input, focus_level, press_time)
@@ -183,7 +189,11 @@ contains
 
         call ctx%current_frame%reset()
         ctx%canvas_node = 0
-        call layout_reset(real(ctx%input%width), real(ctx%input%height), theme%margin)
+        if (ctx%window_margin >= 0.0) then
+            call layout_reset(real(ctx%input%width), real(ctx%input%height), ctx%window_margin)
+        else
+            call layout_reset(real(ctx%input%width), real(ctx%input%height), theme%margin)
+        end if
         ctx%frame_count = ctx%frame_count + 1
         ctx%in_frame = .true.
     end subroutine ui_frame_begin
@@ -442,6 +452,64 @@ contains
         i = ctx%previous_frame%find(ctx%input%focus_id)
         if (i > 0) kind = ctx%previous_frame%nodes(i)%kind
     end function focused_kind
+
+    logical function focused_keyboard(ctx) result(yes)
+        type(fortui_context_t), intent(in) :: ctx
+        integer :: i
+        yes = .false.
+        if (len_trim(ctx%input%focus_id) == 0) return
+        i = ctx%previous_frame%find(ctx%input%focus_id)
+        if (i > 0) yes = ctx%previous_frame%nodes(i)%keyboard
+    end function focused_keyboard
+
+    subroutine ui_set_window_margin(margin)
+        !! Free space around the window's content in logical units, instead of
+        !! the theme's (0 for content that fills the window, such as a
+        !! terminal); a negative margin returns to the theme's.
+        real, intent(in) :: margin
+        type(fortui_context_t), pointer :: ctx
+        ctx => get_default_context()
+        if (associated(ctx)) ctx%window_margin = margin
+    end subroutine ui_set_window_margin
+
+    subroutine ui_clipboard_set(text)
+        !! Put UTF-8 `text` on the system clipboard.
+        character(*), intent(in) :: text
+        type(fortui_context_t), pointer :: ctx
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (ctx%initialized) call ctx%backend%clipboard_set(text)
+    end subroutine ui_clipboard_set
+
+    function ui_clipboard_text() result(text)
+        !! The clipboard's text ("" when empty or the host has no clipboard).
+        character(len=:), allocatable :: text
+        type(fortui_context_t), pointer :: ctx
+        text = ""
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (ctx%initialized) call ctx%backend%clipboard_get(text)
+    end function ui_clipboard_text
+
+    subroutine ui_set_title(title)
+        !! The window title (the terminal's title on a terminal host).
+        character(*), intent(in) :: title
+        type(fortui_context_t), pointer :: ctx
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (ctx%initialized) call ctx%backend%set_title(title)
+    end subroutine ui_set_title
+
+    function ui_waker() result(fn)
+        !! A C function any thread may call to wake the event loop (a null
+        !! pointer when the host has none; then wake with ui_wake_after).
+        type(c_funptr) :: fn
+        type(fortui_context_t), pointer :: ctx
+        fn = c_null_funptr
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (ctx%initialized) fn = ctx%backend%waker()
+    end function ui_waker
 
     logical function ui_should_close()
         !! The application or the host asked to quit.

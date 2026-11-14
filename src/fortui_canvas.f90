@@ -8,17 +8,19 @@ module fortui_canvas
     !! versions they realized, so data is uploaded only after a real change.
     use iso_fortran_env, only: int32
     use fortui_frame, only: canvas_view_t, ui_frame_t, ui_layer_ref_t, LAYER_POINTS, &
-        LAYER_LINES, LAYER_VERTICES, LAYER_IMAGE
+        LAYER_LINES, LAYER_VERTICES, LAYER_IMAGE, LAYER_CELLS
     use fortui_error, only: report_error
     implicit none
     private
 
-    public :: canvas_view_t, LAYER_POINTS, LAYER_LINES, LAYER_VERTICES, LAYER_IMAGE
+    public :: canvas_view_t, LAYER_POINTS, LAYER_LINES, LAYER_VERTICES, LAYER_IMAGE, LAYER_CELLS
 
     type, public :: canvas_events_t
         !! Pointer semantics for one canvas in one frame. World coordinates use the
         !! view passed to `canvas_begin` (after any change the caller made earlier).
         logical :: hovered = .false.
+        ! The canvas has the keyboard focus.
+        logical :: focused = .false.
         logical :: pressed = .false.
         logical :: released = .false.
         logical :: clicked = .false.
@@ -75,6 +77,12 @@ module fortui_canvas
         integer :: image_width = 0
         integer :: image_height = 0
         real :: rect(4) = 0.0
+        ! Cell layers: code points, colours (ui_rgba) and CELL_* attributes of
+        ! cols x rows cells, row by row from the top, drawn into `rect` with the
+        ! monospace face at logical size `cell_size`.
+        integer :: cols = 0, rows = 0
+        real :: cell_size = 0.0
+        integer(int32), allocatable :: cp(:), fg(:), bg(:), attr(:)
     end type canvas_layer_t
 
     type, public :: canvas_store_t
@@ -88,6 +96,7 @@ module fortui_canvas
         procedure :: submit_points => store_submit_points
         procedure :: submit_lines => store_submit_lines
         procedure :: submit_image => store_submit_image
+        procedure :: submit_cells => store_submit_cells
         procedure :: ref => store_ref
         procedure :: active_layers => store_active_layers
     end type canvas_store_t
@@ -471,6 +480,44 @@ contains
             l%has_data = .true.
         end associate
     end function store_submit_image
+
+    integer function store_submit_cells(self, key, generation, cols, rows, cp, fg, bg, attr, &
+            rect, cell_size, frame_no) result(slot)
+        !! Cell layer of cols x rows cells (arrays in row order from the top). The
+        !! cells are copied when `generation` or the grid size changes.
+        class(canvas_store_t), intent(inout) :: self
+        character(*), intent(in) :: key
+        integer, intent(in) :: generation, cols, rows, frame_no
+        integer(int32), intent(in) :: cp(:), fg(:), bg(:), attr(:)
+        real, intent(in) :: rect(4), cell_size
+        integer :: n
+
+        slot = self%acquire(key, LAYER_CELLS, frame_no)
+        if (slot == 0) return
+        n = cols * rows
+        if (min(size(cp), size(fg), size(bg), size(attr)) < n) then
+            call report_error("fortui_canvas", "canvas_cells", "layer '" // key // &
+                "': fewer cells than cols * rows")
+            return
+        end if
+        associate(l => self%layers(slot))
+            if (any(l%rect /= rect) .or. l%cell_size /= cell_size) &
+                l%index_version = l%index_version + 1
+            l%rect = rect
+            l%cell_size = cell_size
+            if (l%has_data .and. l%generation == generation .and. l%cols == cols .and. &
+                l%rows == rows) return
+            l%cp = cp(1:n)
+            l%fg = fg(1:n)
+            l%bg = bg(1:n)
+            l%attr = attr(1:n)
+            l%cols = cols
+            l%rows = rows
+            l%generation = generation
+            l%version = l%version + 1
+            l%has_data = .true.
+        end associate
+    end function store_submit_cells
 
     function store_ref(self, slot) result(ref)
         !! Frame descriptor of drawable layer `slot`.

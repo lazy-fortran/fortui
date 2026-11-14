@@ -26,6 +26,12 @@ module fortui_frame
     integer, parameter, public :: LAYER_LINES = 2
     integer, parameter, public :: LAYER_VERTICES = 3
     integer, parameter, public :: LAYER_IMAGE = 4
+    ! A grid of character cells (terminal screens, text-mode views).
+    integer, parameter, public :: LAYER_CELLS = 5
+    ! Cell attributes (canvas_cells): CELL_WIDE marks the first cell of a glyph
+    ! two cells wide, CELL_CONT its second cell, which draws nothing.
+    integer, parameter, public :: CELL_BOLD = 1, CELL_ITALIC = 2, CELL_UNDERLINE = 4, &
+        CELL_STRIKE = 8, CELL_WIDE = 16, CELL_CONT = 32, CELL_DIM = 64
 
     ! Presentation style tokens (role, default size and weight; backends choose colour).
     integer, parameter, public :: UI_BODY = 1
@@ -105,6 +111,8 @@ module fortui_frame
         real :: width = 0.0
         real :: height = 0.0
         logical :: focusable = .false.
+        ! Takes every key while focused, Tab included (a terminal).
+        logical :: keyboard = .false.
         logical :: disabled = .false.
         logical :: hovered = .false.
         logical :: focused = .false.

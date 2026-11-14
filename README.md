@@ -140,10 +140,12 @@ Run the terminal demo in a real terminal:
 fpm run --example tui_demo
 ```
 
-Canvases render in the terminal as braille cells or, in terminals with the kitty
-graphics protocol (kitty, WezTerm), as pixels, also over ssh;
-`FORTUI_TUI_GRAPHICS=braille|kitty` and `FORTUI_TUI_COLOR=truecolor|256` force a
-choice. `fpm run --example tui_canvas_bench` measures the terminal raster cost.
+Canvases render in the terminal as pixels with the kitty graphics protocol
+(kitty, WezTerm, Ghostty, fortterm) or as sixel images (xterm, foot, tmux built
+with sixel, fortterm), also over ssh, and otherwise as braille cells; inside tmux
+the sixel path is the one that works. `FORTUI_TUI_GRAPHICS=braille|kitty|sixel`
+and `FORTUI_TUI_COLOR=truecolor|256` force a choice. `fpm run --example
+tui_canvas_bench` measures the terminal raster cost.
 
 `ui_init("auto", ...)` and `ui_init("gui", ...)` take SDL, else raylib, and
 "auto" then the terminal; `FORTUI_BACKEND=sdl|raylib|tui|headless` chooses. An
@@ -189,6 +191,37 @@ in the config file or `FORTUI_TUI_THEME=dark` keeps that structure in dark
 colours; the default is `cua`. Every cell gets an explicit colour, so the look
 does not depend on the terminal's own colours.
 
+## Terminal emulator
+
+With `-DENABLE_TERM=1` (link `-lvterm -lutil -lpthread`) the `terminal` widget
+runs a program on a pseudo-terminal and shows its screen; libvterm keeps the
+screen, FortUI decodes images in Fortran (kitty graphics with raw, zlib and PNG
+data, and sixel). It draws the same character cells on every host: glyph by
+glyph on the SDL GPU and one terminal cell per cell inside another terminal.
+
+```fortran
+use fortui_term, only: term_t           ! native hosts only, not in `use fortui`
+use fortui_terminal, only: terminal, terminal_view_t
+type(term_t), target, save :: t      ! stays in place while it runs
+type(terminal_view_t), save :: v
+call terminal("term", t, v, 14.0, UI_FILL, UI_FILL)   ! the user's shell
+```
+
+The widget takes every key while focused (Tab included; Ctrl+Shift chords stay
+with the application), copies the pointer selection with Ctrl+Shift+C, pastes
+with Ctrl+Shift+V, scrolls back with the wheel and Shift+Page Up/Down, forwards
+the pointer to programs that ask for mouse reports, and answers the device
+attributes query with sixel support, so tmux passes images through.
+`canvas_cells` draws such a grid of cells for any application.
+[fortterm](https://github.com/lazy-fortran/fortterm) is the terminal emulator
+built on it.
+
+```sh
+make build-term
+make test-term    # real programs on a pseudo-terminal: text, colours, images,
+                  # scrollback, keys and the widget on the headless host
+```
+
 ## Images and printing
 
 `canvas_image(key, generation, rgba, x, y, width, height)` draws a retained
@@ -215,6 +248,7 @@ dependency only when its build flag is given, so the core stays free of them.
 | SDL desktop (`-DENABLE_SDL=1`) | SDL3 3.2+, SDL3_ttf 3.2+ (FreeType, HarfBuzz), fontconfig, a Vulkan driver | zlib; zlib; MIT-style |
 | Raylib desktop (`-DENABLE_GUI=1`) | raylib 5+, fontconfig | zlib; MIT-style |
 | Printing (`-DENABLE_PRINT=1`) | libcups 2.3+ | Apache-2.0 |
+| Terminal emulator (`-DENABLE_TERM=1`) | libvterm 0.3+, a POSIX pseudo-terminal (`forkpty`) | MIT |
 | Browser | LFortran, emscripten | BSD-3-Clause; MIT/NCSA |
 | Shader rebuild (development) | glslc from shaderc | Apache-2.0 |
 
@@ -224,6 +258,7 @@ Theme fonts are used from the system at run time, never shipped or linked:
 |---|---|---|
 | classic | Chicago95 fonts (`chicago95-fonts`), More Perfect DOS VGA (`ttf-perfectdos`) | GPL-3.0-or-later; free |
 | fluent | Segoe UI if installed, else Selawik ([microsoft/Selawik](https://github.com/microsoft/Selawik)); Cascadia Mono (`ttf-cascadia-code`) | Microsoft; OFL-1.1; OFL-1.1 |
+| (all, SDL) | for characters a face lacks, where installed: DejaVu Sans Mono (`ttf-dejavu`), Noto Sans Symbols 2 and Noto Color Emoji (`noto-fonts`, `noto-fonts-emoji`) | Bitstream Vera; OFL-1.1; OFL-1.1 |
 
 The API may change before 1.0.
 

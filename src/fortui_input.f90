@@ -22,6 +22,9 @@ module fortui_input
     integer, parameter, public :: KEY_PAGE_DOWN = 13
     integer, parameter, public :: KEY_SPACE = 14
     integer, parameter, public :: KEY_INSERT = 15
+    ! Function keys KEY_F1 + k - 1 for Fk, k = 1..12.
+    integer, parameter, public :: KEY_F1 = 16, KEY_F12 = 27
+    integer, parameter, public :: KEY_LAST = KEY_F12
     integer, parameter, public :: MAX_FRAME_KEYS = 32
     integer, parameter, public :: MAX_FRAME_TEXT = 256
     ! Semantic events from hosts whose controls handle input themselves (the
@@ -44,7 +47,7 @@ module fortui_input
     ! ArrowUp, ArrowDown, Enter and Escape (a text field of one line); all but
     ! Escape (a text field of several lines).
     integer, parameter, public :: FOCUS_UNKNOWN = -1, FOCUS_PLAIN = 0, FOCUS_CONTROL = 1, &
-        FOCUS_RANGE = 2, FOCUS_FIELD = 3, FOCUS_EDITOR = 4
+        FOCUS_RANGE = 2, FOCUS_FIELD = 3, FOCUS_EDITOR = 4, FOCUS_TERMINAL = 5
     ! Answer to a host that asks about a key press before its own default action.
     integer, parameter, public :: CLAIM_DELIVER = 1, CLAIM_PREVENT = 2
     ! Presses waiting for their frame; further ones are dropped.
@@ -299,7 +302,7 @@ contains
         integer, intent(in), optional :: focus
         type(key_press_t) :: p
 
-        if (key < KEY_NONE .or. key > KEY_INSERT) return
+        if (key < KEY_NONE .or. key > KEY_LAST) return
         if (key == KEY_NONE .and. code <= 32) return
         if (present(widgets)) then
             if (widgets) call input_widget_key(input, key)
@@ -320,7 +323,7 @@ contains
         type(input_state_t), intent(inout) :: input
         integer, intent(in) :: key
 
-        if (key <= KEY_NONE .or. key > KEY_INSERT) return
+        if (key <= KEY_NONE .or. key > KEY_LAST) return
         if (input%key_count >= MAX_FRAME_KEYS) return
         input%key_count = input%key_count + 1
         input%keys(input%key_count) = key
@@ -451,6 +454,10 @@ contains
         case ('end'); key = KEY_END
         case ('pageup'); key = KEY_PAGE_UP
         case ('pagedown'); key = KEY_PAGE_DOWN
+        case ('f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12')
+            key = iachar(token(len(token):len(token))) - iachar('0')
+            if (len(token) - a == 2) key = key + 10
+            key = KEY_F1 + key - 1
         case ('arrowleft'); key = KEY_ARROW_LEFT
         case ('arrowright'); key = KEY_ARROW_RIGHT
         case ('arrowup'); key = KEY_ARROW_UP
@@ -495,6 +502,13 @@ contains
         integer, intent(in) :: focus, key, mods
 
         uses = .false.
+        ! A terminal takes everything but Ctrl+Shift and Meta chords, which
+        ! stay with the application (copy, paste, new tab).
+        if (focus == FOCUS_TERMINAL) then
+            uses = iand(mods, MOD_META) == 0 .and. &
+                iand(mods, MOD_CTRL + MOD_SHIFT) /= MOD_CTRL + MOD_SHIFT
+            return
+        end if
         if (iand(mods, MOD_CTRL + MOD_META) /= 0) return
         select case (focus)
         case (FOCUS_CONTROL)
@@ -701,7 +715,7 @@ contains
         logical :: claimed, repeats
 
         claim = 0
-        if (press%key < KEY_NONE .or. press%key > KEY_INSERT) return
+        if (press%key < KEY_NONE .or. press%key > KEY_LAST) return
         if (press%key == KEY_NONE .and. press%code <= 32) return
         if (.not. allocated(input%claimed)) allocate (input%claimed(16))
         p = press
@@ -729,7 +743,12 @@ contains
         if (.not. input%pointer_down .and. &
             .not. input%pointer_released) input%active_id = ""
 
-        if (input_key_arrived(input, KEY_TAB)) then
+        i = 0
+        if (len_trim(input%focus_id) > 0) i = previous%find(trim(input%focus_id))
+        if (i > 0) then
+            if (previous%nodes(i)%keyboard) i = -1
+        end if
+        if (input_key_arrived(input, KEY_TAB) .and. i >= 0) then
             first_focus = 0
             focused_index = 0
             do i = 1, previous%count

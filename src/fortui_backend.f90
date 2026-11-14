@@ -11,6 +11,7 @@ module fortui_backend
     !! Idle rule: `present` never blocks. The runtime decides at each present whether
     !! the next frame may wait and passes that decision to the next `poll`; a host
     !! that cannot block (a browser frame callback) treats `wait` as advisory.
+    use iso_c_binding, only: c_funptr, c_null_funptr
     use fortui_frame, only: ui_frame_t
     use fortui_input, only: input_state_t
     use fortui_canvas, only: canvas_store_t, canvas_realizer_t
@@ -70,6 +71,10 @@ module fortui_backend
         procedure :: stats => backend_stats
         procedure :: hand_over => backend_hand_over
         procedure :: describe => backend_describe
+        procedure :: clipboard_set => backend_clipboard_set
+        procedure :: clipboard_get => backend_clipboard_get
+        procedure :: set_title => backend_set_title
+        procedure :: waker => backend_waker
     end type ui_backend_t
 
     abstract interface
@@ -138,6 +143,38 @@ contains
         !! is registered; a host may leave the program's main here for good.
         class(ui_backend_t), intent(inout) :: self
     end subroutine backend_hand_over
+
+    subroutine backend_clipboard_set(self, text)
+        !! Put UTF-8 `text` on the system clipboard (hosts without one ignore it).
+        class(ui_backend_t), intent(inout) :: self
+        character(*), intent(in) :: text
+        if (len(text) < 0 .or. self%presents < 0) continue
+    end subroutine backend_clipboard_set
+
+    subroutine backend_clipboard_get(self, text)
+        !! The clipboard's text ("" when empty or unknown).
+        class(ui_backend_t), intent(inout) :: self
+        character(len=:), allocatable, intent(out) :: text
+        text = ""
+        if (self%presents < 0) continue
+    end subroutine backend_clipboard_get
+
+    subroutine backend_set_title(self, title)
+        !! The window title.
+        class(ui_backend_t), intent(inout) :: self
+        character(*), intent(in) :: title
+        if (len(title) < 0 .or. self%presents < 0) continue
+    end subroutine backend_set_title
+
+    function backend_waker(self) result(fn)
+        !! A C function that wakes the host's event loop and may be called from
+        !! any thread, or a null pointer when the host cannot be woken that way
+        !! (the runtime then wakes on a timer).
+        class(ui_backend_t), intent(in) :: self
+        type(c_funptr) :: fn
+        fn = c_null_funptr
+        if (self%presents < 0) continue
+    end function backend_waker
 
     function backend_stats(self) result(stats)
         class(ui_backend_t), intent(in) :: self

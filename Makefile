@@ -6,10 +6,13 @@ GUI_ENV = FPM_FFLAGS="$${FPM_FFLAGS:-} -cpp -DENABLE_GUI=1" \
 	FPM_LDFLAGS="$${FPM_LDFLAGS:-} -lraylib -lfontconfig"
 SDL_ENV = FPM_FFLAGS="$${FPM_FFLAGS:-} -cpp -DENABLE_SDL=1" \
 	FPM_LDFLAGS="$${FPM_LDFLAGS:-} -lSDL3 -lSDL3_ttf -lfontconfig"
+TERM_ENV = FPM_FFLAGS="$${FPM_FFLAGS:-} -cpp -DENABLE_TERM=1" \
+	FPM_CFLAGS="$${FPM_CFLAGS:-} -DENABLE_TERM=1" \
+	FPM_LDFLAGS="$${FPM_LDFLAGS:-} -lvterm -lutil -lpthread"
 PRINT_ENV = FPM_FFLAGS="$${FPM_FFLAGS:-} -cpp -DENABLE_PRINT=1" \
 	FPM_LDFLAGS="$${FPM_LDFLAGS:-} -lcups"
 
-.PHONY: all build test build-gui test-gui build-sdl test-sdl build-print test-print test-print-system install clean help
+.PHONY: all build test build-gui test-gui build-sdl test-sdl build-term test-term build-print test-print test-print-system install clean help
 
 all: build
 
@@ -34,6 +37,14 @@ build-sdl:
 # GPU and display are reachable.
 test-sdl:
 	$(SDL_ENV) $(FPM) test
+
+build-term:
+	$(TERM_ENV) $(FPM) build
+
+# Headless tests plus the terminal emulator against real programs on a
+# pseudo-terminal (libvterm).
+test-term:
+	FORTUI_HEADLESS=1 $(TERM_ENV) $(FPM) test
 
 build-print:
 	$(PRINT_ENV) $(FPM) build

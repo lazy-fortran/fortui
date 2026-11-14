@@ -24,7 +24,7 @@ module fortui_gui_raylib
         input_key_press, &
         KEY_ESCAPE, KEY_ENTER, KEY_TAB, KEY_SPACE, KEY_ARROW_UP, KEY_ARROW_DOWN, &
         KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_BACKSPACE, KEY_DELETE, KEY_HOME, KEY_END, &
-        KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_INSERT
+        KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_INSERT, KEY_F1
     use fortui_canvas, only: canvas_store_t
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t
     use fortui_text, only: text_use_measurement, utf8_encode
@@ -1269,6 +1269,7 @@ contains
         case (32); mapped = KEY_SPACE
         case (259); mapped = KEY_BACKSPACE
         case (260); mapped = KEY_INSERT
+        case (290:301); mapped = KEY_F1 + key - 290
         case (261); mapped = KEY_DELETE
         case (262); mapped = KEY_ARROW_RIGHT
         case (263); mapped = KEY_ARROW_LEFT
