@@ -624,6 +624,9 @@ contains
             ev%double_clicked = len_trim(inp%double_click_id) > 0 .and. &
                 trim(inp%double_click_id) == full
             ev%wheel = input_wheel_for(inp, full)
+            ev%mods = inp%mods_down
+            ev%middle_pressed = inp%middle_pressed .and. node%hovered
+            ev%middle_released = inp%middle_released .and. node%hovered
             ev%focused = node%focused
             s%dragging = ev%dragging
             s%captured = ev%captured

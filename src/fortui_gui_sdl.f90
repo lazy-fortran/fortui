@@ -290,6 +290,9 @@ module fortui_gui_sdl
         procedure :: set_window_size => sb_set_window_size
         procedure :: set_window_visible => sb_set_window_visible
         procedure :: maximize_window => sb_maximize_window
+        procedure :: open_url => sb_open_url
+        procedure :: primary_set => sb_primary_set
+        procedure :: primary_get => sb_primary_get
     end type sdl_backend_t
 
     ! Fonts of the SDL backend (one at a time), shared with text measurement.
@@ -332,6 +335,22 @@ module fortui_gui_sdl
         logical(c_bool) function SDL_HideWindow(w) bind(C, name="SDL_HideWindow")
             import :: c_bool, c_ptr
             type(c_ptr), value :: w
+        end function
+        integer(c_int16_t) function SDL_GetModState() bind(C, name="SDL_GetModState")
+            import :: c_int16_t
+        end function
+        logical(c_bool) function SDL_SetPrimarySelectionText(text) &
+                bind(C, name="SDL_SetPrimarySelectionText")
+            import :: c_bool, c_char
+            character(kind=c_char), intent(in) :: text(*)
+        end function
+        type(c_ptr) function SDL_GetPrimarySelectionText() &
+                bind(C, name="SDL_GetPrimarySelectionText")
+            import :: c_ptr
+        end function
+        logical(c_bool) function SDL_OpenURL(url) bind(C, name="SDL_OpenURL")
+            import :: c_bool, c_char
+            character(kind=c_char), intent(in) :: url(*)
         end function
         logical(c_bool) function SDL_MaximizeWindow(w) bind(C, name="SDL_MaximizeWindow")
             import :: c_bool, c_ptr
@@ -789,6 +808,32 @@ contains
             int(real(height) * self%scale / density, c_int))) continue
     end subroutine sb_set_window_size
 
+    subroutine sb_primary_set(self, text)
+        class(sdl_backend_t), intent(inout) :: self
+        character(*), intent(in) :: text
+        if (.not. self%active) return
+        if (SDL_SetPrimarySelectionText(text // c_null_char)) continue
+    end subroutine sb_primary_set
+
+    subroutine sb_primary_get(self, text)
+        class(sdl_backend_t), intent(inout) :: self
+        character(len=:), allocatable, intent(out) :: text
+        type(c_ptr) :: p
+        text = ""
+        if (.not. self%active) return
+        p = SDL_GetPrimarySelectionText()
+        if (.not. c_associated(p)) return
+        text = f_str(p)
+        call SDL_free(p)
+    end subroutine sb_primary_get
+
+    subroutine sb_open_url(self, url)
+        class(sdl_backend_t), intent(inout) :: self
+        character(*), intent(in) :: url
+        if (self%presents < 0) return
+        if (SDL_OpenURL(url // c_null_char)) continue
+    end subroutine sb_open_url
+
     subroutine sb_maximize_window(self)
         class(sdl_backend_t), intent(inout) :: self
         if (c_associated(self%window)) then
@@ -1241,6 +1286,7 @@ contains
             call input_set_time(input, real(SDL_GetTicksNS(), kind(1.0d0)) * 1.0d-9)
         end if
         call apply_events(self, input)
+        call held_modifiers(input)
         input%width = max(1, nint(real(self%pw) / self%scale))
         input%height = max(1, nint(real(self%ph) / self%scale))
         input%scale = self%scale
@@ -1284,6 +1330,10 @@ contains
                 case (EV_BUTTON_DOWN, EV_BUTTON_UP)
                     ! Button at byte 24: only the left button drives widgets.
                     button = iand(int(ev(25)), 255)
+                    if (button == 2) then
+                        if (kind == EV_BUTTON_DOWN) input%middle_pressed = .true.
+                        if (kind == EV_BUTTON_UP) input%middle_released = .true.
+                    end if
                     if (button /= 1) then
                         call drop_head(self)
                         cycle
@@ -1307,6 +1357,17 @@ contains
             call drop_head(self)
         end do
     end subroutine apply_events
+
+    subroutine held_modifiers(input)
+        type(input_state_t), intent(inout) :: input
+        integer :: m
+        m = int(SDL_GetModState())
+        input%mods_down = 0
+        if (iand(m, int(z'00C0')) /= 0) input%mods_down = ior(input%mods_down, MOD_CTRL)
+        if (iand(m, int(z'0003')) /= 0) input%mods_down = ior(input%mods_down, MOD_SHIFT)
+        if (iand(m, int(z'0300')) /= 0) input%mods_down = ior(input%mods_down, MOD_ALT)
+        if (iand(m, int(z'0C00')) /= 0) input%mods_down = ior(input%mods_down, MOD_META)
+    end subroutine held_modifiers
 
     subroutine drop_head(self)
         type(sdl_backend_t), intent(inout) :: self

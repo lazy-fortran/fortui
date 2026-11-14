@@ -103,6 +103,15 @@ int fortui_spawn_detached(const char *path, const char *arg) {
         setsid();
         inner = fork();
         if (inner != 0) _exit(inner < 0 ? 1 : 0);
+        {
+            /* The helper must not hold the caller's terminal or pipes open. */
+            int null = open("/dev/null", O_RDWR);
+            if (null >= 0) {
+                dup2(null, 0);
+                dup2(null, 1);
+                dup2(null, 2);
+            }
+        }
         for (int fd = 3; fd < 1024; fd++) close(fd);
         execl(path, path, arg, (char *)NULL);
         _exit(127);

@@ -42,6 +42,8 @@ module fortui_vt
         logical :: autowrap = .true., origin = .false., insert = .false., newline = .false.
         logical :: app_cursor = .false., app_keypad = .false., paste_brackets = .false.
         logical :: cursor_visible = .true., focus_events = .false.
+        ! Synchronized output (mode 2026): the program is between two frames.
+        logical :: sync = .false.
         integer :: mouse = 0 ! 0, 9, 1000, 1002, 1003
         logical :: mouse_sgr = .false.
         integer :: cursor_style = 0 ! DECSCUSR: 0/1/2 block, 3/4 underline, 5/6 bar
@@ -1038,6 +1040,7 @@ contains
         case (9, 1000, 1002, 1003)
             vt%mouse = merge(mode, 0, on)
         case (1004); vt%focus_events = on
+        case (2026); vt%sync = on
         case (1006); vt%mouse_sgr = on
         case (2004); vt%paste_brackets = on
         case (47, 1047)
@@ -1337,8 +1340,10 @@ contains
         integer :: b
         if (vt%mouse == 0) return
         if (moved .and. vt%mouse < 1002) return
-        if (moved .and. vt%mouse == 1002 .and. .not. pressed) return
-        b = button + merge(4, 0, shift) + merge(8, 0, alt) + merge(16, 0, ctrl)
+        if (moved .and. vt%mouse == 1002 .and. (.not. pressed .or. button < 0)) return
+        ! Motion with no button held reports button 3 (mode 1003).
+        b = merge(3, button, button < 0) + merge(4, 0, shift) + merge(8, 0, alt) + &
+            merge(16, 0, ctrl)
         if (moved) b = b + 32
         if (vt%mouse_sgr) then
             call reply(vt, achar(27) // "[<" // itoa(b) // ";" // itoa(col + 1) // ";" // &

@@ -21,6 +21,10 @@ module fortui_canvas
         logical :: hovered = .false.
         ! The canvas has the keyboard focus.
         logical :: focused = .false.
+        ! Modifier keys held (MOD_*).
+        integer :: mods = 0
+        ! The middle button went down / up over the canvas in this frame.
+        logical :: middle_pressed = .false., middle_released = .false.
         logical :: pressed = .false.
         logical :: released = .false.
         logical :: clicked = .false.

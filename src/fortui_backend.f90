@@ -80,6 +80,9 @@ module fortui_backend
         procedure :: set_window_size => backend_set_window_size
         procedure :: set_window_visible => backend_set_window_visible
         procedure :: maximize_window => backend_maximize_window
+        procedure :: open_url => backend_open_url
+        procedure :: primary_set => backend_primary_set
+        procedure :: primary_get => backend_primary_get
     end type ui_backend_t
 
     abstract interface
@@ -185,6 +188,28 @@ contains
         logical, intent(in) :: visible
         if (visible .or. self%presents < 0) continue
     end subroutine backend_set_window_visible
+
+    subroutine backend_primary_set(self, text)
+        !! The X11 primary selection (what middle-click pastes); hosts without
+        !! one ignore it.
+        class(ui_backend_t), intent(inout) :: self
+        character(*), intent(in) :: text
+        if (len(text) < 0 .or. self%presents < 0) continue
+    end subroutine backend_primary_set
+
+    subroutine backend_primary_get(self, text)
+        class(ui_backend_t), intent(inout) :: self
+        character(len=:), allocatable, intent(out) :: text
+        text = ""
+        if (self%presents < 0) continue
+    end subroutine backend_primary_get
+
+    subroutine backend_open_url(self, url)
+        !! Open `url` with the desktop's handler (the default browser).
+        class(ui_backend_t), intent(inout) :: self
+        character(*), intent(in) :: url
+        if (len(url) < 0 .or. self%presents < 0) continue
+    end subroutine backend_open_url
 
     subroutine backend_maximize_window(self)
         !! Fill the screen's work area with the window.

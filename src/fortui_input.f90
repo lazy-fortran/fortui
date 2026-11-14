@@ -114,6 +114,11 @@ module fortui_input
         logical :: pointer_pressed = .false.
         logical :: pointer_released = .false.
         integer :: scroll_y = 0
+        ! Modifier keys held now (MOD_*), for pointer gestures such as Ctrl+click.
+        integer :: mods_down = 0
+        ! The middle button went down / up in this frame (X11 paste, programs
+        ! that take the mouse).
+        logical :: middle_pressed = .false., middle_released = .false.
         real :: wheel = 0.0
         integer :: key_count = 0
         integer :: keys(MAX_FRAME_KEYS) = KEY_NONE
@@ -170,6 +175,8 @@ contains
         input%pointer_dx = 0.0
         input%pointer_dy = 0.0
         input%pointer_pressed = .false.
+        input%middle_pressed = .false.
+        input%middle_released = .false.
         input%pointer_released = .false.
         input%scroll_y = 0
         input%wheel = 0.0

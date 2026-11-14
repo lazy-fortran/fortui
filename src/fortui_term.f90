@@ -85,6 +85,13 @@ module fortui_term
         logical :: chunking = .false.
         logical :: dirty = .true.
         character(kind=c_char, len=:), allocatable :: buf
+        ! Text a program put on the clipboard (OSC 52; "c" clipboard, "p"
+        ! primary) for the host to hand to the desktop.
+        character(len=:), allocatable :: clipboard_out
+        character :: clipboard_target = "c"
+        logical :: clipboard_pending = .false.
+        ! When synchronized output began (the screen shown waits for its end).
+        integer(int64) :: sync_since = 0
     end type term_t
 
 #ifdef ENABLE_TERM
@@ -346,6 +353,17 @@ contains
             if (st >= 0) t%exit_status = st
             changed = .true.
         end if
+        ! During synchronized output the last complete frame stays (at most
+        ! 150 ms, as other terminals do, in case the end never comes).
+        if (t%vt%sync) then
+            call system_clock(now, rate)
+            if (t%sync_since == 0) t%sync_since = now
+            if (real(now - t%sync_since) / real(rate) < 0.15) then
+                if (present(more)) more = waiting .or. changed
+                return
+            end if
+        end if
+        t%sync_since = 0
         if (changed .or. t%dirty) then
             call snapshot(t)
             t%generation = modulo(t%generation + 1, 2**30)
@@ -593,12 +611,36 @@ contains
         select case (s(1:semi - 1))
         case ("0", "2")
             t%vt%title = s(semi + 1:)
+        case ("52")
+            call osc52(t, s(semi + 1:))
         case ("10", "11")
             if (s(semi + 1:) == "?") call t_reply(t, achar(27) // "]" // s(1:semi) // &
                 xcolor(merge(t%default_fg, t%default_bg, s(1:semi - 1) == "10")) // &
                 achar(27) // "\")
         end select
     end subroutine osc
+
+    subroutine osc52(t, s)
+        !! A program sets the clipboard ("c;BASE64" or "p;..."; tmux copies this
+        !! way). Requests to read it ("?") are refused: they would hand the
+        !! clipboard to any program.
+        type(term_t), intent(inout) :: t
+        character(*), intent(in) :: s
+        integer(int8), allocatable :: raw(:)
+        integer :: semi, n
+        semi = index(s, ";")
+        if (semi == 0) return
+        if (s(semi + 1:) == "?") return
+        call base64_decode(s(semi + 1:), raw, n)
+        if (n > 16 * 1024 * 1024) return
+        t%clipboard_out = repeat(" ", n)
+        if (n > 0) t%clipboard_out = transfer(raw(1:n), t%clipboard_out)
+        t%clipboard_target = "c"
+        if (semi > 1) then
+            if (verify(s(1:semi - 1), "p") == 0) t%clipboard_target = "p"
+        end if
+        t%clipboard_pending = .true.
+    end subroutine osc52
 
     subroutine dcs(t, s)
         !! Device control strings: "params q data" is a sixel image.

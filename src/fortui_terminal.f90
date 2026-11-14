@@ -8,11 +8,11 @@ module fortui_terminal
     use iso_c_binding, only: c_funptr, c_associated
     use iso_fortran_env, only: int32
     use fortui_core, only: ui_scale, ui_waker, ui_wake_after, ui_clipboard_set, &
-        ui_clipboard_text, ui_request_frame
+        ui_clipboard_text, ui_request_frame, ui_open_url, ui_primary_set, ui_primary_text
     use fortui_widgets, only: canvas_begin, canvas_end, canvas_cells, canvas_image, &
         canvas_keys, ui_cell_metrics
     use fortui_canvas, only: canvas_view_t, canvas_events_t
-    use fortui_input, only: key_press_t, KEY_NONE, KEY_PAGE_UP, KEY_PAGE_DOWN, MOD_CTRL, &
+    use fortui_input, only: key_press_t, KEY_NONE, KEY_PAGE_UP, KEY_PAGE_DOWN, MOD_CTRL, MOD_ALT, &
         MOD_SHIFT
     use fortui_frame, only: CELL_UNDERLINE, CELL_CONT, CELL_CURSOR, CELL_BAR
     use fortui_term, only: term_t, term_open, term_pump, term_key, term_paste, term_resize, &
@@ -20,7 +20,7 @@ module fortui_terminal
     implicit none
     private
 
-    public :: terminal, terminal_view_t, terminal_selection
+    public :: terminal, terminal_view_t, terminal_selection, url_at
 
     type :: terminal_view_t
         !! What one terminal widget shows: how far it is scrolled back, the
@@ -34,6 +34,12 @@ module fortui_terminal
         integer :: generation = 0
         integer :: cols = 0, rows = 0
         real :: cell_w = 0.0, cell_h = 0.0
+        ! The URL under the pointer: line and columns of its start and end
+        ! (it may continue on the next line), underlined while hovered.
+        logical :: url_shown = .false.
+        integer :: url_from(2) = 0, url_to(2) = 0
+        ! The cell the pointer was last reported in (motion reports).
+        integer :: last_cell(2) = -1
     end type terminal_view_t
 
 contains
@@ -93,6 +99,14 @@ contains
         call pointer()
 
         moved = term_pump(t, more=behind)
+        if (t%clipboard_pending) then
+            if (t%clipboard_target == "p") then
+                call ui_primary_set(t%clipboard_out)
+            else
+                call ui_clipboard_set(t%clipboard_out)
+            end if
+            t%clipboard_pending = .false.
+        end if
         if (present(changed)) changed = moved
         ! Output still waiting: draw this frame and continue at once. Without a
         ! waker the program's output is fetched on a timer.
@@ -109,20 +123,41 @@ contains
 
         call compose()
         v%generation = modulo(v%generation + 1, 2**30)
-        call canvas_cells("cells", v%generation, cols, rows, cp, fg, bg, attr, 0.0, 0.0, &
-            real(cols) * cw, real(rows) * ch, font_size, extend_edges=.true.)
-        do k = 1, t%nplaces
-            associate(p => t%places(k))
-                r = p%row + v%back
-                if (r + p%rows <= 0 .or. r >= rows) cycle
-                if (.not. allocated(t%images(p%image)%rgba)) cycle
-                call canvas_image("image" // itoa(p%serial), t%images(p%image)%generation, &
-                    t%images(p%image)%rgba, real(p%col) * cw, real(r) * ch, &
-                    real(p%cols) * cw, real(p%rows) * ch)
-            end associate
-        end do
+        ! Images with a negative z-index lie between the cell backgrounds and the
+        ! text (kitty's rule; fortui draws canvas labels over its images so):
+        ! backgrounds, those images, the text, then the other images.
+        if (any(t%places(1:t%nplaces)%z < 0)) then
+            call canvas_cells("cells", v%generation, cols, rows, spread(32_int32, 1, cols * rows), &
+                fg, bg, spread(0_int32, 1, cols * rows), 0.0, 0.0, real(cols) * cw, &
+                real(rows) * ch, font_size, extend_edges=.true.)
+            call images(.true.)
+            call canvas_cells("text", v%generation, cols, rows, cp, fg, &
+                spread(0_int32, 1, cols * rows), attr, 0.0, 0.0, real(cols) * cw, &
+                real(rows) * ch, font_size)
+        else
+            call canvas_cells("cells", v%generation, cols, rows, cp, fg, bg, attr, 0.0, 0.0, &
+                real(cols) * cw, real(rows) * ch, font_size, extend_edges=.true.)
+        end if
+        call images(.false.)
         call canvas_end()
     contains
+        subroutine images(below)
+            !! The visible images below the text (z < 0) or above it.
+            logical, intent(in) :: below
+            integer :: j, rr
+            do j = 1, t%nplaces
+                associate(p => t%places(j))
+                    if ((p%z < 0) .neqv. below) cycle
+                    rr = p%row + v%back
+                    if (rr + p%rows <= 0 .or. rr >= rows) cycle
+                    if (.not. allocated(t%images(p%image)%rgba)) cycle
+                    call canvas_image("image" // itoa(p%serial), &
+                        t%images(p%image)%generation, t%images(p%image)%rgba, &
+                        real(p%col) * cw, real(rr) * ch, real(p%cols) * cw, real(p%rows) * ch)
+                end associate
+            end do
+        end subroutine images
+
         subroutine key(p)
             type(key_press_t), intent(in) :: p
             if (iand(p%mods, MOD_CTRL + MOD_SHIFT) == MOD_CTRL + MOD_SHIFT .and. &
@@ -151,21 +186,52 @@ contains
         end subroutine key
 
         subroutine pointer()
-            integer :: row, col, steps, i
+            !! Pointer: URLs (underlined, Ctrl+click opens), reports to a program
+            !! that takes the mouse (Shift keeps selecting in the terminal, as in
+            !! xterm and VTE), else selection, scrollback and middle-click paste.
+            integer :: row, col, steps, i, m
+            character(len=:), allocatable :: url
+            v%url_shown = .false.
             if (.not. ev%hovered .and. .not. ev%captured .and. .not. ev%released) return
             col = max(0, min(cols - 1, int(ev%local_x / cw)))
             row = max(0, min(rows - 1, int(ev%local_y / ch)))
-            if (t%mouse_mode > 0 .and. v%back == 0) then
-                if (ev%pressed) call term_mouse(t, row, col, 1, .true., .false., 0)
-                if (ev%released) call term_mouse(t, row, col, 1, .false., .false., 0)
-                if (ev%dragging) call term_mouse(t, row, col, 1, .true., .true., 0)
+            if (ev%hovered) then
+                call url_at(t, row - v%back, col, url, v%url_from, v%url_to)
+                v%url_shown = len(url) > 0
+                if (v%url_shown .and. ev%pressed .and. iand(ev%mods, MOD_CTRL) /= 0) then
+                    call ui_open_url(url)
+                    return
+                end if
+            end if
+            m = iand(ev%mods, MOD_CTRL + MOD_ALT)
+            if (t%mouse_mode > 0 .and. v%back == 0 .and. iand(ev%mods, MOD_SHIFT) == 0) then
+                if (ev%pressed) call term_mouse(t, row, col, 1, .true., .false., m)
+                if (ev%released) call term_mouse(t, row, col, 1, .false., .false., m)
+                if (ev%middle_pressed) call term_mouse(t, row, col, 2, .true., .false., m)
+                if (ev%middle_released) call term_mouse(t, row, col, 2, .false., .false., m)
+                if (any([row, col] /= v%last_cell)) then
+                    ! Motion: with the button held (1002, 1003), or any (1003,
+                    ! which tmux's focus-follows-mouse needs).
+                    if (ev%captured) then
+                        call term_mouse(t, row, col, 1, .true., .true., m)
+                    else if (t%mouse_mode == 1003) then
+                        call term_mouse(t, row, col, 0, .false., .true., m)
+                    end if
+                end if
+                v%last_cell = [row, col]
                 if (ev%wheel /= 0.0) then
                     do i = 1, max(1, nint(abs(ev%wheel)))
                         call term_mouse(t, row, col, merge(4, 5, ev%wheel > 0.0), .true., &
-                            .false., 0)
+                            .false., m)
                     end do
                 end if
                 return
+            end if
+            v%last_cell = [row, col]
+            if (ev%middle_pressed) then
+                ! X11: middle-click pastes the primary selection.
+                call term_paste(t, ui_primary_text())
+                v%back = 0
             end if
             if (ev%wheel /= 0.0) then
                 steps = nint(3.0 * ev%wheel)
@@ -181,7 +247,11 @@ contains
                 v%head = [row - v%back, col]
                 v%selected = any(v%head /= v%anchor)
             end if
-            if (ev%released) v%selecting = .false.
+            if (ev%released .and. v%selecting) then
+                v%selecting = .false.
+                ! The selection becomes the primary selection, as in X11.
+                if (v%selected) call ui_primary_set(terminal_selection(t, v))
+            end if
             if (ev%double_clicked) v%selected = .false.
         end subroutine pointer
 
@@ -226,6 +296,17 @@ contains
                     end do
                 end do
             end if
+            if (v%url_shown) then
+                do r = 0, rows - 1
+                    line = r - v%back
+                    if (line < v%url_from(1) .or. line > v%url_to(1)) cycle
+                    do c = 0, cols - 1
+                        if (line == v%url_from(1) .and. c < v%url_from(2)) cycle
+                        if (line == v%url_to(1) .and. c > v%url_to(2)) cycle
+                        attr(r * cols + c + 1) = ior(attr(r * cols + c + 1), CELL_UNDERLINE)
+                    end do
+                end do
+            end if
             if (t%alive .and. t%cursor_visible .and. v%back == 0 .and. &
                 t%cursor_row < rows .and. t%cursor_col < cols) then
                 i = t%cursor_row * cols + t%cursor_col + 1
@@ -239,9 +320,15 @@ contains
                     attr(i) = ior(attr(i), CELL_UNDERLINE)
                     if (t%cursor_color /= 0) fg(i) = t%cursor_color
                 else
-                    ! A block in the cursor colour, its character in the background's.
+                    ! A block in the cursor colour (else the text colour), its
+                    ! character in whichever of the cell's background and the
+                    ! default colours stands out most against the block (a
+                    ! reverse-video cell, such as readline's search match, would
+                    ! otherwise come out grey on grey).
                     call invert(i)
                     if (t%cursor_color /= 0) bg(i) = opaque(t%cursor_color)
+                    fg(i) = contrasting(bg(i), [fg(i), opaque(t%default_bg), &
+                        opaque(t%default_fg)])
                 end if
             end if
         end subroutine compose
@@ -301,6 +388,108 @@ contains
         end do
     end function terminal_selection
 
+    subroutine url_at(t, line, col, url, from, to)
+        !! The URL through cell (line, col): a run of URL characters starting
+        !! with a scheme (http, https, ftp, file, mailto) or "www.", carried
+        !! on to the next line when it reaches the last column; trailing
+        !! punctuation and an unmatched closing parenthesis are not part of
+        !! it. `url` is "" when there is none.
+        type(term_t), intent(in) :: t
+        integer, intent(in) :: line, col
+        character(len=:), allocatable, intent(out) :: url
+        integer, intent(out) :: from(2), to(2)
+        integer(int32) :: cp(t%cols), fg(t%cols), bg(t%cols), attr(t%cols)
+        character(len=:), allocatable :: s, nxt
+        integer :: a, b, k, start, n, cut, opened
+        character(len=*), parameter :: SCHEMES(6) = [character(len=8) :: "https://", &
+            "http://", "ftp://", "file://", "mailto:", "www."]
+        character(len=*), parameter :: TRAILING = ".,;:!?'" // achar(34)
+        url = ""
+        from = 0
+        to = 0
+        call term_row(t, line, cp, fg, bg, attr)
+        s = ascii(cp)
+        if (col + 1 > len(s)) return
+        if (.not. url_char(s(col + 1:col + 1))) return
+        a = col + 1
+        do while (a > 1)
+            if (.not. url_char(s(a - 1:a - 1))) exit
+            a = a - 1
+        end do
+        b = col + 1
+        do while (b < len(s))
+            if (.not. url_char(s(b + 1:b + 1))) exit
+            b = b + 1
+        end do
+        start = 0
+        do k = 1, size(SCHEMES)
+            n = index(s(a:b), trim(SCHEMES(k)))
+            if (n > 0 .and. (start == 0 .or. a + n - 1 < start)) start = a + n - 1
+        end do
+        if (start == 0 .or. start > col + 1) return
+        url = s(start:b)
+        from = [line, start - 1]
+        to = [line, b - 1]
+        ! Wrapped onto the next line.
+        if (b == t%cols .and. line + 1 < t%rows) then
+            call term_row(t, line + 1, cp, fg, bg, attr)
+            nxt = ascii(cp)
+            n = 0
+            do while (n < len(nxt))
+                if (.not. url_char(nxt(n + 1:n + 1))) exit
+                n = n + 1
+            end do
+            if (n > 0) then
+                url = url // nxt(1:n)
+                to = [line + 1, n - 1]
+            end if
+        end if
+        ! Trailing punctuation, and ")" without its "(".
+        do
+            cut = len(url)
+            if (cut == 0) exit
+            if (index(TRAILING, url(cut:cut)) > 0) then
+                url = url(1:cut - 1)
+            else if (url(cut:cut) == ")") then
+                opened = count([(url(k:k) == "(", k = 1, cut)]) - &
+                    count([(url(k:k) == ")", k = 1, cut)])
+                if (opened >= 0) exit
+                url = url(1:cut - 1)
+            else
+                exit
+            end if
+            if (to(2) > 0) then
+                to(2) = to(2) - 1
+            else if (to(1) > from(1)) then
+                to = [from(1), t%cols - 1]
+            end if
+        end do
+        if (len(url) < 8) then
+            if (url(1:min(4, len(url))) /= "www.") url = ""
+        end if
+        if (len(url) >= 4) then
+            if (url(1:4) == "www.") url = "https://" // url
+        end if
+    contains
+        pure logical function url_char(c)
+            character, intent(in) :: c
+            url_char = index("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789" // &
+                "-._~:/?#[]@!$&'()*+,;=%", c) > 0
+        end function url_char
+        pure function ascii(cells) result(text)
+            integer(int32), intent(in) :: cells(:)
+            character(len=size(cells)) :: text
+            integer :: j
+            do j = 1, size(cells)
+                if (cells(j) > 32 .and. cells(j) < 127) then
+                    text(j:j) = achar(cells(j))
+                else
+                    text(j:j) = " "
+                end if
+            end do
+        end function ascii
+    end subroutine url_at
+
     pure subroutine ordered(a, b, lo, hi)
         integer, intent(in) :: a(2), b(2)
         integer, intent(out) :: lo(2), hi(2)
@@ -312,6 +501,28 @@ contains
             hi = a
         end if
     end subroutine ordered
+
+    pure integer(int32) function contrasting(block, choices) result(best)
+        !! The colour in `choices` farthest in luminance from `block`.
+        integer(int32), intent(in) :: block, choices(:)
+        real :: d, dmax
+        integer :: k
+        best = choices(1)
+        dmax = -1.0
+        do k = 1, size(choices)
+            d = abs(luma(choices(k)) - luma(block))
+            if (d > dmax + 1.0) then
+                dmax = d
+                best = choices(k)
+            end if
+        end do
+    end function contrasting
+
+    pure real function luma(rgba)
+        integer(int32), intent(in) :: rgba
+        luma = 0.2126 * real(iand(rgba, 255_int32)) + 0.7152 * &
+            real(iand(ishft(rgba, -8), 255_int32)) + 0.0722 * real(iand(ishft(rgba, -16), 255_int32))
+    end function luma
 
     pure integer(int32) function opaque(rgba)
         integer(int32), intent(in) :: rgba

@@ -10,7 +10,7 @@ module fortui
         ui_request_frame, ui_set_continuous, ui_window_size, ui_scale, ui_key_pressed, &
         ui_time, ui_wake_after, ui_shortcut, ui_clipboard_set, ui_clipboard_text, ui_set_title, &
         ui_waker, ui_set_window_margin, ui_set_window_size, ui_set_window_visible, &
-        ui_maximize_window, &
+        ui_maximize_window, ui_open_url, ui_primary_set, ui_primary_text, &
         ui_text_width, ui_backend_capabilities, ui_backend_caps_t, ui_backend_description, &
         ui_run, ui_run_step, ui_frame_proc, ui_set_theme, ui_theme_name
     use fortui_layout, only: column_begin, column_end, row_begin, row_end, split_begin, &
@@ -45,7 +45,7 @@ module fortui
     public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale
     public :: ui_time, ui_wake_after, ui_clipboard_set, ui_clipboard_text, ui_set_title, ui_waker
     public :: ui_set_window_margin, ui_set_window_size, ui_set_window_visible
-    public :: ui_maximize_window
+    public :: ui_maximize_window, ui_open_url, ui_primary_set, ui_primary_text
     public :: ui_key_pressed, ui_text_width, ui_str
     public :: ui_shortcut, ui_focus, ui_reveal
     public :: column_begin, column_end, row_begin, row_end
