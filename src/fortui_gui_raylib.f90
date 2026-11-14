@@ -7,18 +7,18 @@ module fortui_gui_raylib
     !! Rendering uses only raylib/rlgl APIs and GLSL 330 (OpenGL 3.3 core, also the
     !! macOS core profile): one position texture per shared vertex layer, read by
     !! instanced quads for points and lines; no point sprites, no wide GL lines.
-    !! Text uses a bundled DejaVu Sans subset unless the options `font_regular` /
-    !! `font_bold` (or FORTUI_FONT / FORTUI_FONT_BOLD) name TTF files:
+    !! Controls are drawn by the current theme's painter (fortui_paint); text uses
+    !! the theme's installed fonts (fontconfig), rasterized at the exact pixel size
+    !! and drawn 1:1 with point filtering. Raylib cannot read bitmap fonts, so a
+    !! bitmap theme font falls back with a warning. Example:
     !!
-    !!   call ui_init(raylib_backend_t(font_regular="/path/Inter.ttf"), 1200, 800, "app")
+    !!   call ui_init(raylib_backend_t(), 1200, 800, "app", theme_name="classic")
     ! Dependencies stay visible to build tools that do not preprocess (fpm scans
     ! sources without -D flags); everything else needs -DENABLE_GUI=1.
     use iso_c_binding
     use iso_fortran_env, only: int32
-    use fortui_frame, only: ui_frame_t, ui_node_t, ui_layer_ref_t, UI_TEXT, UI_BUTTON, UI_LINK, &
-        UI_SLIDER, UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, &
-        UI_CAPTION, LAYER_POINTS, LAYER_LINES, LAYER_IMAGE, SCROLL_PADDING, SCROLLBAR_WIDTH, &
-        INPUT_PADDING, CONTROL_PADDING, style_weight
+    use fortui_frame, only: ui_frame_t, ui_node_t, ui_layer_ref_t, LAYER_POINTS, LAYER_LINES, &
+        LAYER_IMAGE
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
         input_set_key, input_type_text, input_set_time, input_has_events, KEY_NONE, &
         input_key_press, &
@@ -27,9 +27,12 @@ module fortui_gui_raylib
         KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_INSERT
     use fortui_canvas, only: canvas_store_t
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t
-    use fortui_text, only: text_set_metrics, text_width, text_line_height, text_fit, &
-        utf8_encode, TEXT_MAX_CODEPOINT, TEXT_STYLE_REGULAR
-    use fortui_error, only: report_error, report_warning
+    use fortui_text, only: text_use_measurement, utf8_encode
+    use fortui_paint, only: paint_list_t, paint_frame, paint_face, PAINT_RECT, PAINT_LINE, &
+        PAINT_TEXT, PAINT_CLIP, PAINT_UNCLIP, PAINT_CANVAS, PATTERN_CHECKER
+    use fortui_theme, only: theme, FACE_REGULAR, FACE_MONO
+    use fortui_fontconfig, only: font_for, font_lookup
+    use fortui_error, only: report_error
     implicit none
     private
 #ifdef ENABLE_GUI
@@ -82,22 +85,15 @@ module fortui_gui_raylib
     integer(c_int), parameter :: RL_PIXEL_RGBA32F = 10
     integer(c_int), parameter :: TEX_FILTER_BILINEAR = 1
     integer, parameter :: TEX_WIDTH = 2048
-    integer, parameter :: N_LADDER = 13
-    real, parameter :: LADDER(N_LADDER) = [10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 24.0, &
-        28.0, 32.0, 40.0, 48.0, 64.0, 96.0]
     integer, parameter :: REPEAT_KEYS(6) = [259, 261, 262, 263, 264, 265]
 
     type, extends(ui_backend_t), public :: raylib_backend_t
-        !! Raylib/rlgl backend. Options: TTF files replacing the bundled fonts.
-        character(len=:), allocatable :: font_regular
-        character(len=:), allocatable :: font_bold
+        !! Raylib/rlgl backend.
         logical :: active = .false.
         ! raylib resets its close flag on every event poll; latch it here.
         logical :: close_requested = .false.
         real :: dpr = 1.0
-        type(rl_font), allocatable :: fonts(:, :)
-        logical :: font_loaded(N_LADDER, 2) = .false.
-        integer(c_int), allocatable :: codepoints(:)
+        type(paint_list_t) :: list
         integer(c_int) :: points_shader = 0, lines_shader = 0
         integer(c_int) :: loc_p_frame = -1, loc_p_view = -1, loc_p_style = -1
         integer(c_int) :: loc_p_pos = -1
@@ -119,6 +115,18 @@ module fortui_gui_raylib
     end type raylib_backend_t
 
     public :: raylib_is_available
+
+    type :: rl_font_slot_t
+        integer :: face = 0, px = 0
+        type(rl_font) :: font
+    end type
+
+    ! Fonts of the raylib backend (one at a time), shared with text measurement.
+    type(rl_font_slot_t), save :: fonts(48)
+    integer, save :: nfonts = 0
+    character(len=32), save :: font_theme = ""
+    real, save :: px_scale = 1.0
+    integer(c_int), allocatable, target, save :: codepoints(:)
 
     interface
         subroutine rl_init_window(w, h, title) bind(C, name="InitWindow")
@@ -198,6 +206,9 @@ module fortui_gui_raylib
         integer(c_int) function rl_get_screen_height() bind(C, name="GetScreenHeight")
             import :: c_int
         end function
+        integer(c_int) function rl_get_render_height() bind(C, name="GetRenderHeight")
+            import :: c_int
+        end function
         integer(c_int) function rl_get_render_width() bind(C, name="GetRenderWidth")
             import :: c_int
         end function
@@ -271,12 +282,33 @@ module fortui_gui_raylib
             real(c_float), value :: size, spacing
             type(rl_vector2) :: v
         end function
-        type(c_ptr) function fortui_font_data(style, nbytes) bind(C, &
-                name="fortui_font_data")
-            import :: c_ptr, c_int
-            integer(c_int), value :: style
-            integer(c_int), intent(out) :: nbytes
-        end function
+        subroutine rl_draw_rectangle_rounded(r, roundness, segments, c) bind(C, &
+                name="DrawRectangleRounded")
+            import :: rl_rectangle, c_float, c_int, rl_color
+            type(rl_rectangle), value :: r
+            real(c_float), value :: roundness
+            integer(c_int), value :: segments
+            type(rl_color), value :: c
+        end subroutine
+        subroutine rl_draw_rectangle_rounded_lines(r, roundness, segments, thick, c) &
+                bind(C, name="DrawRectangleRoundedLinesEx")
+            import :: rl_rectangle, c_float, c_int, rl_color
+            type(rl_rectangle), value :: r
+            real(c_float), value :: roundness, thick
+            integer(c_int), value :: segments
+            type(rl_color), value :: c
+        end subroutine
+        subroutine rl_draw_line_ex(a, b, thick, c) bind(C, name="DrawLineEx")
+            import :: rl_vector2, c_float, rl_color
+            type(rl_vector2), value :: a, b
+            real(c_float), value :: thick
+            type(rl_color), value :: c
+        end subroutine
+        subroutine rl_draw_pixel(x, y, c) bind(C, name="DrawPixel")
+            import :: c_int, rl_color
+            integer(c_int), value :: x, y
+            type(rl_color), value :: c
+        end subroutine
         ! rlgl
         subroutine rl_draw_render_batch_active() bind(C, name="rlDrawRenderBatchActive")
         end subroutine
@@ -420,10 +452,8 @@ contains
         call rl_set_exit_key(0_c_int)
         self%active = .true.
         self%close_requested = .false.
-        allocate(self%fonts(N_LADDER, 2))
-        self%font_loaded = .false.
         call update_dpr(self)
-        call build_codepoints(self)
+        call build_codepoints()
         call load_shaders(self)
         rl_init = .true.
     end function rl_init
@@ -439,12 +469,7 @@ contains
             end do
             deallocate(self%gpu)
         end if
-        do s = 1, 2
-            do i = 1, N_LADDER
-                if (self%font_loaded(i, s)) call rl_unload_font(self%fonts(i, s))
-                self%font_loaded(i, s) = .false.
-            end do
-        end do
+        call close_fonts()
         if (self%points_shader > 0) call rl_unload_shader_program(self%points_shader)
         if (self%lines_shader > 0) call rl_unload_shader_program(self%lines_shader)
         if (self%quad_points > 0) call rl_unload_vertex_buffer(self%quad_points)
@@ -522,24 +547,136 @@ contains
     end subroutine read_input
 
     subroutine rl_present(self, frame, store)
-        !! Draw a semantic frame; never blocks for events (see rl_poll).
+        !! Draw the theme painter's display list (pixels divided by the device
+        !! pixel ratio, which raylib applies); never blocks for events.
         class(raylib_backend_t), intent(inout) :: self
         type(ui_frame_t), intent(in) :: frame
         type(canvas_store_t), intent(in), target :: store
-        integer :: i
+        integer :: k, depth
+        integer :: clips(4, 32)
+        real :: d
 
         self%presents = self%presents + 1
         if (.not. self%active) return
+        call update_dpr(self)
+        px_scale = self%dpr
         call self%canvas%sync(store)
         call release_stale(self, store)
+        call paint_frame(frame, self%dpr, real(rl_get_render_width()), &
+            real(rl_get_render_height()), self%list)
+        d = 1.0 / self%dpr
+        depth = 0
+        clips(:, 1) = [0, 0, int(rl_get_screen_width()), int(rl_get_screen_height())]
         call rl_begin_drawing()
-        call rl_clear_background(color(30, 30, 30, 255))
-        do i = 1, frame%count
-            call draw_node(self, frame, store, frame%nodes(i))
+        call rl_clear_background(unpack_rgba(self%list%background))
+        do k = 1, self%list%n
+            associate(c => self%list%cmds(k))
+                select case (c%kind)
+                case (PAINT_RECT)
+                    call draw_rect(c%x * d, c%y * d, c%w * d, c%h * d, c%radius * d, &
+                        c%border * d, c%fill, c%stroke, c%pattern, self%dpr)
+                case (PAINT_LINE)
+                    call rl_draw_line_ex(rl_vector2(real(c%x * d, c_float), &
+                        real(c%y * d, c_float)), rl_vector2(real(c%w * d, c_float), &
+                        real(c%h * d, c_float)), real(c%border * d, c_float), &
+                        unpack_rgba(c%fill))
+                case (PAINT_TEXT)
+                    call draw_text(self%list%text_of(k), c%x, c%y, c%h, c%face, c%size, &
+                        c%fill, d)
+                case (PAINT_CLIP)
+                    if (depth < size(clips, 2) - 1) depth = depth + 1
+                    call rl_end_scissor()
+                    call rl_begin_scissor(nint(c%x * d), nint(c%y * d), max(1, nint(c%w * d)), &
+                        max(1, nint(c%h * d)))
+                case (PAINT_UNCLIP)
+                    depth = max(0, depth - 1)
+                    call rl_end_scissor()
+                case (PAINT_CANVAS)
+                    call draw_canvas(self, frame, store, frame%nodes(c%node))
+                end select
+            end associate
         end do
         call rl_disable_event_waiting()
         call rl_end_drawing()
     end subroutine rl_present
+
+    integer(int32) function contrast(fill) result(c)
+        !! Label colour on a canvas: dark on light fills, light on dark ones.
+        integer(int32), intent(in) :: fill
+        real :: lum
+        if (fill == 0) then
+            c = theme%on_surface
+            return
+        end if
+        lum = (0.2126 * real(iand(fill, 255_int32)) + 0.7152 * real(iand(ishft(fill, -8), &
+            255_int32)) + 0.0722 * real(iand(ishft(fill, -16), 255_int32))) / 255.0
+        c = merge(int(z'FF202020', int32), int(z'FFF0F0F0', int32), lum > 0.5)
+    end function contrast
+
+    subroutine draw_rect(x, y, w, h, radius, border, fill, stroke, pattern, dpr)
+        real, intent(in) :: x, y, w, h, radius, border, dpr
+        integer(int32), intent(in) :: fill, stroke
+        integer, intent(in) :: pattern
+        type(rl_rectangle) :: r
+        real :: roundness
+        integer :: i, j, x0, y0, nx, ny
+
+        if (pattern == PATTERN_CHECKER) then
+            ! One-pixel checker (dotted focus rectangles, scroll tracks).
+            x0 = nint(x * dpr)
+            y0 = nint(y * dpr)
+            nx = nint(w * dpr)
+            ny = nint(h * dpr)
+            do j = 0, ny - 1
+                do i = 0, nx - 1
+                    if (modulo(x0 + i + y0 + j, 2) == 0) then
+                        if (fill /= 0) call rl_draw_pixel(int(nint((x0 + i) / dpr), c_int), &
+                            int(nint((y0 + j) / dpr), c_int), unpack_rgba(fill))
+                    else if (stroke /= 0) then
+                        call rl_draw_pixel(int(nint((x0 + i) / dpr), c_int), &
+                            int(nint((y0 + j) / dpr), c_int), unpack_rgba(stroke))
+                    end if
+                end do
+            end do
+            return
+        end if
+        r = rl_rectangle(real(x, c_float), real(y, c_float), real(w, c_float), real(h, c_float))
+        if (radius <= 0.0) then
+            if (fill /= 0) call rl_draw_rectangle(nint(x), nint(y), nint(w), nint(h), &
+                unpack_rgba(fill))
+            if (border > 0.0 .and. stroke /= 0) then
+                call rl_draw_rectangle(nint(x), nint(y), nint(w), nint(border), unpack_rgba(stroke))
+                call rl_draw_rectangle(nint(x), nint(y + h - border), nint(w), nint(border), &
+                    unpack_rgba(stroke))
+                call rl_draw_rectangle(nint(x), nint(y), nint(border), nint(h), unpack_rgba(stroke))
+                call rl_draw_rectangle(nint(x + w - border), nint(y), nint(border), nint(h), &
+                    unpack_rgba(stroke))
+            end if
+            return
+        end if
+        roundness = min(1.0, radius / max(1.0e-3, 0.5 * min(w, h)))
+        if (fill /= 0) call rl_draw_rectangle_rounded(r, real(roundness, c_float), 16_c_int, &
+            unpack_rgba(fill))
+        if (border > 0.0 .and. stroke /= 0) call rl_draw_rectangle_rounded_lines(r, &
+            real(roundness, c_float), 16_c_int, real(border, c_float), unpack_rgba(stroke))
+    end subroutine draw_rect
+
+    subroutine draw_text(str, x, y, line_h, face, size_px, colour, d)
+        !! Glyphs at their rasterized size, top of the line box at whole pixels.
+        character(*), intent(in) :: str
+        real, intent(in) :: x, y, line_h, size_px, d
+        integer, intent(in) :: face
+        integer(int32), intent(in) :: colour
+        integer :: k, px
+        real :: top
+        px = max(1, nint(size_px))
+        k = font_slot(face, px)
+        if (k == 0) return
+        top = real(nint(y + 0.5 * (line_h - real(fonts(k)%font%base_size))))
+        call rl_draw_text_ex(fonts(k)%font, cstr(str), rl_vector2(real(x * d, c_float), &
+            real(top * d, c_float)), real(real(px) * d, c_float), 0.0_c_float, &
+            unpack_rgba(colour))
+    end subroutine draw_text
 
     logical function rl_should_close(self)
         class(raylib_backend_t), intent(in) :: self
@@ -548,33 +685,33 @@ contains
     end function rl_should_close
 
     subroutine rl_metrics(self)
-        !! Advances measured from the fonts actually drawn (bundled DejaVu Sans
-        !! subset or the configured TTF files).
+        !! Measure with the theme's fonts at the exact pixel sizes drawn.
         class(raylib_backend_t), intent(inout) :: self
-        real, allocatable :: table(:, :)
-        real :: fallback(2), ref
-        type(rl_vector2) :: v
-        integer :: s, i, k
-
-        k = N_LADDER - 1
-        ref = LADDER(k)
-        allocate(table(0:TEXT_MAX_CODEPOINT, 2))
-        do s = 1, 2
-            call ensure_font(self, k, s)
-            v = rl_measure_text_ex(self%fonts(k, s), cstr("?"), real(ref, c_float), &
-                0.0_c_float)
-            fallback(s) = real(v%x) / ref
-            table(:, s) = fallback(s)
-            do i = 1, size(self%codepoints)
-                if (self%codepoints(i) > TEXT_MAX_CODEPOINT) cycle
-                v = rl_measure_text_ex(self%fonts(k, s), &
-                    cstr(utf8_encode(int(self%codepoints(i)))), real(ref, c_float), &
-                    0.0_c_float)
-                table(self%codepoints(i), s) = real(v%x) / ref
-            end do
-        end do
-        call text_set_metrics(table, fallback, 1.25)
+        px_scale = self%dpr
+        call close_fonts()
+        call text_use_measurement(measure_width, measure_advance, theme%line_factor)
     end subroutine rl_metrics
+
+    real function measure_width(s, size, style) result(w)
+        character(*), intent(in) :: s
+        real, intent(in) :: size
+        integer, intent(in) :: style
+        integer :: k, px
+        type(rl_vector2) :: v
+        w = 0.0
+        if (len(s) == 0) return
+        px = max(1, nint(size * px_scale))
+        k = font_slot(paint_face(style), px)
+        if (k == 0) return
+        v = rl_measure_text_ex(fonts(k)%font, cstr(s), real(px, c_float), 0.0_c_float)
+        w = real(v%x) / px_scale
+    end function measure_width
+
+    real function measure_advance(cp, size, style) result(adv)
+        integer, intent(in) :: cp, style
+        real, intent(in) :: size
+        adv = measure_width(utf8_encode(cp), size, style)
+    end function measure_advance
 
     function rl_caps(self) result(caps)
         class(raylib_backend_t), intent(in) :: self
@@ -625,106 +762,86 @@ contains
         out = s // c_null_char
     end function cstr
 
-    subroutine build_codepoints(rl)
-        class(raylib_backend_t), intent(inout) :: rl
+    subroutine build_codepoints()
         integer, parameter :: ranges(2, 8) = reshape([32, 126, 160, 383, 880, 1023, &
             8192, 8303, 8364, 8364, 8592, 8703, 8704, 8959, 65533, 65533], [2, 8])
         integer :: r, c, n
 
+        if (allocated(codepoints)) return
         n = sum(ranges(2, :) - ranges(1, :) + 1)
-        if (allocated(rl%codepoints)) deallocate(rl%codepoints)
-        allocate(rl%codepoints(n))
+        allocate(codepoints(n))
         n = 0
         do r = 1, size(ranges, 2)
             do c = ranges(1, r), ranges(2, r)
                 n = n + 1
-                rl%codepoints(n) = int(c, c_int)
+                codepoints(n) = int(c, c_int)
             end do
         end do
     end subroutine build_codepoints
 
-    function font_file(rl, style) result(path)
-        !! TTF override for `style`: backend option, else FORTUI_FONT[_BOLD]; empty
-        !! means the bundled DejaVu Sans subset.
-        type(raylib_backend_t), intent(in) :: rl
-        integer, intent(in) :: style
+    integer function font_slot(face, px) result(k)
+        !! The theme face at exactly `px` pixels, loaded once.
+        integer, intent(in) :: face, px
         character(len=:), allocatable :: path
-        character(len=1024) :: env
-        integer :: status
-
-        path = ""
-        if (style == 2) then
-            if (allocated(rl%font_bold)) path = trim(rl%font_bold)
-            if (len(path) > 0) return
-            call get_environment_variable("FORTUI_FONT_BOLD", env, status=status)
-        else
-            if (allocated(rl%font_regular)) path = trim(rl%font_regular)
-            if (len(path) > 0) return
-            call get_environment_variable("FORTUI_FONT", env, status=status)
-        end if
-        if (status == 0 .and. len_trim(env) > 0) path = trim(env)
-    end function font_file
-
-    subroutine ensure_font(rl, k, style)
-        !! Rasterize ladder size k of `style` on first use.
-        type(raylib_backend_t), intent(inout), target :: rl
-        integer, intent(in) :: k, style
-        character(len=:), allocatable :: path
-        integer(c_int) :: nbytes
-        type(c_ptr) :: data
+        logical :: pixel
         type(rl_font) :: f
-        logical :: loaded
 
-        if (rl%font_loaded(k, style)) return
-        loaded = .false.
-        path = font_file(rl, style)
-        if (len(path) > 0) then
-            if (rl_file_exists(cstr(path))) then
-                f = rl_load_font_ex(cstr(path), int(nint(LADDER(k)), c_int), &
-                    c_loc(rl%codepoints), int(size(rl%codepoints), c_int))
-                loaded = f%glyph_count > 0
-            end if
-            if (.not. loaded) call report_warning("fortui_gui_raylib", "load_font", &
-                "cannot load font '" // path // "'; using bundled DejaVu Sans")
-        end if
-        if (.not. loaded) then
-            data = fortui_font_data(int(style, c_int), nbytes)
-            f = rl_load_font_mem(cstr(".ttf"), data, nbytes, int(nint(LADDER(k)), c_int), &
-                c_loc(rl%codepoints), int(size(rl%codepoints), c_int))
-        end if
-        call rl_set_texture_filter(f%texture, TEX_FILTER_BILINEAR)
-        rl%fonts(k, style) = f
-        rl%font_loaded(k, style) = .true.
-    end subroutine ensure_font
-
-    integer function ladder_index(rl, size) result(k)
-        type(raylib_backend_t), intent(in) :: rl
-        real, intent(in) :: size
-        real :: px
-
-        px = size * rl%dpr
-        do k = 1, N_LADDER
-            if (LADDER(k) >= px - 0.5) return
+        if (font_theme /= theme%name) call close_fonts()
+        do k = 1, nfonts
+            if (fonts(k)%face == face .and. fonts(k)%px == px) return
         end do
-        k = N_LADDER
-    end function ladder_index
+        if (nfonts == size(fonts)) call close_fonts()
+        call build_codepoints()
+        call font_for(theme%fonts(face), face, px, theme%name, path, pixel)
+        f%glyph_count = 0
+        ! Raylib reads TrueType/OpenType outlines; for anything else it would
+        ! quietly substitute its built-in font.
+        if (outline_file(path)) f = rl_load_font_ex(cstr(path), int(px, c_int), &
+            c_loc(codepoints), int(size(codepoints), c_int))
+        if (f%glyph_count <= 0) then
+            ! Raylib reads outline fonts only (no bitmap strikes).
+            call font_lookup(trim(merge("monospace ", "sans-serif", face == FACE_MONO)), "", &
+                0, path)
+            if (len(path) > 0) f = rl_load_font_ex(cstr(path), int(px, c_int), &
+                c_loc(codepoints), int(size(codepoints), c_int))
+            if (f%glyph_count > 0) write (0, '(a)') "fortui: raylib cannot draw bitmap " // &
+                "fonts; theme '" // trim(theme%name) // "' uses '" // path // "' here"
+        end if
+        if (f%glyph_count <= 0) then
+            k = 0
+            return
+        end if
+        call rl_set_texture_filter(f%texture, 0_c_int)
+        k = nfonts + 1
+        fonts(k)%face = face
+        fonts(k)%px = px
+        fonts(k)%font = f
+        nfonts = k
+        font_theme = theme%name
+    end function font_slot
 
-    subroutine draw_utf8(rl, s, x, y, size, style, c)
-        type(raylib_backend_t), intent(inout) :: rl
-        character(*), intent(in) :: s
-        real, intent(in) :: x, y, size
-        integer, intent(in) :: style
-        type(rl_color), intent(in) :: c
-        integer :: k, st
+    logical function outline_file(path)
+        character(*), intent(in) :: path
+        character(len=4) :: ext
+        integer :: k, c
+        outline_file = .false.
+        if (len(path) < 5) return
+        ext = path(len(path) - 3:)
+        do k = 1, 4
+            c = iachar(ext(k:k))
+            if (c >= iachar("A") .and. c <= iachar("Z")) ext(k:k) = achar(c + 32)
+        end do
+        outline_file = ext == ".ttf" .or. ext == ".otf"
+    end function outline_file
 
-        if (len(s) == 0) return
-        st = max(1, min(2, style))
-        k = ladder_index(rl, size)
-        call ensure_font(rl, k, st)
-        call rl_draw_text_ex(rl%fonts(k, st), cstr(s), &
-            rl_vector2(real(x, c_float), real(y, c_float)), real(size, c_float), &
-            0.0_c_float, c)
-    end subroutine draw_utf8
+    subroutine close_fonts()
+        integer :: k
+        do k = 1, nfonts
+            call rl_unload_font(fonts(k)%font)
+        end do
+        nfonts = 0
+        font_theme = theme%name
+    end subroutine close_fonts
 
     subroutine load_shaders(rl)
         type(raylib_backend_t), intent(inout) :: rl
@@ -1132,257 +1249,15 @@ contains
             associate(lab => frame%labels(j))
                 sx = node%x + lab%x * node%canvas_view%zoom + node%canvas_view%pan_x
                 sy = node%y + lab%y * node%canvas_view%zoom + node%canvas_view%pan_y
-                w = text_width(lab%text, lab%size)
-                call draw_utf8(rl, lab%text, sx - 0.5 * w, sy + 2.0, lab%size, &
-                    TEXT_STYLE_REGULAR, unpack_rgba(lab%rgba))
+                w = measure_width(lab%text, lab%size, 1)
+                call draw_text(lab%text, real(nint((sx - 0.5 * w) * rl%dpr)), &
+                    (sy + 2.0) * rl%dpr, real(nint(lab%size * rl%dpr)), FACE_REGULAR, &
+                    lab%size * rl%dpr, merge(lab%rgba, contrast(node%fill), lab%rgba /= -1), &
+                    1.0 / rl%dpr)
             end associate
         end do
         call rl_end_scissor()
     end subroutine draw_canvas
-
-    subroutine draw_scroll_text(rl, node, fg)
-        type(raylib_backend_t), intent(inout) :: rl
-        type(ui_node_t), intent(in) :: node
-        type(rl_color), intent(in) :: fg
-        integer :: i, x, y, w, h, thumb_h, thumb_y
-        real :: top, ly, lh, total, max_scroll
-
-        x = nint(node%x)
-        y = nint(node%y)
-        w = max(1, nint(node%width))
-        h = max(1, nint(node%height))
-        call rl_draw_rectangle(x, y, w, h, color(24, 24, 27, 255))
-        call rl_begin_scissor(x, y, w, h)
-        top = node%y + SCROLL_PADDING - node%scroll
-        do i = 1, node%line_count
-            associate(line => node%lines(i))
-                lh = text_line_height(line%size)
-                ly = top + line%y
-                if (ly + lh < node%y) cycle
-                if (ly > node%y + node%height) exit
-                if (line%last >= line%first) call draw_utf8(rl, &
-                    node%body(line%first:line%last), node%x + SCROLL_PADDING, &
-                    ly + 0.5 * (lh - line%size), line%size, line%style, fg)
-            end associate
-        end do
-        call rl_end_scissor()
-        total = node%content_height + 2.0 * SCROLL_PADDING
-        if (total > node%height) then
-            max_scroll = total - node%height
-            thumb_h = max(20, nint(node%height * node%height / total))
-            thumb_y = y + nint(node%scroll / max_scroll * real(h - thumb_h))
-            call rl_draw_rectangle(x + w - nint(SCROLLBAR_WIDTH), y, &
-                nint(SCROLLBAR_WIDTH), h, color(40, 40, 44, 255))
-            call rl_draw_rectangle(x + w - nint(SCROLLBAR_WIDTH) + 2, thumb_y, &
-                nint(SCROLLBAR_WIDTH) - 4, thumb_h, color(110, 110, 120, 255))
-        end if
-    end subroutine draw_scroll_text
-
-    subroutine draw_text_input(rl, node, fg)
-        type(raylib_backend_t), intent(inout) :: rl
-        type(ui_node_t), intent(in) :: node
-        type(rl_color), intent(in) :: fg
-        integer :: x, y, w, h
-        real :: tx, caret_x, shift, ty
-
-        x = nint(node%x)
-        y = nint(node%y)
-        w = max(1, nint(node%width))
-        h = max(1, nint(node%height))
-        call rl_draw_rectangle(x, y, w, h, color(20, 20, 22, 255))
-        if (node%focused) then
-            call draw_border(x, y, w, h, color(255, 220, 90, 255))
-        else
-            call draw_border(x, y, w, h, color(90, 90, 100, 255))
-        end if
-        call rl_begin_scissor(x + 1, y + 1, max(1, w - 2), max(1, h - 2))
-        tx = node%x + INPUT_PADDING
-        ty = node%y + 0.5 * (node%height - node%text_size)
-        caret_x = 0.0
-        if (node%caret > 0) caret_x = text_width(node%body(1:node%caret), node%text_size)
-        shift = max(0.0, caret_x - (node%width - 2.0 * INPUT_PADDING))
-        if (len(node%body) == 0) then
-            if (.not. node%focused) call draw_utf8(rl, trim(node%text), tx, ty, &
-                node%text_size, TEXT_STYLE_REGULAR, color(120, 120, 130, 255))
-        else
-            call draw_utf8(rl, node%body, tx - shift, ty, node%text_size, &
-                TEXT_STYLE_REGULAR, fg)
-        end if
-        if (node%focused) call rl_draw_rectangle(nint(tx - shift + caret_x), y + 6, 2, &
-            max(1, h - 12), color(255, 220, 90, 255))
-        call rl_end_scissor()
-    end subroutine draw_text_input
-
-    subroutine draw_text_area(rl, node, fg)
-        !! The lines of the text one under the other, with the caret on its line.
-        type(raylib_backend_t), intent(inout) :: rl
-        type(ui_node_t), intent(in) :: node
-        type(rl_color), intent(in) :: fg
-        integer :: x, y, w, h, first, last, row, caret_row
-        real :: tx, ty, line_h, caret_x
-
-        x = nint(node%x)
-        y = nint(node%y)
-        w = max(1, nint(node%width))
-        h = max(1, nint(node%height))
-        call rl_draw_rectangle(x, y, w, h, color(20, 20, 22, 255))
-        if (node%focused) then
-            call draw_border(x, y, w, h, color(255, 220, 90, 255))
-        else
-            call draw_border(x, y, w, h, color(90, 90, 100, 255))
-        end if
-        call rl_begin_scissor(x + 1, y + 1, max(1, w - 2), max(1, h - 2))
-        tx = node%x + INPUT_PADDING
-        ty = node%y + INPUT_PADDING
-        line_h = text_line_height(node%text_size)
-        caret_row = 0
-        caret_x = 0.0
-        if (len(node%body) == 0) then
-            if (.not. node%focused) call draw_utf8(rl, trim(node%text), tx, ty, &
-                node%text_size, TEXT_STYLE_REGULAR, color(120, 120, 130, 255))
-        else
-            first = 1
-            row = 0
-            do
-                last = index(node%body(first:), new_line('a'))
-                if (last == 0) then
-                    last = len(node%body)
-                else
-                    last = first + last - 2
-                end if
-                if (last >= first) call draw_utf8(rl, node%body(first:last), tx, &
-                    ty + row * line_h, node%text_size, TEXT_STYLE_REGULAR, fg)
-                if (node%caret >= first - 1 .and. node%caret <= last) then
-                    caret_row = row
-                    caret_x = 0.0
-                    if (node%caret >= first) caret_x = text_width(node%body(first:node%caret), &
-                        node%text_size)
-                end if
-                if (last >= len(node%body)) exit
-                first = last + 2
-                row = row + 1
-                if (first > len(node%body)) then
-                    if (node%caret >= len(node%body)) then
-                        caret_row = row
-                        caret_x = 0.0
-                    end if
-                    exit
-                end if
-            end do
-        end if
-        if (node%focused) call rl_draw_rectangle(nint(tx + caret_x), &
-            nint(ty + caret_row * line_h), 2, max(1, nint(line_h)), color(255, 220, 90, 255))
-        call rl_end_scissor()
-    end subroutine draw_text_area
-
-    function shown(node, avail, weight) result(s)
-        !! Node text, shortened with an ellipsis to `avail` when the node asks for it.
-        type(ui_node_t), intent(in) :: node
-        real, intent(in) :: avail
-        integer, intent(in) :: weight
-        character(len=:), allocatable :: s
-        if (node%ellipsis) then
-            s = text_fit(trim(node%text), node%text_size, avail, weight)
-        else
-            s = trim(node%text)
-        end if
-    end function shown
-
-    subroutine draw_node(rl, frame, store, node)
-        type(raylib_backend_t), intent(inout), target :: rl
-        type(ui_frame_t), intent(in) :: frame
-        type(canvas_store_t), intent(in), target :: store
-        type(ui_node_t), intent(in) :: node
-        type(rl_color) :: fg, fill
-        integer :: x, y, w, h, knob, weight
-        real :: fraction, ty, tw
-        character(len=:), allocatable :: s
-
-        x = nint(node%x)
-        y = nint(node%y)
-        w = max(1, nint(node%width))
-        h = max(1, nint(node%height))
-
-        fg = color(235, 235, 235, 255)
-        fill = color(55, 75, 105, 255)
-        if (node%disabled) then
-            fg = color(120, 120, 120, 255)
-            fill = color(50, 50, 50, 255)
-        else if (node%active) then
-            fill = color(95, 125, 170, 255)
-        else if (node%hovered) then
-            fill = color(70, 95, 130, 255)
-        end if
-        ty = node%y + 0.5 * (node%height - node%text_size)
-        ! Raylib draws monospaced text with the regular font.
-        weight = min(style_weight(node%style), 2)
-
-        select case (node%kind)
-        case (UI_TEXT, UI_LINK)
-            if (node%style == UI_CAPTION) fg = color(160, 166, 178, 255)
-            call draw_utf8(rl, shown(node, node%width, weight), node%x, ty, &
-                node%text_size, weight, fg)
-        case (UI_BUTTON)
-            if (node%focused) fg = color(255, 220, 90, 255)
-            call rl_draw_rectangle(x, y, w, h, fill)
-            call draw_utf8(rl, shown(node, node%width - 2.0 * CONTROL_PADDING, weight), &
-                node%x + CONTROL_PADDING, ty, node%text_size, weight, fg)
-        case (UI_TAB)
-            if (node%checked) then
-                fill = color(62, 84, 120, 255)
-            else if (node%hovered) then
-                fill = color(50, 58, 72, 255)
-            else
-                fill = color(38, 42, 50, 255)
-                fg = color(175, 180, 190, 255)
-            end if
-            if (node%focused) fg = color(255, 220, 90, 255)
-            call rl_draw_rectangle(x, y, w, h, fill)
-            if (node%checked) call rl_draw_rectangle(x, y + h - 3, w, 3, &
-                color(255, 220, 90, 255))
-            s = text_fit(trim(node%text), node%text_size, &
-                node%width - 2.0 * CONTROL_PADDING)
-            tw = text_width(s, node%text_size)
-            call draw_utf8(rl, s, node%x + 0.5 * (node%width - tw), ty, node%text_size, &
-                TEXT_STYLE_REGULAR, fg)
-        case (UI_CHECKBOX)
-            if (node%focused) fg = color(255, 220, 90, 255)
-            call rl_draw_rectangle(x, y + (h - 20) / 2, 20, 20, fill)
-            if (node%checked) call rl_draw_rectangle(x + 5, y + (h - 20) / 2 + 5, 10, 10, &
-                color(120, 230, 140, 255))
-            if (len_trim(node%text) > 0) call draw_utf8(rl, text_fit(trim(node%text), &
-                node%text_size, node%width - 30.0), node%x + 30.0, ty, node%text_size, &
-                TEXT_STYLE_REGULAR, fg)
-        case (UI_SLIDER)
-            call rl_draw_rectangle(x, y + h / 2 - 2, w, 4, color(80, 80, 80, 255))
-            if (node%max_value > node%min_value) then
-                fraction = (node%value - node%min_value) / (node%max_value - node%min_value)
-            else
-                fraction = 0.0
-            end if
-            fraction = max(0.0, min(1.0, fraction))
-            knob = x + nint(fraction * real(w))
-            if (node%focused) fg = color(255, 220, 90, 255)
-            call rl_draw_rectangle(knob - 5, y + 4, 10, max(8, h - 8), fg)
-        case (UI_CANVAS)
-            call draw_canvas(rl, frame, store, node)
-        case (UI_SCROLL_TEXT)
-            call draw_scroll_text(rl, node, fg)
-        case (UI_TEXT_INPUT)
-            call draw_text_input(rl, node, fg)
-        case (UI_TEXT_AREA)
-            call draw_text_area(rl, node, fg)
-        end select
-    end subroutine draw_node
-
-    subroutine draw_border(x, y, w, h, c)
-        integer, intent(in) :: x, y, w, h
-        type(rl_color), intent(in) :: c
-        call rl_draw_rectangle(x, y, w, 1, c)
-        call rl_draw_rectangle(x, y + h - 1, w, 1, c)
-        call rl_draw_rectangle(x, y, 1, h, c)
-        call rl_draw_rectangle(x + w - 1, y, 1, h, c)
-    end subroutine draw_border
 
     pure integer function map_key(key) result(mapped)
         !! Backend-neutral KEY_* for a raylib key code (KEY_NONE if unnamed).

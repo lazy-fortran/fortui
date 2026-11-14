@@ -6,9 +6,9 @@ module fortui_backends
     !!   use fortui_backends, only: ui_init
     !!   call ui_init("auto", 900, 640, "demo", stat=stat)
     !!
-    !! Names: "headless", "tui", "gui" (raylib, only in -DENABLE_GUI=1 builds) or
-    !! "auto" (gui, then tui, then headless only with FORTUI_HEADLESS=1);
-    !! FORTUI_BACKEND overrides the name.
+    !! Names: "headless", "tui", "sdl" (-DENABLE_SDL=1 builds), "raylib"
+    !! (-DENABLE_GUI=1 builds), "gui" (sdl, else raylib) or "auto" (gui, then tui,
+    !! then headless only with FORTUI_HEADLESS=1); FORTUI_BACKEND overrides the name.
     !! A requested backend that is unavailable is an error, never a fallback.
     !! Applications that inject a backend value do not need this module.
     use fortui_backend, only: ui_backend_t
@@ -17,6 +17,8 @@ module fortui_backends
     use fortui_tui, only: tui_backend_t, tui_is_available
     ! Empty unless built with -DENABLE_GUI=1 (raylib_backend_t, raylib_is_available).
     use fortui_gui_raylib
+    ! Empty unless built with -DENABLE_SDL=1 (sdl_backend_t, sdl_is_available).
+    use fortui_gui_sdl
     use fortui_error, only: report_error
     implicit none
     private
@@ -29,14 +31,16 @@ module fortui_backends
 
 contains
 
-    subroutine ui_init_named(name, width, height, title, target_fps, vsync, stat)
-        !! Start FortUI with the backend called `name` (see the module notes).
+    subroutine ui_init_named(name, width, height, title, target_fps, vsync, stat, theme)
+        !! Start FortUI with the backend called `name` (see the module notes) and,
+        !! on graphical backends, `theme` unless the user chose one.
         character(*), intent(in) :: name
         integer, intent(in) :: width, height
         character(*), intent(in) :: title
         integer, intent(in), optional :: target_fps
         logical, intent(in), optional :: vsync
         integer, intent(out), optional :: stat
+        character(*), intent(in), optional :: theme
         class(ui_backend_t), allocatable :: backend
 
         call create_backend(name, backend)
@@ -46,7 +50,7 @@ contains
             if (present(stat)) stat = 1
             return
         end if
-        call ui_init_backend(backend, width, height, title, target_fps, vsync, stat)
+        call ui_init_backend(backend, width, height, title, target_fps, vsync, stat, theme)
     end subroutine ui_init_named
 
     subroutine create_backend(requested, backend)
@@ -66,17 +70,19 @@ contains
             allocate(headless_backend_t :: backend)
         case ("tui", "terminal", "console")
             if (tui_is_available()) allocate(tui_backend_t :: backend)
-        case ("gui", "graphics", "window", "raylib")
+        case ("sdl")
+#ifdef ENABLE_SDL
+            if (sdl_is_available()) allocate(sdl_backend_t :: backend)
+#endif
+        case ("raylib")
 #ifdef ENABLE_GUI
             if (raylib_is_available()) allocate(raylib_backend_t :: backend)
 #endif
+        case ("gui", "graphics", "window")
+            call graphical(backend)
         case ("auto", "")
-#ifdef ENABLE_GUI
-            if (raylib_is_available()) then
-                allocate(raylib_backend_t :: backend)
-                return
-            end if
-#endif
+            call graphical(backend)
+            if (allocated(backend)) return
             if (tui_is_available()) then
                 allocate(tui_backend_t :: backend)
             else
@@ -86,6 +92,21 @@ contains
             end if
         end select
     end subroutine create_backend
+
+    subroutine graphical(backend)
+        !! The best available graphical backend: SDL, else raylib.
+        class(ui_backend_t), allocatable, intent(inout) :: backend
+#ifdef ENABLE_SDL
+        if (sdl_is_available()) then
+            allocate(sdl_backend_t :: backend)
+            return
+        end if
+#endif
+#ifdef ENABLE_GUI
+        if (raylib_is_available()) allocate(raylib_backend_t :: backend)
+#endif
+        if (.false.) deallocate(backend)
+    end subroutine graphical
 
     pure function lower(value) result(out)
         character(*), intent(in) :: value

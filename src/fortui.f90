@@ -10,7 +10,7 @@ module fortui
         ui_request_frame, ui_set_continuous, ui_window_size, ui_scale, ui_key_pressed, &
         ui_time, ui_wake_after, ui_shortcut, &
         ui_text_width, ui_backend_capabilities, ui_backend_caps_t, ui_backend_description, &
-        ui_run, ui_run_step, ui_frame_proc
+        ui_run, ui_run_step, ui_frame_proc, ui_set_theme, ui_theme_name
     use fortui_layout, only: column_begin, column_end, row_begin, row_end, split_begin, &
         split_next, split_end
     use fortui_widgets, only: text, button, link, slider, checkbox, tabs, scroll_text, &
@@ -22,7 +22,8 @@ module fortui
         UI_TONE_NORMAL, UI_TONE_POSITIVE, UI_TONE_NEGATIVE, UI_TONE_MUTED, UI_TONE_ACCENT, &
         UI_TONE_KEYWORD, UI_TONE_STRING, UI_TONE_COMMENT, UI_TONE_NUMBER, UI_TONE_TYPE, &
         UI_TONE_PREPROC, UI_TONE_ADDED, UI_TONE_REMOVED, UI_TONE_HUNK, UI_TONE_LINK, &
-        UI_TONE_STRONG, UI_TONE_EMPHASIS, UI_TONE_ATTENTION
+        UI_TONE_STRONG, UI_TONE_EMPHASIS, UI_TONE_ATTENTION, UI_EMPHASIS_NORMAL, &
+        UI_EMPHASIS_PRIMARY, UI_EMPHASIS_QUIET
     use fortui_text, only: ui_str
     use fortui_input, only: KEY_ENTER, KEY_ESCAPE, KEY_TAB, KEY_BACKSPACE, KEY_DELETE, &
         KEY_HOME, KEY_END, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_ARROW_UP, KEY_ARROW_DOWN, &
@@ -31,7 +32,7 @@ module fortui
     private
 
     public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
-    public :: ui_run, ui_run_step, ui_frame_proc
+    public :: ui_run, ui_run_step, ui_frame_proc, ui_set_theme, ui_theme_name
     public :: ui_request_quit, ui_is_initialized, ui_get_backend
     public :: ui_backend_capabilities, ui_backend_caps_t, ui_backend_description
     public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale
@@ -49,6 +50,7 @@ module fortui
     public :: UI_TONE_KEYWORD, UI_TONE_STRING, UI_TONE_COMMENT, UI_TONE_NUMBER, UI_TONE_TYPE
     public :: UI_TONE_PREPROC, UI_TONE_ADDED, UI_TONE_REMOVED, UI_TONE_HUNK, UI_TONE_LINK
     public :: UI_TONE_STRONG, UI_TONE_EMPHASIS, UI_TONE_ATTENTION
+    public :: UI_EMPHASIS_NORMAL, UI_EMPHASIS_PRIMARY, UI_EMPHASIS_QUIET
     public :: KEY_ENTER, KEY_ESCAPE, KEY_TAB, KEY_BACKSPACE, KEY_DELETE, KEY_HOME
     public :: KEY_END, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_ARROW_UP, KEY_ARROW_DOWN
     public :: KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_SPACE, KEY_INSERT

@@ -162,12 +162,17 @@ logical units; character-cell metrics, one cell per code point and line whatever
 the text size; canvas layers rasterized in Fortran by `fortui_raster` and shown
 as braille cells, 2x4 dots per cell with one colour per cell, or as kitty
 graphics images; see below),
-and `fortui_gui_raylib` (raylib 6/rlgl, compiled only with `-DENABLE_GUI=1`;
-one position texture per vertex layer read by GLSL 330 instanced quads for points
-and lines; bundled DejaVu Sans subset, compiled only for this backend, with TTF
-file options). A wake-up from another thread is not implemented. Only the
-Linux/X11 raylib route has executed evidence; the Windows and macOS raylib routes
-are unverified.
+`fortui_gui_sdl` (SDL3 with the SDL GPU API, compiled only with
+`-DENABLE_SDL=1`; Vulkan SPIR-V shaders from `shaders/`, embedded by
+`tools/gen-shaders.sh`; an event queue that splits a press and release arriving in
+one frame over two frames; text with SDL_ttf), and `fortui_gui_raylib` (raylib
+6/rlgl, compiled only with `-DENABLE_GUI=1`; one position texture per vertex
+layer read by GLSL 330 instanced quads for points and lines). Both graphical
+backends draw the display list of the theme painter (`fortui_paint`) and take
+the theme's fonts from the installed fonts through fontconfig; FortUI ships no
+fonts. A wake-up from another thread is not implemented. Only the Linux/X11
+(Vulkan) routes have executed evidence; Windows, macOS (which needs Metal shaders
+for SDL GPU) and Wayland are unverified.
 
 Terminal canvas realization (`fortui_tui`, `fortui_raster`, `fortui_kitty`,
 `src/c/fortui_tty.c`): at init the backend asks the terminal in-band (kitty

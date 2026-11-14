@@ -168,6 +168,10 @@ addToLibrary({
       if (el.dataset.id !== f[1]) { if (f[1]) el.dataset.id = f[1]; else delete el.dataset.id; }
       if (el.dataset.style !== style) el.dataset.style = style;
       if (el.dataset.tone !== f[14]) el.dataset.tone = f[14];
+      var emphasis = f[20] || '0';
+      if ((el.dataset.emphasis || '0') !== emphasis) {
+        if (emphasis !== '0') el.dataset.emphasis = emphasis; else delete el.dataset.emphasis;
+      }
       FUI.mark(el, f[18] || '', f[19] || '');
       var px = f[11] + 'px';
       if (s.fontSize !== px) s.fontSize = px;
@@ -253,6 +257,13 @@ addToLibrary({
     },
   },
 
+  // The application's theme as data-theme on the root ('' keeps the page's look).
+  fortui_web_theme__deps: ['$FUI'],
+  fortui_web_theme: function (ptr, n) {
+    var name = n > 0 ? UTF8ToString(ptr, n) : '';
+    if (!FUI.root) return;
+    if (name) FUI.root.dataset.theme = name; else delete FUI.root.dataset.theme;
+  },
   fortui_web_init__deps: ['$FUI', '$runtimeKeepalivePush'],
   fortui_web_init: function (ptr, n) {
     if (typeof document === 'undefined') return 1;

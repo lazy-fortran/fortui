@@ -18,7 +18,7 @@ module fortui_tui
     use iso_fortran_env, only: int32, int64
     use fortui_frame, only: ui_frame_t, ui_node_t, UI_TEXT, UI_BUTTON, UI_LINK, UI_SLIDER, &
         UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, UI_CAPTION, &
-        UI_HEADING, UI_TITLE, SCROLL_PADDING
+        UI_HEADING, UI_TITLE, ui_scroll_padding
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
         input_set_key, input_type_text, input_key_press, MOD_CTRL, KEY_NONE, KEY_ENTER, KEY_ESCAPE, KEY_TAB, &
         KEY_BACKSPACE, KEY_DELETE, KEY_HOME, KEY_END, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, &
@@ -1147,7 +1147,7 @@ contains
 
         if (.not. allocated(node%body) .or. .not. allocated(node%lines)) return
         do i = 1, node%line_count
-            row = nint((SCROLL_PADDING + node%lines(i)%y - node%scroll) / CELL_H_DP)
+            row = nint((ui_scroll_padding() + node%lines(i)%y - node%scroll) / CELL_H_DP)
             if (row < 0) cycle
             if (row >= h) exit
             if (node%lines(i)%last >= node%lines(i)%first) call draw_string(self, x, &

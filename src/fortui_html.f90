@@ -147,6 +147,7 @@ contains
                 a = a//'" data-key="'//html_escape(trim(keys(k)))//'"'
                 if (len_trim(n%id) > 0) a = a//' data-id="'//html_escape(trim(n%id))//'"'
                 a = a//' data-style="'//ui_str(n%style)//'" data-tone="'//ui_str(n%tone)//'"'
+                if (n%emphasis /= 0) a = a//' data-emphasis="'//ui_str(n%emphasis)//'"'
                 a = a//marks(n%look, n%anchor)
                 if (n%disabled) a = a//' disabled'
                 ! The control with the focus (ui_focus) has it when the page loads.

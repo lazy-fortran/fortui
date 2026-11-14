@@ -6,10 +6,13 @@ same application intent through native controls, custom graphics, web DOM,
 terminals, and headless automation while preserving platform-specific capabilities.
 
 The current implementation is an experimental pre-1.0 prototype: basic semantic
-controls, previous-frame input routing, headless tests, termbox2 TUI, optional
-raylib GUI, and a first browser backend with DOM controls. Native widgets, browser
-canvas, mobile, full text/IME/accessibility, commands,
-and incremental transaction scheduling are roadmap work.
+controls, previous-frame input routing, headless tests, a termbox2 TUI, an SDL3
+desktop backend drawing with the SDL GPU API, a raylib backend, and a browser
+backend with DOM controls. Desktop apps choose between two themes drawn the same
+on every backend: Classic (Windows 95 as the Chicago95 desktop shows it) and
+Material (Material Design 3, light and dark). Native widgets, browser canvas,
+mobile, full text/IME/accessibility, commands, and incremental transaction
+scheduling are roadmap work.
 
 ## Current authoring API
 
@@ -50,8 +53,11 @@ widget into view in the browser.
 
 Applications can also inject a backend value without the registry, for example
 `call ui_init(headless_backend_t(), 800, 600, "test")` in tests or
-`call ui_init(raylib_backend_t(font_regular="Inter.ttf"), 1200, 800, "app")`.
+`call ui_init(sdl_backend_t(), 1200, 800, "app", theme_name="classic")`.
 `fortui_testing` provides synthetic input and frame queries for automation.
+Buttons take an `emphasis`: `UI_EMPHASIS_PRIMARY` for a view's main action (a
+filled Material button, the Classic default button), `UI_EMPHASIS_QUIET` for a
+text button.
 
 Widgets describe semantics; adapters realize them. Application state remains
 caller-owned, while FortUI retains UI-local interaction state and resources.
@@ -87,13 +93,24 @@ fpm build
 fpm test          # or: make test
 ```
 
-Optional raylib GUI (Fortran and C need `-DENABLE_GUI=1`, link `-lraylib`):
+SDL3 desktop backend (`-DENABLE_SDL=1`, link `-lSDL3 -lSDL3_ttf -lfontconfig`):
+
+```sh
+make build-sdl
+make test-sdl     # also renders offscreen on the GPU and checks the pixels
+FORTUI_THEME=classic fpm run --example theme_gallery   # with the SDL flags
+```
+
+Raylib backend (`-DENABLE_GUI=1`, link `-lraylib -lfontconfig`):
 
 ```sh
 make build-gui
 make test-gui     # also runs the backend conformance scenario in a window
-make install      # library, modules and the DejaVu font licence under PREFIX
+make install      # library and modules under PREFIX
 ```
+
+`tools/gen-shaders.sh` regenerates `src/fortui_sdl_shaders.f90` from `shaders/`
+with glslc (shaderc) after a shader change.
 
 Optional printing service (`-DENABLE_PRINT=1`, link `-lcups`):
 
@@ -128,15 +145,43 @@ graphics protocol (kitty, WezTerm), as pixels, also over ssh;
 `FORTUI_TUI_GRAPHICS=braille|kitty` and `FORTUI_TUI_COLOR=truecolor|256` force a
 choice. `fpm run --example tui_canvas_bench` measures the terminal raster cost.
 
-The GUI demo requests `ui_init("auto", ...)` and selects an available graphical
-backend first, then TUI. An explicit backend request must not silently fall back.
-Raylib and termbox2 are replaceable adapters rather than framework semantics.
+`ui_init("auto", ...)` and `ui_init("gui", ...)` take SDL, else raylib, and
+"auto" then the terminal; `FORTUI_BACKEND=sdl|raylib|tui|headless` chooses. An
+explicit backend request must not silently fall back. SDL, raylib and termbox2
+are replaceable adapters rather than framework semantics.
+
+## Themes
+
+The theme decides colours, metrics, type scale and fonts; the theme painter
+(`fortui_paint`) turns the semantic frame into a display list of pixel-aligned
+rectangles, lines and text that both desktop backends draw, so a theme looks the
+same on SDL and raylib. Square edges sit on whole pixels and glyphs are drawn
+1:1 from atlases rasterized at the exact pixel size, so the interface stays sharp.
+
+- `classic`: Windows 95 as the Chicago95 desktop theme draws it: #C0C0C0 faces,
+  two-pixel bevels, default buttons with a black frame, dotted focus rectangles,
+  sunken fields, 16 px scroll bars with arrows, 11 px bitmap Helvetica from the
+  Chicago95 fonts and More Perfect DOS VGA for code.
+- `material`, `material-dark`: Material Design 3 baseline schemes with Roboto and
+  Roboto Mono, the M3 type scale, filled, tonal and text buttons, state layers
+  and focus rings.
+
+The user chooses with `FORTUI_THEME`, else `theme = classic` in
+`~/.config/fortui/config` (`$XDG_CONFIG_HOME/fortui/config`); otherwise the
+application's `theme_name`, else `material`. `ui_set_theme(name)` switches at
+run time. FortUI ships no fonts: themes find their fonts among the installed ones
+with fontconfig and fall back with a warning naming the package to install.
+Raylib cannot draw bitmap fonts, so Classic text there uses an outline font.
+
+In the browser a theme applies only when the application passes `theme_name`
+(desktop-like web apps); otherwise the page keeps its own look and fonts, as a web
+page should. The terminal shows meaning, not a theme.
 
 ## Images and printing
 
 `canvas_image(key, generation, rgba, x, y, width, height)` draws a retained
 image into a world rectangle of a canvas; its pixels are uploaded once per
-generation (raylib texture, terminal raster).
+generation (GPU texture, terminal raster).
 
 `fortui_print` is a printing service over CUPS. It lists printers and reports a
 printer's paper sizes with their margins and borderless variants, media types,
@@ -155,9 +200,18 @@ dependency only when its build flag is given, so the core stays free of them.
 | Part | Needs | Licence |
 |---|---|---|
 | Core, headless, terminal | a Fortran 2008 compiler; termbox2 (bundled in `src/c`) | MIT |
-| GUI (`-DENABLE_GUI=1`) | raylib 5 or later; DejaVu fonts (bundled, embedded) | zlib; DejaVu/Bitstream Vera |
-| Printing (`-DENABLE_PRINT=1`) | libcups 2.3 or later | Apache-2.0 |
+| SDL desktop (`-DENABLE_SDL=1`) | SDL3 3.2+, SDL3_ttf 3.2+ (FreeType, HarfBuzz), fontconfig, a Vulkan driver | zlib; zlib; MIT-style |
+| Raylib desktop (`-DENABLE_GUI=1`) | raylib 5+, fontconfig | zlib; MIT-style |
+| Printing (`-DENABLE_PRINT=1`) | libcups 2.3+ | Apache-2.0 |
 | Browser | LFortran, emscripten | BSD-3-Clause; MIT/NCSA |
+| Shader rebuild (development) | glslc from shaderc | Apache-2.0 |
+
+Theme fonts are used from the system at run time, never shipped or linked:
+
+| Theme | Fonts (Arch Linux package) | Licence |
+|---|---|---|
+| classic | Chicago95 fonts (`chicago95-fonts`), More Perfect DOS VGA (`ttf-perfectdos`) | GPL-3.0-or-later; free |
+| material | Roboto (`ttf-roboto`), Roboto Mono (`ttf-roboto-mono`) | OFL-1.1 |
 
 The API may change before 1.0.
 

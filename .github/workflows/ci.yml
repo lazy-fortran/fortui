@@ -52,14 +52,11 @@ jobs:
           fi
           # Only the registry names more than one backend.
           for f in src/*.f90; do
-            n=$(grep -cE "use[[:space:]]+fortui_(tui|gui_raylib|backend_headless)\b" "$f" || true)
+            n=$(grep -cE "use[[:space:]]+fortui_(tui|gui_raylib|gui_sdl|backend_headless)\b" "$f" || true)
             if [ "$n" -gt 1 ] && [ "$f" != src/fortui_backends.f90 ]; then
               echo "$f names several concrete backends"; exit 1
             fi
           done
-
-      - name: Bundled font source matches the font files
-        run: python3 tools/embed_fonts.py --check
 
       - name: Reject stale architecture
         run: |

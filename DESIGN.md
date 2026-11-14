@@ -160,6 +160,14 @@ URLs, history, file access, and user-activation requirements are explicit platfo
 integrations. A DOM backend does not automatically make drawn text searchable or
 provide application navigation.
 
+Custom-drawn desktop realization goes through themes: design tokens (colours,
+metrics, type scale, fonts found among the installed fonts) and a theme painter
+that turns semantic nodes into a pixel-aligned display list. Backends draw the
+list and own only platform resources, so a theme is identical across them and a
+new renderer needs no widget code. Native toolkits stay an optional realization
+per control, not the default: they age with their platforms (GTK 3, Win32) and
+their theming differs per host.
+
 TUI realizes meaning in terminal-appropriate structures. A drawing canvas can
 become an object list and coordinate editor with optional previews. It requires
 application-supplied object/action metadata; it cannot infer a document from pixels.
@@ -211,7 +219,7 @@ integration. Judge their responsibilities and dependencies, not ideological puri
 | Semantics | Text/button/link/slider/checkbox/tabs/text field/scroll text/canvas nodes | Roles, commands, owned variable-length data, relationships |
 | Identity/input | Container-scoped ids and loop keys with duplicate reports; previous-frame routing | Generations, capture/focus/edit lifecycle |
 | Layout | Logical rows/columns, fill widths, two/three-pane splits | Intrinsic/adaptive layout and virtualization |
-| Backends | Headless, termbox2 TUI, optional raylib | Native/hybrid, DOM, mobile and additional renderers |
+| Backends | Headless, termbox2 TUI, SDL3 GPU and raylib desktop with Classic and Material themes, browser DOM | Native/hybrid where it pays, mobile (SDL3) and additional renderers |
 | Text/accessibility | Basic labels | Editing/IME/shaping and verified host accessibility |
 | Performance | Retained frame/storage foundation | Dependency invalidation and measured incremental work |
 

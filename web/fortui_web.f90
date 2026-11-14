@@ -17,6 +17,7 @@ module fortui_web
     use fortui_context, only: fortui_context_t, get_default_context
     use fortui_canvas, only: canvas_store_t
     use fortui_text, only: text_use_fixed_metrics, ui_str
+    use fortui_theme, only: theme, STYLE_PLAIN
     use fortui_core, only: ui_run_step
     implicit none
     private
@@ -54,6 +55,11 @@ module fortui_web
             integer(c_int), value :: nroot
         end function js_init
 
+        subroutine js_theme(name, n) bind(C, name="fortui_web_theme")
+            import :: c_char, c_int
+            character(kind=c_char), intent(in) :: name(*)
+            integer(c_int), value :: n
+        end subroutine
         subroutine js_shutdown() bind(C, name="fortui_web_shutdown")
         end subroutine js_shutdown
 
@@ -256,7 +262,7 @@ contains
         !! Kind, id, x, y, width, height (logical units), flags (1 focusable,
         !! 2 disabled, 8 focused, 32 checked, 64 ellipsis, 256 reveal), value, min,
         !! max, style, text size, box, width mode, tone, text, body, runs, look,
-        !! anchor.
+        !! anchor, button emphasis.
         type(ui_node_t), intent(in) :: n
         character(len=:), allocatable :: r
         integer :: flags
@@ -276,7 +282,8 @@ contains
             ui_str(nint(n%text_size))//US//ui_str(n%box)//US//ui_str(n%width_mode)//US// &
             ui_str(n%tone)//US//clean(trim(n%text))//US
         if (allocated(n%body)) r = r//clean(n%body)
-        r = r//US//runs(n)//US//clean(trim(n%look))//US//clean(trim(n%anchor))
+        r = r//US//runs(n)//US//clean(trim(n%look))//US//clean(trim(n%anchor))//US// &
+            ui_str(n%emphasis)
     end function node_record
 
     function runs(n) result(s)
@@ -313,9 +320,15 @@ contains
 
     subroutine web_metrics(self)
         !! The browser lays text out itself; widths computed in Fortran only
-        !! place canvases, so cheap fixed metrics suffice.
+        !! place canvases, so cheap fixed metrics suffice. A theme the
+        !! application chose styles the page through data-theme on its root;
+        !! without one the page keeps its own look.
         class(web_backend_t), intent(inout) :: self
+        character(len=:), allocatable :: name
         call text_use_fixed_metrics(0.55, 1.25)
+        name = ""
+        if (theme%kind /= STYLE_PLAIN) name = trim(theme%name)
+        if (self%active) call js_theme(name, int(len(name), c_int))
     end subroutine web_metrics
 
     function web_caps(self) result(caps)

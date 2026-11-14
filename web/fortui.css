@@ -1,6 +1,7 @@
 /* Base styles of the fortui browser backend. Pages include this in <head>, so
    a page rendered by the server is laid out before any script runs. Colours
-   and fonts belong to the page, except the attention tone below. */
+   and fonts belong to the page, except the attention tone and the themes an
+   application asks for (below). */
 .fui-box { display: flex; box-sizing: border-box; min-width: 0; }
 .fui-col { flex-direction: column; align-items: flex-start; }
 .fui-row { flex-direction: row; align-items: center; }
@@ -26,3 +27,109 @@
 /* Attention (UI_TONE_ATTENTION): a person's turn, amber for the colour scheme
    the page declares (color-scheme), light where it declares none. */
 .fui[data-tone="17"], .fui [data-t="17"] { color: #9a6700; color: light-dark(#9a6700, #d29922); }
+
+/* Themes an application asks for (ui_init theme=): data-theme on the root.
+   Without one the page keeps its own look. Fonts come from the visitor's system. */
+.fui-root[data-theme] { padding: var(--fui-margin); }
+.fui-root[data-theme="classic"] {
+  --fui-margin: 8px;
+  background: #c0c0c0; color: #000;
+  font-family: "MS Sans Serif", "Microsoft Sans Serif", Tahoma, Helvetica, Arial, sans-serif;
+  font-size: 11px; -webkit-font-smoothing: none; font-smooth: never;
+}
+.fui-root[data-theme="classic"] .fui-k2,
+.fui-root[data-theme="classic"] .fui-k5 {
+  background: #c0c0c0; color: #000; border: 0; border-radius: 0; min-height: 23px;
+  min-width: 75px; padding: 0 10px; font: inherit;
+  box-shadow: inset -1px -1px #000, inset 1px 1px #fff, inset -2px -2px #808080,
+    inset 2px 2px #dfdfdf;
+}
+.fui-root[data-theme="classic"] .fui-k2[data-emphasis="1"],
+.fui-root[data-theme="classic"] .fui-k2:focus {
+  outline: 1px solid #000; outline-offset: -1px;
+  box-shadow: inset -2px -2px #000, inset 2px 2px #fff, inset -3px -3px #808080,
+    inset 3px 3px #dfdfdf;
+}
+.fui-root[data-theme="classic"] .fui-k2:active:not(:disabled) {
+  box-shadow: inset 1px 1px #000, inset -1px -1px #000, inset 2px 2px #808080,
+    inset -2px -2px #808080;
+  padding: 1px 9px 0 11px;
+}
+.fui-root[data-theme="classic"] .fui-k2:disabled { color: #808080; text-shadow: 1px 1px #fff; }
+.fui-root[data-theme="classic"] .fui-k5[aria-selected="true"] { margin-top: -2px; min-height: 25px; }
+.fui-root[data-theme="classic"] .fui-k8,
+.fui-root[data-theme="classic"] .fui-k10,
+.fui-root[data-theme="classic"] .fui-k7 {
+  background: #fff; color: #000; border: 0; border-radius: 0; padding: 3px 4px; font: inherit;
+  box-shadow: inset -1px -1px #fff, inset 1px 1px #808080, inset -2px -2px #dfdfdf,
+    inset 2px 2px #000;
+}
+.fui-root[data-theme="classic"] .fui-k9 { color: #00f; text-decoration: underline; }
+.fui-root[data-theme="classic"] .fui-k4 input { accent-color: #000; }
+.fui-root[data-theme="classic"] .fui[data-style="5"] {
+  font-family: "More Perfect DOS VGA", "Courier New", Courier, monospace; font-size: 16px;
+}
+
+.fui-root[data-theme="material"], .fui-root[data-theme="material-dark"] {
+  --fui-margin: 16px;
+  --fui-primary: #6750a4; --fui-on-primary: #fff; --fui-tonal: #e8def8;
+  --fui-on-tonal: #1d192b; --fui-surface: #fef7ff; --fui-surface-low: #f7f2fa;
+  --fui-on-surface: #1d1b20; --fui-muted: #49454f; --fui-outline: #79747e;
+  --fui-outline-variant: #cac4d0;
+  background: var(--fui-surface); color: var(--fui-on-surface);
+  font-family: Roboto, "Segoe UI", system-ui, -apple-system, sans-serif; font-size: 14px;
+}
+.fui-root[data-theme="material-dark"] {
+  --fui-primary: #d0bcff; --fui-on-primary: #381e72; --fui-tonal: #4a4458;
+  --fui-on-tonal: #e8def8; --fui-surface: #141218; --fui-surface-low: #1d1b20;
+  --fui-on-surface: #e6e0e9; --fui-muted: #cac4d0; --fui-outline: #938f99;
+  --fui-outline-variant: #49454f; color-scheme: dark;
+}
+.fui-root[data-theme^="material"] .fui-k2 {
+  min-height: 40px; padding: 0 24px; border: 0; border-radius: 20px; font: inherit;
+  font-weight: 500; background: var(--fui-tonal); color: var(--fui-on-tonal); cursor: pointer;
+}
+.fui-root[data-theme^="material"] .fui-k2[data-emphasis="1"] {
+  background: var(--fui-primary); color: var(--fui-on-primary);
+}
+.fui-root[data-theme^="material"] .fui-k2[data-emphasis="2"] {
+  background: transparent; color: var(--fui-primary);
+}
+.fui-root[data-theme^="material"] .fui-k2:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 40px color-mix(in srgb, currentColor 8%, transparent);
+}
+.fui-root[data-theme^="material"] .fui-k2:disabled {
+  background: color-mix(in srgb, var(--fui-on-surface) 12%, transparent);
+  color: color-mix(in srgb, var(--fui-on-surface) 38%, transparent);
+}
+.fui-root[data-theme^="material"] .fui-k2:focus-visible,
+.fui-root[data-theme^="material"] .fui-k5:focus-visible {
+  outline: 3px solid var(--fui-muted); outline-offset: 2px;
+}
+.fui-root[data-theme^="material"] .fui-k5 {
+  min-height: 48px; border: 0; border-bottom: 1px solid var(--fui-outline-variant);
+  background: transparent; color: var(--fui-muted); font: inherit; font-weight: 500;
+}
+.fui-root[data-theme^="material"] .fui-k5[aria-selected="true"] {
+  color: var(--fui-primary); box-shadow: inset 0 -3px var(--fui-primary);
+}
+.fui-root[data-theme^="material"] .fui-k8,
+.fui-root[data-theme^="material"] .fui-k10 {
+  min-height: 40px; padding: 0 16px; border: 1px solid var(--fui-outline); border-radius: 4px;
+  background: transparent; color: inherit; font: inherit;
+}
+.fui-root[data-theme^="material"] .fui-k10 { padding: 10px 16px; }
+.fui-root[data-theme^="material"] .fui-k8:focus,
+.fui-root[data-theme^="material"] .fui-k10:focus {
+  outline: 0; border-color: var(--fui-primary); box-shadow: inset 0 0 0 1px var(--fui-primary);
+}
+.fui-root[data-theme^="material"] .fui-k7 {
+  background: var(--fui-surface-low); border-radius: 12px; padding: 12px;
+}
+.fui-root[data-theme^="material"] .fui-k3,
+.fui-root[data-theme^="material"] .fui-k4 input { accent-color: var(--fui-primary); }
+.fui-root[data-theme^="material"] .fui-k9 { color: var(--fui-primary); text-decoration: underline; }
+.fui-root[data-theme^="material"] .fui[data-style="2"] { color: var(--fui-muted); }
+.fui-root[data-theme^="material"] .fui[data-style="5"] {
+  font-family: "Roboto Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}

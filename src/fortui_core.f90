@@ -15,6 +15,7 @@ module fortui_core
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t, ui_window_config_t
     use fortui_text, only: text_use_fixed_metrics, text_width
     use fortui_error, only: report_error
+    use fortui_theme, only: theme, theme_select, theme_requested, theme_set, theme_plain
     implicit none
     private
 
@@ -28,7 +29,7 @@ module fortui_core
     public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale
     public :: ui_time, ui_wake_after
     public :: ui_key_pressed, ui_text_width, ui_backend_capabilities, ui_backend_caps_t
-    public :: ui_shortcut
+    public :: ui_shortcut, ui_set_theme, ui_theme_name
     public :: ui_backend_description, ui_run, ui_run_step, ui_frame_proc
 
     abstract interface
@@ -42,17 +43,26 @@ module fortui_core
 
 contains
 
-    subroutine ui_init_backend(backend, width, height, title, target_fps, vsync, stat)
+    subroutine ui_init_backend(backend, width, height, title, target_fps, vsync, stat, &
+            theme_name)
         !! Start FortUI with `backend`, a backend value such as `headless_backend_t()`.
         !! The runtime keeps its own copy and creates the platform resources; a host
         !! that is unavailable is an error (stat /= 0), never a fallback.
         !! target_fps = 0 means unlimited (useful for benchmarks with vsync off).
+        !! Desktop backends use the theme the user asked for (FORTUI_THEME, else
+        !! `theme =` in ~/.config/fortui/config), else `theme_name`, else
+        !! "material"; the browser uses `theme_name` only (else the page's own
+        !! look); headless and terminal backends use the plain metrics.
         class(ui_backend_t), intent(in) :: backend
         integer, intent(in) :: width, height
         character(*), intent(in) :: title
         integer, intent(in), optional :: target_fps
         logical, intent(in), optional :: vsync
         integer, intent(out), optional :: stat
+        character(*), intent(in), optional :: theme_name
+        character(len=:), allocatable :: wanted
+        logical :: ok
+        type(ui_backend_caps_t) :: caps
 
         type(fortui_context_t), pointer :: ctx
         type(ui_window_config_t) :: config
@@ -67,6 +77,26 @@ contains
         if (present(target_fps)) config%target_fps = max(0, target_fps)
         if (present(vsync)) config%vsync = vsync
 
+        caps = backend%capabilities()
+        if (caps%host_driven) then
+            ! The browser: a theme only when the application asks for one; else the
+            ! page keeps its own look.
+            ok = .false.
+            if (present(theme_name)) call theme_select(theme_name, ok)
+            if (.not. ok) call theme_set(theme_plain())
+        else if (caps%graphical) then
+            wanted = "material"
+            if (present(theme_name)) wanted = theme_name
+            wanted = theme_requested(wanted)
+            call theme_select(wanted, ok)
+            if (.not. ok) then
+                write (0, '(a)') "fortui: unknown theme '" // wanted // &
+                    "' (classic, material, material-dark); using material"
+                call theme_select("material", ok)
+            end if
+        else
+            call theme_set(theme_plain())
+        end if
         ctx => create_context()
         allocate(ctx%backend, source=backend)
         ctx%backend%config = config
@@ -84,6 +114,29 @@ contains
         ctx%initialized = .true.
         call set_default_context(ctx)
     end subroutine ui_init_backend
+
+    subroutine ui_set_theme(name, stat)
+        !! Switch to the built-in theme `name` at run time (classic, material,
+        !! material-dark); the next frame is laid out and drawn with it.
+        character(*), intent(in) :: name
+        integer, intent(out), optional :: stat
+        type(fortui_context_t), pointer :: ctx
+        logical :: ok
+        call theme_select(name, ok)
+        if (present(stat)) stat = merge(0, 1, ok)
+        if (.not. ok) return
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (.not. allocated(ctx%backend)) return
+        call ctx%backend%install_text_metrics()
+        call ui_request_frame()
+    end subroutine ui_set_theme
+
+    function ui_theme_name() result(name)
+        !! Name of the current theme.
+        character(len=:), allocatable :: name
+        name = trim(theme%name)
+    end function ui_theme_name
 
     subroutine ui_frame_begin()
         !! Start one composition: poll the host (blocking only when the previous
@@ -130,7 +183,7 @@ contains
 
         call ctx%current_frame%reset()
         ctx%canvas_node = 0
-        call layout_reset(real(ctx%input%width), real(ctx%input%height))
+        call layout_reset(real(ctx%input%width), real(ctx%input%height), theme%margin)
         ctx%frame_count = ctx%frame_count + 1
         ctx%in_frame = .true.
     end subroutine ui_frame_begin

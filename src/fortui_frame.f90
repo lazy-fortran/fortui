@@ -2,6 +2,7 @@ module fortui_frame
     !! Backend-neutral semantic frame produced by the FortUI composition DSL.
     use iso_fortran_env, only: int32, int64
     use fortui_layout, only: layout_box_t
+    use fortui_theme, only: theme, FACE_STRONG, FACE_MONO, ROLE_LABEL, ROLE_COUNT
     use fortui_text, only: text_line_t, TEXT_DEFAULT_SIZE, TEXT_STYLE_REGULAR, &
         TEXT_STYLE_BOLD, TEXT_STYLE_MONO, text_hash
     implicit none
@@ -50,14 +51,15 @@ module fortui_frame
 
     integer, parameter, public :: WIDTH_NATURAL = 0, WIDTH_FIXED = 1, WIDTH_FILL = 2
 
+    ! How strongly a button asks to be pressed: the usual action, the primary
+    ! (default) action of a view, or a quiet one (Material: tonal, filled and text
+    ! buttons; Classic: push button, default push button, push button).
+    integer, parameter, public :: UI_EMPHASIS_NORMAL = 0, UI_EMPHASIS_PRIMARY = 1, &
+        UI_EMPHASIS_QUIET = 2
+
     ! Width that fills the remaining space of the current container.
     real, parameter, public :: UI_FILL = -1.0
 
-    ! Presentation metrics shared by composition (hit regions) and renderers.
-    real, parameter, public :: SCROLL_PADDING = 8.0
-    real, parameter, public :: SCROLLBAR_WIDTH = 10.0
-    real, parameter, public :: INPUT_PADDING = 6.0
-    real, parameter, public :: CONTROL_PADDING = 12.0
 
     type, public :: canvas_view_t
         !! Canvas transform: local = world * zoom + pan (logical units from canvas origin).
@@ -115,6 +117,7 @@ module fortui_frame
         logical :: checked = .false.
         integer :: style = UI_BODY
         integer :: tone = UI_TONE_NORMAL
+        integer :: emphasis = UI_EMPHASIS_NORMAL
         ! A name the page styles by (data-look), and the address of the node in
         ! the page (the HTML id); both empty by default.
         character(len=32) :: look = ""
@@ -162,28 +165,73 @@ module fortui_frame
         procedure :: append_label => frame_append_label
     end type ui_frame_t
 
-    public :: style_size, style_weight
+    public :: style_size, style_weight, label_size
+    public :: ui_scroll_padding, ui_scrollbar_width, ui_input_padding, ui_control_padding
+    public :: ui_control_height, ui_control_min_width, ui_check_size, ui_check_gap
+    public :: ui_tab_height
 
 contains
 
-    pure real function style_size(style) result(size)
-        !! Default logical text size of a style token.
+    ! Presentation metrics of the current theme, shared by composition (sizes and
+    ! hit regions) and renderers.
+
+    real function ui_scroll_padding()
+        ui_scroll_padding = theme%scroll_padding
+    end function ui_scroll_padding
+
+    real function ui_scrollbar_width()
+        ui_scrollbar_width = theme%scrollbar_width
+    end function ui_scrollbar_width
+
+    real function ui_input_padding()
+        ui_input_padding = theme%input_padding
+    end function ui_input_padding
+
+    real function ui_control_padding()
+        ui_control_padding = theme%control_padding
+    end function ui_control_padding
+
+    real function ui_control_height()
+        ui_control_height = theme%control_height
+    end function ui_control_height
+
+    real function ui_control_min_width()
+        ui_control_min_width = theme%control_min_width
+    end function ui_control_min_width
+
+    real function ui_check_size()
+        ui_check_size = theme%check_size
+    end function ui_check_size
+
+    real function ui_check_gap()
+        ui_check_gap = theme%check_gap
+    end function ui_check_gap
+
+    real function ui_tab_height()
+        ui_tab_height = theme%tab_height
+    end function ui_tab_height
+
+    real function style_size(style) result(size)
+        !! Logical text size of a style token in the current theme.
         integer, intent(in) :: style
-        select case (style)
-        case (UI_CAPTION); size = 15.0
-        case (UI_HEADING); size = 17.0
-        case (UI_TITLE); size = 26.0
-        case (UI_CODE); size = 15.0
-        case default; size = TEXT_DEFAULT_SIZE
-        end select
+        size = TEXT_DEFAULT_SIZE
+        if (style >= 1 .and. style <= ROLE_COUNT) size = theme%text_size(style)
     end function style_size
 
-    pure integer function style_weight(style) result(weight)
+    real function label_size() result(size)
+        !! Text size of control labels (buttons, tabs, fields) in the current theme.
+        size = theme%text_size(ROLE_LABEL)
+    end function label_size
+
+    integer function style_weight(style) result(weight)
         !! Font (TEXT_STYLE_REGULAR, TEXT_STYLE_BOLD or TEXT_STYLE_MONO) of a style token.
         integer, intent(in) :: style
+        integer :: face
         weight = TEXT_STYLE_REGULAR
-        if (style == UI_HEADING .or. style == UI_TITLE) weight = TEXT_STYLE_BOLD
-        if (style == UI_CODE) weight = TEXT_STYLE_MONO
+        if (style < 1 .or. style > ROLE_COUNT) return
+        face = theme%text_face(style)
+        if (face == FACE_STRONG) weight = TEXT_STYLE_BOLD
+        if (face == FACE_MONO) weight = TEXT_STYLE_MONO
     end function style_weight
 
     subroutine frame_reset(self)

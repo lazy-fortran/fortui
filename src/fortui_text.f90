@@ -36,11 +36,28 @@ module fortui_text
     real, save :: cell_advance = 0.0
     real, save :: cell_height = 0.0
 
+    abstract interface
+        real function text_width_i(s, size, style)
+            !! Logical width of `s` at logical `size` in TEXT_STYLE_* `style`.
+            character(*), intent(in) :: s
+            real, intent(in) :: size
+            integer, intent(in) :: style
+        end function text_width_i
+        real function text_advance_i(cp, size, style)
+            integer, intent(in) :: cp, style
+            real, intent(in) :: size
+        end function text_advance_i
+    end interface
+
+    ! Measurement by the font a backend draws with (hinted, bitmap, kerned).
+    procedure(text_width_i), pointer, save :: measured_width => null()
+    procedure(text_advance_i), pointer, save :: measured_advance => null()
+
     public :: utf8_decode, utf8_encode, utf8_length, utf8_prev, utf8_next
     public :: utf8_boundary
     public :: text_hash
     public :: text_use_fixed_metrics, text_set_metrics, text_metrics_fixed, text_set_mono_metrics
-    public :: text_use_cell_metrics
+    public :: text_use_cell_metrics, text_use_measurement, text_width_i, text_advance_i
     public :: text_advance, text_width, text_line_height, text_caret_from_x
     public :: text_wrap, text_fit, ui_str
 
@@ -190,10 +207,26 @@ contains
         c = min(len(s), c + nb)
     end function utf8_next
 
+    subroutine text_use_measurement(width, advance, height_factor)
+        !! Measure with the backend's fonts: `width` of strings (with kerning) and
+        !! `advance` of single code points (carets, wrapping).
+        procedure(text_width_i) :: width
+        procedure(text_advance_i) :: advance
+        real, intent(in) :: height_factor
+        measured_width => width
+        measured_advance => advance
+        fixed_metrics = .false.
+        cell_advance = 0.0
+        cell_height = 0.0
+        line_factor = height_factor
+    end subroutine text_use_measurement
+
     subroutine text_use_fixed_metrics(advance_factor, height_factor)
         !! Deterministic metrics: every code point advances `advance_factor * size`.
         real, intent(in), optional :: advance_factor, height_factor
 
+        measured_width => null()
+        measured_advance => null()
         fixed_metrics = .true.
         cell_advance = 0.0
         cell_height = 0.0
@@ -209,6 +242,8 @@ contains
         !! shows all text sizes in the same cells).
         real, intent(in) :: advance, height
 
+        measured_width => null()
+        measured_advance => null()
         fixed_metrics = .true.
         cell_advance = advance
         cell_height = height
@@ -259,6 +294,10 @@ contains
         end if
         st = TEXT_STYLE_REGULAR
         if (present(style)) st = style
+        if (associated(measured_advance)) then
+            adv = measured_advance(cp, size, st)
+            return
+        end if
         if (st == TEXT_STYLE_MONO) then
             adv = mono_advance * size
             return
@@ -277,6 +316,14 @@ contains
         integer, intent(in), optional :: style
         integer :: pos, cp, nb
 
+        if (associated(measured_width) .and. cell_advance <= 0.0) then
+            if (present(style)) then
+                w = measured_width(s, size, style)
+            else
+                w = measured_width(s, size, TEXT_STYLE_REGULAR)
+            end if
+            return
+        end if
         w = 0.0
         pos = 1
         do while (pos <= len(s))

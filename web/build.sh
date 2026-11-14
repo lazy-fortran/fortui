@@ -28,7 +28,7 @@ mkdir -p "$out/obj"
 cd "$out/obj"
 # Dependency order; the terminal and raylib backends and the backend registry
 # are native only.
-for m in fortui_error fortui_text fortui_layout fortui_frame fortui_canvas \
+for m in fortui_error fortui_theme fortui_text fortui_layout fortui_frame fortui_canvas \
     fortui_raster fortui_input fortui_backend fortui_backend_headless \
     fortui_context fortui_core fortui_widgets fortui_testing fortui; do
     "$lf" -c $flags "$top/src/$m.f90" -o "$m.o"

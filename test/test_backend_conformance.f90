@@ -1,7 +1,8 @@
 program test_backend_conformance
     !! One scenario run against every buildable backend: headless always; the
-    !! raylib backend in -DENABLE_GUI=1 builds when a display is reachable (a real
-    !! window opens briefly). Expectations are the canvas realization contract:
+    !! raylib backend in -DENABLE_GUI=1 builds and the SDL GPU backend in
+    !! -DENABLE_SDL=1 builds when a display is reachable (a real window opens
+    !! briefly). Expectations are the canvas realization contract:
     !! upload once per data version, nothing for view changes or unchanged frames,
     !! stale segments dropped when vertices shrink, fresh resources after a kind
     !! change or removal, slot growth, and one present per frame.
@@ -13,6 +14,9 @@ program test_backend_conformance
     use fortui_context, only: fortui_context_t, get_default_context
     ! Empty unless built with -DENABLE_GUI=1 (raylib_backend_t, raylib_is_available).
     use fortui_gui_raylib
+    ! Empty unless built with -DENABLE_SDL=1 (sdl_backend_t, sdl_is_available).
+    use fortui_gui_sdl
+    use fortui_theme, only: theme
     implicit none
 
     integer :: failures
@@ -32,6 +36,13 @@ program test_backend_conformance
         call scenario(raylib_backend_t(), "gui")
     else
         print '(a)', "conformance: raylib backend skipped (no display or FORTUI_HEADLESS=1)"
+    end if
+#endif
+#ifdef ENABLE_SDL
+    if (sdl_is_available()) then
+        call scenario(sdl_backend_t(), "sdl")
+    else
+        print '(a)', "conformance: sdl backend skipped (no GPU or FORTUI_HEADLESS=1)"
     end if
 #endif
     if (failures > 0) error stop 1
@@ -74,8 +85,8 @@ contains
         call check(s%vertex_uploads - s0%vertex_uploads == 2 .and. &
             s%attribute_uploads - s0%attribute_uploads == 3 .and. &
             s%index_uploads - s0%index_uploads == 1, name, "first frame uploads")
-        call check(ui_node_rect("main/plot", x, y, w, h) .and. abs(x - 168.0) < 1e-3, &
-            name, "canvas placed in the second pane")
+        call check(ui_node_rect("main/plot", x, y, w, h) .and. &
+            abs(x - (168.0 + theme%margin)) < 1e-3, name, "canvas placed in the second pane")
         s0 = s
         call compose()
         call compose()

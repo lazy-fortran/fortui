@@ -87,8 +87,11 @@ module fortui_layout
 
 contains
 
-    subroutine layout_reset(width, height)
-        real, intent(in), optional :: width, height
+    subroutine layout_reset(width, height, margin)
+        !! Start a frame's layout in a window of `width` x `height`, keeping
+        !! `margin` free on every side.
+        real, intent(in), optional :: width, height, margin
+        real :: m
 
         stack_depth = 1
         layout_stack(1) = layout_entry_t(direction=DIR_COLUMN, scope="")
@@ -96,8 +99,16 @@ contains
         nodes_emitted = 0
         if (anchor_count > 0) anchors = ""
         anchor_count = 0
-        if (present(width)) layout_stack(1)%region_w = max(0.0, width)
-        if (present(height)) layout_stack(1)%region_h = max(0.0, height)
+        m = 0.0
+        if (present(margin)) m = max(0.0, margin)
+        layout_stack(1)%origin_x = m
+        layout_stack(1)%origin_y = m
+        layout_stack(1)%cursor_x = m
+        layout_stack(1)%cursor_y = m
+        layout_stack(1)%region_x = m
+        layout_stack(1)%region_y = m
+        if (present(width)) layout_stack(1)%region_w = max(0.0, width - 2.0 * m)
+        if (present(height)) layout_stack(1)%region_h = max(0.0, height - 2.0 * m)
     end subroutine layout_reset
 
     function layout_scope() result(scope)

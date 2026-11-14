@@ -13,8 +13,10 @@ module fortui_widgets
     use fortui_context, only: fortui_context_t, get_default_context
     use fortui_frame, only: ui_node_t, canvas_view_t, ui_label_t, UI_TEXT, UI_BUTTON, UI_LINK, &
         UI_SLIDER, UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, &
-        LAYER_VERTICES, SCROLL_PADDING, SCROLLBAR_WIDTH, INPUT_PADDING, CONTROL_PADDING, &
-        style_size, style_weight, WIDTH_NATURAL, WIDTH_FIXED, WIDTH_FILL, UI_TONE_LINK
+        LAYER_VERTICES, ui_scroll_padding, ui_scrollbar_width, ui_input_padding, &
+        ui_control_padding, ui_control_height, ui_control_min_width, ui_check_size, &
+        ui_check_gap, ui_tab_height, label_size, style_size, style_weight, WIDTH_NATURAL, &
+        WIDTH_FIXED, WIDTH_FILL, UI_TONE_LINK
     use fortui_layout, only: layout_get_cursor, layout_advance, layout_available, &
         layout_scope, layout_fill_width, layout_place, layout_note_node, row_begin, row_end, &
         layout_marks
@@ -29,8 +31,8 @@ module fortui_widgets
     implicit none
     private
 
-    real, parameter :: CONTROL_HEIGHT = 32.0
     integer, parameter :: MAX_ID = 96
+    integer, parameter :: UI_BODY_STYLE = 1
 
     interface slider
         !! slider(id, lo, hi, value [, step, key, width, enabled]) for real or
@@ -55,6 +57,11 @@ module fortui_widgets
     public :: canvas_label, canvas_image, scroll_text, text_input, ui_focus, ui_reveal
 
 contains
+
+    integer function style_weight_label() result(weight)
+        !! Font weight of control labels in the current theme.
+        weight = style_weight(6)
+    end function style_weight_label
 
     ! --- identity --------------------------------------------------------------
 
@@ -236,13 +243,13 @@ contains
     end subroutine text
 
     logical function button(id, label, key, width, height, enabled, ellipsis, size, &
-            look, anchor) result(clicked)
+            look, anchor, emphasis) result(clicked)
         !! Push button; true once when activated (pointer release or Enter/Space).
         !! `size` is the logical text size of the label; `look` and `anchor` as
-        !! for `text`.
+        !! for `text`; `emphasis` UI_EMPHASIS_NORMAL (default), _PRIMARY or _QUIET.
         character(*), intent(in) :: id
         character(*), intent(in), optional :: label
-        integer, intent(in), optional :: key
+        integer, intent(in), optional :: key, emphasis
         real, intent(in), optional :: width, height, size
         logical, intent(in), optional :: enabled, ellipsis
         character(*), intent(in), optional :: look, anchor
@@ -255,16 +262,19 @@ contains
         if (.not. composing(ctx)) return
 
         node%kind = UI_BUTTON
+        if (present(emphasis)) node%emphasis = emphasis
         node%id = scoped_id(id, key)
         if (.not. claim(ctx, trim(node%id), "button")) return
         call layout_marks(look, anchor, node%look, node%anchor)
         node%text = trim(id)
         if (present(label)) node%text = label
+        node%text_size = label_size()
         if (present(size)) node%text_size = max(1.0, size)
-        node%width = resolve_width(width, max(72.0, text_width(trim(node%text), &
-            node%text_size) + 2.0 * CONTROL_PADDING))
+        node%width = resolve_width(width, max(ui_control_min_width(), text_width( &
+            trim(node%text), node%text_size, style_weight_label()) + &
+            2.0 * ui_control_padding()))
         node%width_mode = width_mode(width)
-        node%height = CONTROL_HEIGHT
+        node%height = ui_control_height()
         if (present(height)) node%height = max(0.0, height)
         if (present(ellipsis)) node%ellipsis = ellipsis
         call set_enabled(node, enabled)
@@ -341,9 +351,10 @@ contains
         node%id = scoped_id(id, key)
         if (.not. claim(ctx, trim(node%id), "checkbox")) return
         if (present(label)) node%text = label
-        node%width = resolve_width(width, max(72.0, text_width(trim(node%text), &
-            node%text_size) + 40.0))
-        node%height = CONTROL_HEIGHT
+        node%text_size = style_size(UI_BODY_STYLE)
+        node%width = resolve_width(width, text_width(trim(node%text), node%text_size) + &
+            ui_check_size() + ui_check_gap() + 4.0)
+        node%height = ui_control_height()
         call set_enabled(node, enabled)
 
         if (.not. node%disabled .and. input_activated(ctx%input, trim(node%id))) then
@@ -425,7 +436,7 @@ contains
         if (.not. claim(ctx, trim(node%id), "slider")) return
         node%width = resolve_width(width, 200.0)
         node%width_mode = width_mode(width)
-        node%height = CONTROL_HEIGHT
+        node%height = ui_control_height()
         call set_enabled(node, enabled)
         call decorate_from_input(ctx, node)
 
@@ -497,13 +508,14 @@ contains
             node%id = scoped_id(id, k)
             if (.not. claim(ctx, trim(node%id), "tabs")) cycle
             node%text = trim(labels(k))
+            node%text_size = label_size()
             if (present(size)) node%text_size = max(1.0, size)
-            call layout_place(CONTROL_HEIGHT, node%x, node%y)
+            call layout_place(ui_tab_height(), node%x, node%y)
             node%width = w
             ! Without a width the tabs share their container (the host may resize it).
             node%width_mode = WIDTH_FILL
             if (present(width)) node%width_mode = WIDTH_FIXED
-            node%height = CONTROL_HEIGHT
+            node%height = ui_tab_height()
             node%focusable = .true.
             node%hovered = input_hovered(ctx%input, node%x, node%y, node%width, node%height)
             node%focused = input_focused(ctx%input, trim(node%id))
@@ -519,7 +531,7 @@ contains
             end if
             node%box = layout_note_node()
             j = ctx%current_frame%append(node)
-            call layout_advance(w, CONTROL_HEIGHT)
+            call layout_advance(w, ui_tab_height())
         end do
         call row_end()
         do k = 1, n
@@ -538,7 +550,8 @@ contains
         !! a click or double click schedules a follow-up frame.
         character(*), intent(in) :: id
         type(canvas_view_t), intent(in) :: view_state
-        type(canvas_events_t), intent(out) :: events
+        type(canvas_events_t), intent(out), optional :: events
+        type(canvas_events_t) :: ev
         real, intent(in), optional :: width, height
         integer(int32), intent(in), optional :: fill
 
@@ -549,7 +562,8 @@ contains
         integer :: st
         logical :: active
 
-        events = canvas_events_t()
+        ev = canvas_events_t()
+        if (present(events)) events = ev
         ctx => get_default_context()
         if (.not. composing(ctx)) return
         if (ctx%canvas_node /= 0) then
@@ -568,49 +582,55 @@ contains
         call layout_available(aw, ah)
         node%width = aw
         node%height = ah
-        if (present(width)) node%width = max(1.0, width)
-        if (present(height)) node%height = max(1.0, height)
+        ! UI_FILL (or any negative size) keeps the remaining space.
+        if (present(width)) then
+            if (width >= 0.0) node%width = max(1.0, width)
+        end if
+        if (present(height)) then
+            if (height >= 0.0) node%height = max(1.0, height)
+        end if
         call decorate_from_input(ctx, node)
 
         st = ctx%state(full)
         associate(inp => ctx%input, s => ctx%states(st))
             active = input_active(inp, full)
-            events%width = node%width
-            events%height = node%height
-            events%hovered = node%hovered
-            events%pointer_slop = inp%pointer_slop
-            events%local_x = inp%pointer_x - node%x
-            events%local_y = inp%pointer_y - node%y
-            call canvas_to_world(view_state, events%local_x, events%local_y, &
-                events%x, events%y)
+            ev%width = node%width
+            ev%height = node%height
+            ev%hovered = node%hovered
+            ev%pointer_slop = inp%pointer_slop
+            ev%local_x = inp%pointer_x - node%x
+            ev%local_y = inp%pointer_y - node%y
+            call canvas_to_world(view_state, ev%local_x, ev%local_y, &
+                ev%x, ev%y)
             call canvas_to_world(view_state, inp%press_x - node%x, inp%press_y - node%y, &
                 wx, wy)
-            events%press_x = wx
-            events%press_y = wy
-            events%pressed = inp%pointer_pressed .and. active
-            events%captured = active .and. inp%pointer_down
-            events%dragging = events%captured .and. inp%drag_exceeded
-            events%drag_started = events%dragging .and. .not. s%dragging
-            events%released = inp%pointer_released .and. s%captured
-            events%drag_ended = s%dragging .and. .not. events%dragging
-            if (events%captured) then
-                events%drag_dx = inp%pointer_dx
-                events%drag_dy = inp%pointer_dy
+            ev%press_x = wx
+            ev%press_y = wy
+            ev%pressed = inp%pointer_pressed .and. active
+            ev%captured = active .and. inp%pointer_down
+            ev%dragging = ev%captured .and. inp%drag_exceeded
+            ev%drag_started = ev%dragging .and. .not. s%dragging
+            ev%released = inp%pointer_released .and. s%captured
+            ev%drag_ended = s%dragging .and. .not. ev%dragging
+            if (ev%captured) then
+                ev%drag_dx = inp%pointer_dx
+                ev%drag_dy = inp%pointer_dy
             end if
-            events%clicked = len_trim(inp%click_id) > 0 .and. trim(inp%click_id) == full
-            events%double_clicked = len_trim(inp%double_click_id) > 0 .and. &
+            ev%clicked = len_trim(inp%click_id) > 0 .and. trim(inp%click_id) == full
+            ev%double_clicked = len_trim(inp%double_click_id) > 0 .and. &
                 trim(inp%double_click_id) == full
-            events%wheel = input_wheel_for(inp, full)
-            s%dragging = events%dragging
-            s%captured = events%captured
+            ev%wheel = input_wheel_for(inp, full)
+            s%dragging = ev%dragging
+            s%captured = ev%captured
         end associate
-        if (events%clicked .or. events%double_clicked) ctx%followup = .true.
+        if (ev%clicked .or. ev%double_clicked) ctx%followup = .true.
 
         node%layer_first = ctx%current_frame%layer_count + 1
         node%label_first = ctx%current_frame%label_count + 1
         node%box = layout_note_node()
         ctx%canvas_node = ctx%current_frame%append(node)
         call layout_advance(node%width, node%height)
+        if (present(events)) events = ev
     end subroutine canvas_begin
 
     subroutine canvas_end(view_state)
@@ -898,7 +918,7 @@ contains
         node%id = scoped_id(id)
         if (.not. claim(ctx, trim(node%id), "scroll_text")) return
         node%focusable = .true.
-        node%text_size = TEXT_DEFAULT_SIZE
+        node%text_size = style_size(UI_BODY_STYLE)
         if (present(size)) node%text_size = max(4.0, size)
         md = .false.
         if (present(markdown)) md = markdown
@@ -913,7 +933,7 @@ contains
 
         st = ctx%state(trim(node%id))
         associate(s => ctx%states(st), inp => ctx%input)
-            wrap_width = max(1.0, node%width - 2.0 * SCROLL_PADDING - SCROLLBAR_WIDTH)
+            wrap_width = max(1.0, node%width - 2.0 * ui_scroll_padding() - ui_scrollbar_width())
             text_changed = .not. allocated(s%cache_text)
             if (.not. text_changed) text_changed = len(s%cache_text) /= len(value)
             if (.not. text_changed) text_changed = s%cache_text /= value
@@ -936,13 +956,13 @@ contains
             s%scroll = s%scroll - input_wheel_for(inp, trim(node%id)) * 3.0 * line_h
             active = node%active
             if (active .and. inp%pointer_pressed .and. &
-                inp%pointer_x >= node%x + node%width - SCROLLBAR_WIDTH) then
+                inp%pointer_x >= node%x + node%width - ui_scrollbar_width()) then
                 s%dragging = .true.
                 s%anchor = s%scroll
             end if
             if (s%dragging .and. active .and. inp%pointer_down) then
                 s%scroll = s%anchor + (inp%pointer_y - inp%press_y) * &
-                    (s%cache_height + 2.0 * SCROLL_PADDING) / max(node%height, 1.0)
+                    (s%cache_height + 2.0 * ui_scroll_padding()) / max(node%height, 1.0)
             else
                 s%dragging = .false.
             end if
@@ -959,7 +979,7 @@ contains
                 end do
             end if
             if (present(scroll_to)) s%scroll = scroll_to
-            max_scroll = max(0.0, s%cache_height + 2.0 * SCROLL_PADDING - node%height)
+            max_scroll = max(0.0, s%cache_height + 2.0 * ui_scroll_padding() - node%height)
             s%scroll = max(0.0, min(max_scroll, s%scroll))
 
             node%body = value
@@ -1016,11 +1036,12 @@ contains
         node%width = max(40.0, resolve_width(width, layout_fill_width()))
         node%width_mode = WIDTH_FILL
         if (present(width)) node%width_mode = width_mode(width)
-        node%height = CONTROL_HEIGHT
+        node%height = ui_control_height()
+        node%text_size = style_size(UI_BODY_STYLE)
         if (present(size)) node%text_size = max(1.0, size)
         if (area) then
             node%line_count = lines
-            node%height = lines * text_line_height(node%text_size) + 2.0 * INPUT_PADDING
+            node%height = lines * text_line_height(node%text_size) + 2.0 * ui_input_padding()
         end if
         call decorate_from_input(ctx, node)
 
@@ -1035,7 +1056,7 @@ contains
             if (.not. node%disabled .and. node%focused) then
                 if (node%active .and. inp%pointer_pressed) then
                     if (area) then
-                        row = int((inp%pointer_y - node%y - INPUT_PADDING) / &
+                        row = int((inp%pointer_y - node%y - ui_input_padding()) / &
                             text_line_height(node%text_size))
                         i = line_start(value, 0)
                         do k = 1, row
@@ -1043,10 +1064,10 @@ contains
                             i = line_end(value, i) + 1
                         end do
                         c = i + text_caret_from_x(value(i + 1:line_end(value, i)), node%text_size, &
-                            inp%pointer_x - node%x - INPUT_PADDING)
+                            inp%pointer_x - node%x - ui_input_padding())
                     else
                         c = text_caret_from_x(value, node%text_size, &
-                            inp%pointer_x - node%x - INPUT_PADDING)
+                            inp%pointer_x - node%x - ui_input_padding())
                     end if
                 end if
                 done = 0
