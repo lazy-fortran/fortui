@@ -502,6 +502,7 @@ contains
         type(print_result_t), intent(out) :: res
 #ifdef ENABLE_PRINT
         type(pwg_stream_t), target :: doc
+        type(cups_size_t) :: sz
         type(c_ptr) :: dest, info, opts
         integer(c_int) :: nopt, job_id, st
         integer :: pos, chunk
@@ -525,14 +526,21 @@ contains
         info = cupsCopyDestInfo(c_null_ptr, dest)
         nopt = 0
         opts = c_null_ptr
-        nopt = cupsAddOption(cstr("media"), cstr(job%media), nopt, opts)
-        if (allocated(job%media_type)) then
-            if (len(job%media_type) > 0) nopt = cupsAddOption(cstr("media-type"), &
-                cstr(job%media_type), nopt, opts)
-        end if
-        if (allocated(job%source)) then
-            if (len(job%source) > 0) nopt = cupsAddOption(cstr("media-source"), &
-                cstr(job%source), nopt, opts)
+        ! The sheet goes as media-col with its size and margins: CUPS maps the
+        ! name "..._borderless" to the bordered size, but zero margins in
+        ! media-col select the borderless one (IPP and PPD queues alike).
+        if (find_media(dest, info, job%media, sz)) then
+            nopt = cupsAddOption(cstr("media-col"), cstr(media_col(sz, job)), nopt, opts)
+        else
+            nopt = cupsAddOption(cstr("media"), cstr(job%media), nopt, opts)
+            if (allocated(job%media_type)) then
+                if (len(job%media_type) > 0) nopt = cupsAddOption(cstr("media-type"), &
+                    cstr(job%media_type), nopt, opts)
+            end if
+            if (allocated(job%source)) then
+                if (len(job%source) > 0) nopt = cupsAddOption(cstr("media-source"), &
+                    cstr(job%source), nopt, opts)
+            end if
         end if
         if (job%quality /= PWG_QUALITY_DEFAULT) then
             write (num, '(i0)') job%quality
@@ -805,6 +813,47 @@ contains
             if (len(list(k)%label) == 0) list(k)%label = list(k)%keyword
         end do
     end subroutine choices
+
+    logical function find_media(dest, info, name, sz) result(found)
+        !! The printer's sheet of exactly this name. cupsGetDestMediaByName does
+        !! not know the "_borderless" names cupsGetDestMediaByIndex reports and
+        !! returns some other size instead (CUPS 2.4.20).
+        type(c_ptr), intent(in) :: dest, info
+        character(*), intent(in) :: name
+        type(cups_size_t), intent(out) :: sz
+        integer :: k
+
+        found = .false.
+        do k = 1, cupsGetDestMediaCount(c_null_ptr, dest, info, MEDIA_FLAGS_DEFAULT)
+            if (cupsGetDestMediaByIndex(c_null_ptr, dest, info, int(k - 1, c_int), &
+                MEDIA_FLAGS_DEFAULT, sz) == 0) cycle
+            if (f_chars(sz%media) == name) then
+                found = .true.
+                return
+            end if
+        end do
+    end function find_media
+
+    function media_col(sz, job) result(col)
+        !! The IPP media-col collection of a sheet, as a CUPS option value.
+        type(cups_size_t), intent(in) :: sz
+        type(print_job_t), intent(in) :: job
+        character(len=:), allocatable :: col
+        character(len=160) :: buf
+
+        write (buf, '(a,i0,a,i0,a,i0,a,i0,a,i0,a,i0)') &
+            "{media-size={x-dimension=", sz%width, " y-dimension=", sz%length, &
+            "} media-bottom-margin=", sz%bottom, " media-left-margin=", sz%left, &
+            " media-right-margin=", sz%right, " media-top-margin=", sz%top
+        col = trim(buf)
+        if (allocated(job%source)) then
+            if (len(job%source) > 0) col = col // " media-source=" // job%source
+        end if
+        if (allocated(job%media_type)) then
+            if (len(job%media_type) > 0) col = col // " media-type=" // job%media_type
+        end if
+        col = col // "}"
+    end function media_col
 
     subroutine cups_ready(dest, info, caps)
         !! Loaded paper as CUPS last heard it (no tray or type).

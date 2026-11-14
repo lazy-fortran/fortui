@@ -101,6 +101,9 @@ Optional printing service (`-DENABLE_PRINT=1`, link `-lcups`):
 make build-print
 make test-print   # libcups decodes the pages; FORTUI_PRINT_TEST_PRINTER=QUEUE
                   # also submits a held job to that queue and cancels it
+make test-print-system  # prints through a CUPS queue to a virtual printer
+                        # (ippeveprinter, sudo for lpadmin) and checks the
+                        # tray, media type, quality and margins it receives
 ```
 
 Browser (LFortran with target `wasm32-unknown-emscripten` and an emscripten SDK

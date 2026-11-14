@@ -3,6 +3,8 @@ program test_print
     !! small rows; with -DENABLE_PRINT=1 the whole document decoded by libcups's
     !! own raster reader; page pixel sizes of sheets. With FORTUI_PRINT_TEST_PRINTER
     !! naming a queue, a held job is submitted to it and cancelled (nothing prints).
+    !! With FORTUI_PRINT_TEST_SPOOL as well (test/system/print-virtual.sh), the
+    !! queue leads to a virtual printer and the test checks what it was asked for.
     use iso_c_binding
     use iso_fortran_env, only: int8, int32
     use fortui_pwg, only: pwg_stream_t, pwg_begin, pwg_add_page, PWG_QUALITY_HIGH
@@ -55,6 +57,7 @@ program test_print
 #ifdef ENABLE_PRINT
     call test_cups_decodes()
     call test_held_job()
+    call test_virtual_printer()
 #else
     call test_unsupported()
 #endif
@@ -306,6 +309,94 @@ contains
             call check(res%status == PRINT_OK, "held job cancelled: " // res%message)
         end if
     end subroutine test_held_job
+    subroutine test_virtual_printer()
+        !! Job 1 borderless from the rear tray on glossy paper, job 2 with margins:
+        !! the printer must receive zero margins for the first and the sheet's
+        !! margins for the second, with tray, media type and quality.
+        character(len=256) :: queue, spool
+        integer :: n, k, w, h, m
+        type(print_caps_t) :: caps
+        type(print_result_t) :: res
+        type(print_job_t) :: job
+        integer(int8), allocatable :: page(:, :, :)
+        character(len=:), allocatable :: col
+        character(len=*), parameter :: names(2) = [character(29) :: &
+            "na_index-4x6_4x6in_borderless", "na_index-4x6_4x6in"]
+
+        call get_environment_variable("FORTUI_PRINT_TEST_SPOOL", spool, n)
+        if (n == 0) return
+        call get_environment_variable("FORTUI_PRINT_TEST_PRINTER", queue)
+        call print_capabilities(trim(queue), caps, res)
+        do k = 1, 2
+            m = 0
+            do n = 1, size(caps%media)
+                if (caps%media(n)%name == trim(names(k))) m = n
+            end do
+            call check(m > 0, "virtual printer offers " // trim(names(k)))
+            if (m == 0) return
+            call print_page_pixels(caps%media(m), caps%dpi, w, h)
+            if (allocated(page)) deallocate(page)
+            allocate(page(3, w, h))
+            page = 77_int8
+            job%printer = trim(queue)
+            job%title = "fortui-system"
+            job%media = caps%media(m)%name
+            job%source = "rear"
+            job%media_type = "photographic-glossy"
+            job%quality = PWG_QUALITY_HIGH
+            call print_page(job, page, caps%dpi, res)
+            call check(res%status == PRINT_OK, "virtual job sent: " // res%message)
+        end do
+        col = received(trim(spool), 1, "IPP_MEDIA_COL")
+        call check(index(col, "x-dimension=10160 y-dimension=15240") > 0, &
+            "borderless job: 4x6 in sheet (" // col // ")")
+        call check(index(col, "media-bottom-margin=0 ") > 0 .and. &
+            index(col, "media-left-margin=0 ") > 0 .and. &
+            index(col, "media-right-margin=0 ") > 0 .and. &
+            index(col, "media-top-margin=0") > 0, "borderless job: zero margins")
+        call check(index(col, "media-source=rear") > 0 .and. &
+            index(col, "media-type=photographic-glossy") > 0, "tray and media type")
+        call check(received(trim(spool), 1, "IPP_PRINT_QUALITY") == "high", &
+            "high quality")
+        col = received(trim(spool), 2, "IPP_MEDIA_COL")
+        call check(index(col, "media-left-margin=340") > 0 .and. &
+            index(col, "media-top-margin=500") > 0, "bordered job keeps margins (" // &
+            col // ")")
+    end subroutine test_virtual_printer
+
+    function received(spool, job_id, name) result(value)
+        !! An attribute the virtual printer got for job `job_id`, waiting up to
+        !! 60 s for the job to arrive (test/system/keep-job.sh writes them).
+        character(*), intent(in) :: spool, name
+        integer, intent(in) :: job_id
+        character(len=:), allocatable :: value
+        character(len=4096) :: line
+        character(len=:), allocatable :: path
+        character(len=4), parameter :: kinds(3) = [character(4) :: "pdf", "urf", "pwg"]
+        integer :: tries, k, u, ios
+        logical :: there
+
+        value = ""
+        path = ""
+        do tries = 1, 600
+            do k = 1, size(kinds)
+                write (line, '(a,"/",i0,"-fortui-system.",a,".attributes")') spool, job_id, &
+                    trim(kinds(k))
+                inquire (file=trim(line), exist=there)
+                if (there) path = trim(line)
+            end do
+            if (len(path) > 0) exit
+            call execute_command_line("sleep 0.1")
+        end do
+        if (len(path) == 0) return
+        open (newunit=u, file=path, status="old", action="read")
+        do
+            read (u, '(a)', iostat=ios) line
+            if (ios /= 0) exit
+            if (index(line, name // "=") == 1) value = trim(line(len(name) + 2:))
+        end do
+        close (u)
+    end function received
 #else
     subroutine test_unsupported()
         type(print_printer_t), allocatable :: printers(:)

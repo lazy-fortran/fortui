@@ -7,7 +7,7 @@ GUI_ENV = FPM_FFLAGS="$${FPM_FFLAGS:-} -cpp -DENABLE_GUI=1" \
 PRINT_ENV = FPM_FFLAGS="$${FPM_FFLAGS:-} -cpp -DENABLE_PRINT=1" \
 	FPM_LDFLAGS="$${FPM_LDFLAGS:-} -lcups"
 
-.PHONY: all build test build-gui test-gui build-print test-print install clean help
+.PHONY: all build test build-gui test-gui build-print test-print test-print-system install clean help
 
 all: build
 
@@ -33,6 +33,11 @@ build-print:
 test-print:
 	FORTUI_HEADLESS=1 $(PRINT_ENV) $(FPM) test
 
+# Through a real CUPS queue to a virtual printer (ippeveprinter; needs sudo for
+# lpadmin): checks the tray, media type, quality and borderless margins it gets.
+test-print-system:
+	test/system/print-virtual.sh
+
 install:
 	$(FPM) install --prefix "$(PREFIX)"
 	install -Dm644 assets/fonts/LICENSE-DejaVu \
@@ -48,4 +53,5 @@ help:
 	@echo "test-gui    GUI build; conformance scenario also on raylib with a display"
 	@echo "build-print additionally compile the CUPS printing service (-lcups)"
 	@echo "test-print  headless tests with printing; libcups decodes the pages"
+	@echo "test-print-system  print through CUPS to a virtual printer (sudo)"
 	@echo "install     library, modules and the DejaVu font licence under PREFIX"
