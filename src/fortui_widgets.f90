@@ -898,7 +898,7 @@ contains
     end subroutine canvas_keys
 
     subroutine canvas_cells(key, generation, cols, rows, cp, fg, bg, attr, x, y, width, &
-            height, size)
+            height, size, extend_edges)
         !! Retained grid of cols x rows character cells drawn into the world
         !! rectangle (x, y, width, height) with the monospace face at logical
         !! `size`: code points, foreground and background colours (ui_rgba) and
@@ -908,14 +908,20 @@ contains
         integer, intent(in) :: generation, cols, rows
         integer(int32), intent(in) :: cp(:), fg(:), bg(:), attr(:)
         real, intent(in) :: x, y, width, height, size
+        !! The backgrounds of the last column and row reach the canvas edges, so
+        !! a grid that fills its canvas leaves no strip of another colour.
+        logical, intent(in), optional :: extend_edges
 
         type(fortui_context_t), pointer :: ctx
         integer :: slot
+        logical :: extend
 
         ctx => get_default_context()
         if (.not. canvas_ready(ctx, "canvas_cells")) return
+        extend = .false.
+        if (present(extend_edges)) extend = extend_edges
         slot = ctx%canvas%submit_cells(layer_key(ctx, key), generation, cols, rows, cp, fg, &
-            bg, attr, [x, y, width, height], size, ctx%frame_count)
+            bg, attr, [x, y, width, height], size, ctx%frame_count, extend)
         if (slot > 0) call add_layer_ref(ctx, slot)
     end subroutine canvas_cells
 

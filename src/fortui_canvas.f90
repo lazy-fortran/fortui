@@ -82,6 +82,8 @@ module fortui_canvas
         ! monospace face at logical size `cell_size`.
         integer :: cols = 0, rows = 0
         real :: cell_size = 0.0
+        ! The last column's and row's backgrounds reach the canvas edges.
+        logical :: extend_edges = .false.
         integer(int32), allocatable :: cp(:), fg(:), bg(:), attr(:)
     end type canvas_layer_t
 
@@ -482,7 +484,7 @@ contains
     end function store_submit_image
 
     integer function store_submit_cells(self, key, generation, cols, rows, cp, fg, bg, attr, &
-            rect, cell_size, frame_no) result(slot)
+            rect, cell_size, frame_no, extend_edges) result(slot)
         !! Cell layer of cols x rows cells (arrays in row order from the top). The
         !! cells are copied when `generation` or the grid size changes.
         class(canvas_store_t), intent(inout) :: self
@@ -490,6 +492,7 @@ contains
         integer, intent(in) :: generation, cols, rows, frame_no
         integer(int32), intent(in) :: cp(:), fg(:), bg(:), attr(:)
         real, intent(in) :: rect(4), cell_size
+        logical, intent(in) :: extend_edges
         integer :: n
 
         slot = self%acquire(key, LAYER_CELLS, frame_no)
@@ -505,6 +508,7 @@ contains
                 l%index_version = l%index_version + 1
             l%rect = rect
             l%cell_size = cell_size
+            l%extend_edges = extend_edges
             if (l%has_data .and. l%generation == generation .and. l%cols == cols .and. &
                 l%rows == rows) return
             l%cp = cp(1:n)

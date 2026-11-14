@@ -1737,6 +1737,7 @@ contains
                 first = col
             end do
         end do
+        if (l%extend_edges) call edges()
         do r = 0, l%rows - 1
             do col = 0, l%cols - 1
                 k = r * l%cols + col + 1
@@ -1761,6 +1762,40 @@ contains
                 real(nint(y0 + (real(r) + 0.5) * ch)), px, t], c, c, [0.0, 0.0, 0.0, 0.0])
         end do
     contains
+        subroutine edges()
+            !! The last column's backgrounds out to the right edge of the clip,
+            !! the last row's down to its bottom (corner included).
+            real :: xr, yb, right, bottom
+            integer :: j
+            xr = x0 + real(l%cols) * cw
+            yb = y0 + real(l%rows) * ch
+            right = real(self%clip(1) + self%clip(3))
+            bottom = real(self%clip(2) + self%clip(4))
+            if (right > xr) then
+                do j = 0, l%rows - 1
+                    k = j * l%cols + l%cols
+                    if (alpha(l%bg(k)) == 0) cycle
+                    call unpack(l%bg(k), c)
+                    call add_shape(self, [xr, y0 + real(j) * ch, right - xr, ch], c, c, &
+                        [0.0, 0.0, 0.0, 0.0])
+                end do
+            end if
+            if (bottom > yb) then
+                do j = 0, l%cols - 1
+                    k = (l%rows - 1) * l%cols + j + 1
+                    if (alpha(l%bg(k)) == 0) cycle
+                    call unpack(l%bg(k), c)
+                    call add_shape(self, [x0 + real(j) * cw, yb, cw, bottom - yb], c, c, &
+                        [0.0, 0.0, 0.0, 0.0])
+                end do
+                k = l%rows * l%cols
+                if (right > xr .and. alpha(l%bg(k)) > 0) then
+                    call unpack(l%bg(k), c)
+                    call add_shape(self, [xr, yb, right - xr, bottom - yb], c, c, &
+                        [0.0, 0.0, 0.0, 0.0])
+                end if
+            end if
+        end subroutine edges
         pure integer function alpha(rgba)
             integer(int32), intent(in) :: rgba
             alpha = iand(ishft(rgba, -24), 255_int32)

@@ -101,7 +101,7 @@ contains
         call compose()
         v%generation = v%generation + 1
         call canvas_cells("cells", v%generation, cols, rows, cp, fg, bg, attr, 0.0, 0.0, &
-            real(cols) * cw, real(rows) * ch, font_size)
+            real(cols) * cw, real(rows) * ch, font_size, extend_edges=.true.)
         do k = 1, t%nplaces
             associate(p => t%places(k))
                 r = p%row + v%back
