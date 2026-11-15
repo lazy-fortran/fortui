@@ -1,5 +1,6 @@
 module fortui_print
-    !! Printing service over CUPS (libcups through iso_c_binding).
+    !! Printing service over IPP, in Fortran (fortui_ipp), through the local
+    !! CUPS server or straight to a printer.
     !!
     !! An application lists printers, asks one for its capabilities (paper sizes
     !! with their margins and borderless variants, media types, trays, print
@@ -9,13 +10,26 @@ module fortui_print
     !! the page raster alone decides scaling, cropping and borders: nothing is
     !! fitted or shrunk on the way.
     !!
+    !! A printer is a CUPS queue name or an IPP printer URI ("ipp://host/ipp/print"),
+    !! which is then printed to directly. The CUPS server is found as libcups
+    !! finds it: CUPS_SERVER, then ServerName in ~/.cups/client.conf and
+    !! /etc/cups/client.conf, then the local socket, then localhost:631. Paper
+    !! sizes are named and ordered as libcups does (cupsGetDestMediaByIndex).
+    !!
     !! Requests are blocking calls that return a result with a status; a caller
-    !! that must not stall runs them between frames. Built without
-    !! -DENABLE_PRINT=1 (and -lcups), every request returns PRINT_UNSUPPORTED.
-    use iso_c_binding
+    !! that must not stall runs them between frames. Encrypted connections (ipps,
+    !! https) are not made: a device reached only that way reports no live state.
     use iso_fortran_env, only: int8
+    use fortui_ipp, only: ipp_msg_t, ipp_attr_t, ipp_request, ipp_attr, ipp_add, &
+        ipp_value_str, ipp_value_int, ipp_value_col, ipp_find, ipp_str, ipp_int, &
+        ipp_members, ipp_post, ipp_get, ipp_split_uri, ipp_user, IPP_OPERATION, IPP_JOB, &
+        IPP_PRINTER, IPP_INTEGER, IPP_ENUM, IPP_RANGE, IPP_RESOLUTION, &
+        IPP_BEGIN_COLLECTION, IPP_KEYWORD, IPP_NAME, IPP_MIME, IPP_PRINT_JOB, &
+        IPP_CANCEL_JOB, IPP_GET_PRINTER_ATTRIBUTES, IPP_CUPS_GET_DEFAULT, &
+        IPP_CUPS_GET_PRINTERS
     use fortui_pwg, only: pwg_stream_t, pwg_begin, pwg_add_page, PWG_QUALITY_DEFAULT, &
         PWG_QUALITY_DRAFT, PWG_QUALITY_NORMAL, PWG_QUALITY_HIGH
+    use fortui_pwg_sizes, only: pwg_size_name, pwg_size_of
     implicit none
     private
 
@@ -86,280 +100,30 @@ module fortui_print
     public :: print_cancel, print_page_pixels, print_media_label, print_apply_strings
     public :: print_keyword_label
 
-#ifdef ENABLE_PRINT
-    type, bind(C) :: cups_dest_t
-        type(c_ptr) :: name, instance
-        integer(c_int) :: is_default, num_options
-        type(c_ptr) :: options
-    end type cups_dest_t
+    type :: target_t
+        !! Where requests for a printer go: the server, the resource posted to
+        !! and the printer-uri named in them.
+        character(len=:), allocatable :: host, resource, uri
+        integer :: port = 631
+    end type target_t
 
-    type, bind(C) :: cups_size_t
-        character(kind=c_char) :: media(128)
-        integer(c_int) :: width, length, bottom, left, right, top
-    end type cups_size_t
-
-    integer(c_int), parameter :: MEDIA_FLAGS_DEFAULT = 0, MEDIA_FLAGS_READY = 8
-    integer(c_int), parameter :: HTTP_STATUS_CONTINUE = 100, HTTP_STATUS_OK = 200
-    integer(c_int), parameter :: IPP_OP_GET_PRINTER_ATTRIBUTES = int(z'000B', c_int), &
-        IPP_OP_CUPS_GET_PRINTERS = int(z'4002', c_int)
     ! A printer on the local network answers within milliseconds; an absent one
     ! must not hold the application up.
-    integer(c_int), parameter :: DEVICE_TIMEOUT_MS = 400
-    integer(c_int), parameter :: IPP_TAG_ZERO = 0, IPP_TAG_OPERATION = 1
-    integer(c_int), parameter :: IPP_TAG_INTEGER = int(z'21', c_int)
-    integer(c_int), parameter :: IPP_TAG_BEGIN_COLLECTION = int(z'34', c_int)
-    integer(c_int), parameter :: IPP_TAG_KEYWORD = int(z'44', c_int)
-    integer(c_int), parameter :: IPP_TAG_URI = int(z'45', c_int)
-    integer(c_int), parameter :: HTTP_URI_CODING_ALL = 15
-    integer(c_int), parameter :: HTTP_ENCRYPTION_IF_REQUESTED = 0, &
-        HTTP_ENCRYPTION_ALWAYS = 3
-
-    interface
-        integer(c_size_t) function c_strlen(s) bind(C, name="strlen")
-            import :: c_ptr, c_size_t
-            type(c_ptr), value :: s
-        end function
-        integer(c_int) function cupsGetDests(dests) bind(C, name="cupsGetDests")
-            import :: c_ptr, c_int
-            type(c_ptr) :: dests
-        end function
-        subroutine cupsFreeDests(n, dests) bind(C, name="cupsFreeDests")
-            import :: c_ptr, c_int
-            integer(c_int), value :: n
-            type(c_ptr), value :: dests
-        end subroutine
-        type(c_ptr) function cupsGetNamedDest(http, name, instance) &
-                bind(C, name="cupsGetNamedDest")
-            import :: c_ptr
-            type(c_ptr), value :: http, name, instance
-        end function
-        type(c_ptr) function ippFirstAttribute(ipp) bind(C, name="ippFirstAttribute")
-            import :: c_ptr
-            type(c_ptr), value :: ipp
-        end function
-        type(c_ptr) function ippNextAttribute(ipp) bind(C, name="ippNextAttribute")
-            import :: c_ptr
-            type(c_ptr), value :: ipp
-        end function
-        type(c_ptr) function ippGetName(attr) bind(C, name="ippGetName")
-            import :: c_ptr
-            type(c_ptr), value :: attr
-        end function
-        type(c_ptr) function cupsGetOption(name, n, options) bind(C, name="cupsGetOption")
-            import :: c_ptr, c_char, c_int
-            character(kind=c_char), intent(in) :: name(*)
-            integer(c_int), value :: n
-            type(c_ptr), value :: options
-        end function
-        integer(c_int) function cupsAddOption(name, value, n, options) &
-                bind(C, name="cupsAddOption")
-            import :: c_ptr, c_char, c_int
-            character(kind=c_char), intent(in) :: name(*), value(*)
-            integer(c_int), value :: n
-            type(c_ptr) :: options
-        end function
-        subroutine cupsFreeOptions(n, options) bind(C, name="cupsFreeOptions")
-            import :: c_ptr, c_int
-            integer(c_int), value :: n
-            type(c_ptr), value :: options
-        end subroutine
-        type(c_ptr) function cupsCopyDestInfo(http, dest) bind(C, name="cupsCopyDestInfo")
-            import :: c_ptr
-            type(c_ptr), value :: http, dest
-        end function
-        subroutine cupsFreeDestInfo(info) bind(C, name="cupsFreeDestInfo")
-            import :: c_ptr
-            type(c_ptr), value :: info
-        end subroutine
-        integer(c_int) function cupsGetDestMediaCount(http, dest, info, flags) &
-                bind(C, name="cupsGetDestMediaCount")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: http, dest, info
-            integer(c_int), value :: flags
-        end function
-        integer(c_int) function cupsGetDestMediaByIndex(http, dest, info, n, flags, &
-                size) bind(C, name="cupsGetDestMediaByIndex")
-            import :: c_ptr, c_int, cups_size_t
-            type(c_ptr), value :: http, dest, info
-            integer(c_int), value :: n, flags
-            type(cups_size_t) :: size
-        end function
-        type(c_ptr) function cupsLocalizeDestMedia(http, dest, info, flags, size) &
-                bind(C, name="cupsLocalizeDestMedia")
-            import :: c_ptr, c_int, cups_size_t
-            type(c_ptr), value :: http, dest, info
-            integer(c_int), value :: flags
-            type(cups_size_t) :: size
-        end function
-        type(c_ptr) function cupsLocalizeDestValue(http, dest, info, option, value) &
-                bind(C, name="cupsLocalizeDestValue")
-            import :: c_ptr, c_char
-            type(c_ptr), value :: http, dest, info
-            character(kind=c_char), intent(in) :: option(*), value(*)
-        end function
-        type(c_ptr) function cupsFindDestSupported(http, dest, info, option) &
-                bind(C, name="cupsFindDestSupported")
-            import :: c_ptr, c_char
-            type(c_ptr), value :: http, dest, info
-            character(kind=c_char), intent(in) :: option(*)
-        end function
-        integer(c_int) function ippGetCount(attr) bind(C, name="ippGetCount")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: attr
-        end function
-        type(c_ptr) function ippGetString(attr, element, language) &
-                bind(C, name="ippGetString")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: attr
-            integer(c_int), value :: element
-            type(c_ptr), value :: language
-        end function
-        integer(c_int) function ippGetInteger(attr, element) bind(C, name="ippGetInteger")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: attr
-            integer(c_int), value :: element
-        end function
-        integer(c_int) function ippGetResolution(attr, element, yres, units) &
-                bind(C, name="ippGetResolution")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: attr
-            integer(c_int), value :: element
-            integer(c_int) :: yres, units
-        end function
-        type(c_ptr) function ippGetCollection(attr, element) &
-                bind(C, name="ippGetCollection")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: attr
-            integer(c_int), value :: element
-        end function
-        type(c_ptr) function ippFindAttribute(ipp, name, tag) &
-                bind(C, name="ippFindAttribute")
-            import :: c_ptr, c_char, c_int
-            type(c_ptr), value :: ipp
-            character(kind=c_char), intent(in) :: name(*)
-            integer(c_int), value :: tag
-        end function
-        type(c_ptr) function ippNewRequest(op) bind(C, name="ippNewRequest")
-            import :: c_ptr, c_int
-            integer(c_int), value :: op
-        end function
-        type(c_ptr) function ippAddString(ipp, group, tag, name, language, value) &
-                bind(C, name="ippAddString")
-            import :: c_ptr, c_int, c_char
-            type(c_ptr), value :: ipp
-            integer(c_int), value :: group, tag
-            character(kind=c_char), intent(in) :: name(*)
-            type(c_ptr), value :: language
-            character(kind=c_char), intent(in) :: value(*)
-        end function
-        type(c_ptr) function ippAddStrings(ipp, group, tag, name, n, language, values) &
-                bind(C, name="ippAddStrings")
-            import :: c_ptr, c_int, c_char
-            type(c_ptr), value :: ipp
-            integer(c_int), value :: group, tag
-            character(kind=c_char), intent(in) :: name(*)
-            integer(c_int), value :: n
-            type(c_ptr), value :: language
-            type(c_ptr), intent(in) :: values(*)
-        end function
-        subroutine ippDelete(ipp) bind(C, name="ippDelete")
-            import :: c_ptr
-            type(c_ptr), value :: ipp
-        end subroutine
-        type(c_ptr) function cupsDoRequest(http, request, resource) &
-                bind(C, name="cupsDoRequest")
-            import :: c_ptr, c_char
-            type(c_ptr), value :: http, request
-            character(kind=c_char), intent(in) :: resource(*)
-        end function
-        integer(c_int) function httpSeparateURI(decoding, uri, scheme, slen, user, ulen, &
-                host, hlen, port, resource, rlen) bind(C, name="httpSeparateURI")
-            import :: c_int, c_char
-            integer(c_int), value :: decoding, slen, ulen, hlen, rlen
-            character(kind=c_char), intent(in) :: uri(*)
-            character(kind=c_char) :: scheme(*), user(*), host(*), resource(*)
-            integer(c_int) :: port
-        end function
-        type(c_ptr) function httpConnect2(host, port, addrlist, family, encryption, &
-                blocking, msec, cancel) bind(C, name="httpConnect2")
-            import :: c_ptr, c_int, c_char
-            character(kind=c_char), intent(in) :: host(*)
-            integer(c_int), value :: port, family, encryption, blocking, msec
-            type(c_ptr), value :: addrlist, cancel
-        end function
-        subroutine httpClearFields(http) bind(C, name="httpClearFields")
-            import :: c_ptr
-            type(c_ptr), value :: http
-        end subroutine
-        integer(c_int) function httpGet(http, resource) bind(C, name="httpGet")
-            import :: c_ptr, c_int, c_char
-            type(c_ptr), value :: http
-            character(kind=c_char), intent(in) :: resource(*)
-        end function
-        integer(c_int) function httpUpdate(http) bind(C, name="httpUpdate")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: http
-        end function
-        integer(c_intptr_t) function httpRead2(http, buffer, length) &
-                bind(C, name="httpRead2")
-            import :: c_ptr, c_intptr_t, c_size_t, c_char
-            type(c_ptr), value :: http
-            character(kind=c_char) :: buffer(*)
-            integer(c_size_t), value :: length
-        end function
-        subroutine httpClose(http) bind(C, name="httpClose")
-            import :: c_ptr
-            type(c_ptr), value :: http
-        end subroutine
-        integer(c_int) function cupsCreateDestJob(http, dest, info, job_id, title, n, &
-                options) bind(C, name="cupsCreateDestJob")
-            import :: c_ptr, c_int, c_char
-            type(c_ptr), value :: http, dest, info
-            integer(c_int) :: job_id
-            character(kind=c_char), intent(in) :: title(*)
-            integer(c_int), value :: n
-            type(c_ptr), value :: options
-        end function
-        integer(c_int) function cupsStartDestDocument(http, dest, info, job_id, docname, &
-                format, n, options, last) bind(C, name="cupsStartDestDocument")
-            import :: c_ptr, c_int, c_char
-            type(c_ptr), value :: http, dest, info
-            integer(c_int), value :: job_id, n, last
-            character(kind=c_char), intent(in) :: docname(*), format(*)
-            type(c_ptr), value :: options
-        end function
-        integer(c_int) function cupsWriteRequestData(http, buffer, length) &
-                bind(C, name="cupsWriteRequestData")
-            import :: c_ptr, c_int, c_size_t
-            type(c_ptr), value :: http, buffer
-            integer(c_size_t), value :: length
-        end function
-        integer(c_int) function cupsFinishDestDocument(http, dest, info) &
-                bind(C, name="cupsFinishDestDocument")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: http, dest, info
-        end function
-        integer(c_int) function cupsCancelDestJob(http, dest, job_id) &
-                bind(C, name="cupsCancelDestJob")
-            import :: c_ptr, c_int
-            type(c_ptr), value :: http, dest
-            integer(c_int), value :: job_id
-        end function
-        type(c_ptr) function cupsLastErrorString() bind(C, name="cupsLastErrorString")
-            import :: c_ptr
-        end function
-    end interface
-#endif
+    integer, parameter :: DEVICE_TIMEOUT_MS = 400
+    ! Sending a page of tens of megabytes to a busy printer takes a while.
+    integer, parameter :: JOB_TIMEOUT_MS = 120000
+    character(len=*), parameter :: CAPABILITY_ATTRIBUTES(12) = [character(len=40) :: &
+        "media-col-database", "media-supported", "media-type-supported", &
+        "media-source-supported", "print-quality-supported", &
+        "pwg-raster-document-resolution-supported", "printer-resolution-supported", &
+        "print-color-mode-supported", "device-uri", "media-col-ready", "media-ready", &
+        "printer-uri-supported"]
 
 contains
 
     logical function print_available()
-        !! Whether this build can print (compiled with -DENABLE_PRINT=1).
-#ifdef ENABLE_PRINT
+        !! Whether this build can print: always, where there are sockets.
         print_available = .true.
-#else
-        print_available = .false.
-#endif
     end function print_available
 
     pure subroutine print_page_pixels(media, dpi, width, height, left, top, right, bottom)
@@ -377,101 +141,65 @@ contains
         if (present(bottom)) bottom = ceiling(real(media%bottom) / 2540.0 * real(dpi))
     end subroutine print_page_pixels
 
-    subroutine unsupported(res)
-        type(print_result_t), intent(out) :: res
-        res%status = PRINT_UNSUPPORTED
-        res%message = "this program was built without printing (-DENABLE_PRINT=1, -lcups)"
-    end subroutine unsupported
-
     subroutine print_printers(printers, res)
-        !! The print queues of the local CUPS server, the default one marked. One
+        !! The print queues of the CUPS server, the default one marked. One
         !! CUPS-Get-Printers request: no browsing of the network, so it takes
         !! milliseconds.
         type(print_printer_t), allocatable, intent(out) :: printers(:)
         type(print_result_t), intent(out) :: res
-#ifdef ENABLE_PRINT
-        type(print_printer_t), allocatable :: found(:)
-        type(c_ptr) :: req, resp, attr, def, a
-        character(kind=c_char, len=32), target :: want(5)
-        type(c_ptr) :: values(5)
-        character(len=:), allocatable :: name, default_name
-        type(cups_dest_t), pointer :: d
-        integer :: k, n
+        type(ipp_msg_t) :: req, resp
+        type(target_t) :: server
+        character(len=:), allocatable :: error, default_name
+        integer :: k, n, set
 
         res%message = ""
-        allocate(found(32))
-        n = 0
-        req = ippNewRequest(IPP_OP_CUPS_GET_PRINTERS)
-        want(1) = "printer-name" // c_null_char
-        want(2) = "printer-info" // c_null_char
-        want(3) = "printer-location" // c_null_char
-        want(4) = "printer-make-and-model" // c_null_char
-        want(5) = "device-uri" // c_null_char
-        do k = 1, 5
-            values(k) = c_loc(want(k))
-        end do
-        a = ippAddStrings(req, IPP_TAG_OPERATION, IPP_TAG_KEYWORD, &
-            cstr("requested-attributes"), 5_c_int, c_null_ptr, values)
-        resp = cupsDoRequest(c_null_ptr, req, cstr("/"))
-        if (c_associated(resp)) then
-            attr = ippFirstAttribute(resp)
-            do while (c_associated(attr))
-                name = f_str(ippGetName(attr))
-                if (len(name) == 0) then
-                    continue
-                else if (name == "printer-name") then
-                    n = n + 1
-                    if (n > size(found)) call grow(found)
-                    found(n)%name = f_str(ippGetString(attr, 0_c_int, c_null_ptr))
-                    found(n)%info = ""
-                    found(n)%location = ""
-                    found(n)%make_model = ""
-                    found(n)%device_uri = ""
-                else if (n > 0) then
-                    select case (name)
-                    case ("printer-info")
-                        found(n)%info = f_str(ippGetString(attr, 0_c_int, c_null_ptr))
-                    case ("printer-location")
-                        found(n)%location = f_str(ippGetString(attr, 0_c_int, c_null_ptr))
-                    case ("printer-make-and-model")
-                        found(n)%make_model = f_str(ippGetString(attr, 0_c_int, c_null_ptr))
-                    case ("device-uri")
-                        found(n)%device_uri = f_str(ippGetString(attr, 0_c_int, c_null_ptr))
-                    end select
-                end if
-                attr = ippNextAttribute(resp)
-            end do
-            call ippDelete(resp)
+        server = cups_server()
+        call ipp_request(req, IPP_CUPS_GET_PRINTERS)
+        call ipp_add(req, ipp_attr(IPP_OPERATION, "requested-attributes", &
+            ipp_value_str(IPP_KEYWORD, "printer-name"), &
+            ipp_value_str(IPP_KEYWORD, "printer-info"), &
+            ipp_value_str(IPP_KEYWORD, "printer-location"), &
+            ipp_value_str(IPP_KEYWORD, "printer-make-and-model"), &
+            ipp_value_str(IPP_KEYWORD, "device-uri")))
+        call ipp_post(server%host, server%port, "/", req, resp, error)
+        allocate(printers(0))
+        if (len(error) > 0) then
+            res%status = PRINT_FAILED
+            res%message = "the print server does not answer (" // error // ")"
+            return
         end if
-        allocate(printers(n))
-        if (n > 0) printers = found(1:n)
-        if (n == 0) then
+        ! One printer per group; a group without printer-name is not one.
+        set = -1
+        n = 0
+        do k = 1, resp%n
+            if (resp%attrs(k)%group /= IPP_PRINTER) cycle
+            if (resp%attrs(k)%set /= set) then
+                set = resp%attrs(k)%set
+                printers = [printers, print_printer_t("", "", "", "", "", .false.)]
+                n = n + 1
+            end if
+            select case (resp%attrs(k)%name)
+            case ("printer-name")
+                printers(n)%name = ipp_str(resp%attrs(k), 1)
+            case ("printer-info")
+                printers(n)%info = ipp_str(resp%attrs(k), 1)
+            case ("printer-location")
+                printers(n)%location = ipp_str(resp%attrs(k), 1)
+            case ("printer-make-and-model")
+                printers(n)%make_model = ipp_str(resp%attrs(k), 1)
+            case ("device-uri")
+                printers(n)%device_uri = ipp_str(resp%attrs(k), 1)
+            end select
+        end do
+        printers = pack(printers, [(len(printers(k)%name) > 0, k = 1, n)])
+        if (size(printers) == 0) then
             res%message = "no printers are set up"
             return
         end if
-        ! The user's default (lpoptions) or the server's, without browsing.
-        default_name = ""
-        def = cupsGetNamedDest(c_null_ptr, c_null_ptr, c_null_ptr)
-        if (c_associated(def)) then
-            call c_f_pointer(def, d)
-            default_name = f_str(d%name)
-            call cupsFreeDests(1_c_int, def)
-        end if
-        do k = 1, n
+        default_name = default_printer(server)
+        do k = 1, size(printers)
             printers(k)%is_default = printers(k)%name == default_name
         end do
-#else
-        allocate(printers(0))
-        call unsupported(res)
-#endif
-    contains
-        subroutine grow(list)
-            type(print_printer_t), allocatable, intent(inout) :: list(:)
-            type(print_printer_t), allocatable :: bigger(:)
-            allocate(bigger(2 * size(list)))
-            bigger(1:size(list)) = list
-            call move_alloc(bigger, list)
-        end subroutine grow
     end subroutine print_printers
 
     subroutine print_capabilities(printer, caps, res)
@@ -480,73 +208,42 @@ contains
         character(*), intent(in) :: printer
         type(print_caps_t), intent(out) :: caps
         type(print_result_t), intent(out) :: res
-#ifdef ENABLE_PRINT
-        type(c_ptr) :: dest, info, attr
-        type(cups_dest_t), pointer :: d
-        type(cups_size_t), target :: sz
-        integer :: n, k, yres, units, best
-        character(len=:), allocatable :: uri
+        type(ipp_msg_t) :: resp
+        type(target_t) :: where
+        integer :: k, a
+        character(len=:), allocatable :: device
 
         res%message = ""
-        dest = named_dest(printer)
-        if (.not. c_associated(dest)) then
-            res%status = PRINT_FAILED
-            res%message = "no printer named '" // printer // "'"
-            allocate(caps%media(0), caps%media_types(0), caps%sources(0), &
-                caps%qualities(0), caps%markers(0))
-            return
+        allocate(caps%media(0), caps%media_types(0), caps%sources(0), caps%qualities(0), &
+            caps%markers(0))
+        where = target_of(printer)
+        call printer_attributes(where, CAPABILITY_ATTRIBUTES, resp, res, printer)
+        if (res%status /= PRINT_OK) return
+        call media_list(resp, caps%media)
+        caps%media_types = choices(resp, "media-type-supported")
+        caps%sources = choices(resp, "media-source-supported")
+        a = ipp_find(resp%attrs, "print-quality-supported", resp%n)
+        if (a > 0) caps%qualities = [(ipp_int(resp%attrs(a), k), k = 1, resp%attrs(a)%n)]
+        a = ipp_find(resp%attrs, "pwg-raster-document-resolution-supported", resp%n)
+        if (a == 0) a = ipp_find(resp%attrs, "printer-resolution-supported", resp%n)
+        if (a > 0) then
+            if (resp%attrs(a)%n > 0) caps%dpi = max(1, maxval(resp%attrs(a)%ints(1, &
+                1:resp%attrs(a)%n)))
         end if
-        info = cupsCopyDestInfo(c_null_ptr, dest)
-        n = cupsGetDestMediaCount(c_null_ptr, dest, info, MEDIA_FLAGS_DEFAULT)
-        allocate(caps%media(max(n, 0)))
-        do k = 1, n
-            if (cupsGetDestMediaByIndex(c_null_ptr, dest, info, int(k - 1, c_int), &
-                MEDIA_FLAGS_DEFAULT, sz) == 0) cycle
-            caps%media(k)%name = f_chars(sz%media)
-            caps%media(k)%width = sz%width
-            caps%media(k)%length = sz%length
-            caps%media(k)%left = sz%left
-            caps%media(k)%right = sz%right
-            caps%media(k)%top = sz%top
-            caps%media(k)%bottom = sz%bottom
-            caps%media(k)%borderless = max(sz%left, sz%right, sz%top, sz%bottom) == 0
-            caps%media(k)%label = f_str(cupsLocalizeDestMedia(c_null_ptr, dest, info, &
-                MEDIA_FLAGS_DEFAULT, sz))
-            if (len(caps%media(k)%label) == 0 .or. caps%media(k)%label == &
-                caps%media(k)%name) caps%media(k)%label = print_media_label( &
-                caps%media(k)%name, int(sz%width), int(sz%length))
-            caps%media(k)%source = ""
-            caps%media(k)%media_type = ""
-        end do
-        call choices(dest, info, "media-type", caps%media_types)
-        call choices(dest, info, "media-source", caps%sources)
-        attr = cupsFindDestSupported(c_null_ptr, dest, info, cstr("print-quality"))
-        allocate(caps%qualities(ippGetCount(attr)))
-        do k = 1, size(caps%qualities)
-            caps%qualities(k) = ippGetInteger(attr, int(k - 1, c_int))
-        end do
-        attr = cupsFindDestSupported(c_null_ptr, dest, info, &
-            cstr("pwg-raster-document-resolution"))
-        if (.not. c_associated(attr)) attr = cupsFindDestSupported(c_null_ptr, dest, &
-            info, cstr("printer-resolution"))
-        best = 0
-        do k = 1, ippGetCount(attr)
-            best = max(best, int(ippGetResolution(attr, int(k - 1, c_int), yres, units)))
-        end do
-        if (best > 0) caps%dpi = best
-        attr = cupsFindDestSupported(c_null_ptr, dest, info, cstr("print-color-mode"))
+        a = ipp_find(resp%attrs, "print-color-mode-supported", resp%n)
         caps%color = .false.
-        do k = 1, ippGetCount(attr)
-            if (f_str(ippGetString(attr, int(k - 1, c_int), c_null_ptr)) == "color") &
-                caps%color = .true.
-        end do
+        if (a > 0) caps%color = any([(ipp_str(resp%attrs(a), k) == "color", &
+            k = 1, resp%attrs(a)%n)])
 
-        call c_f_pointer(dest, d)
-        uri = option(d, "device-uri")
-        allocate(caps%markers(0))
-        if (index(uri, "ipp://") == 1 .or. index(uri, "ipps://") == 1) &
-            call device_state(uri, caps)
-        if (.not. caps%live) call cups_ready(dest, info, caps)
+        ! The device itself: the printer when printed to directly, else the
+        ! queue's device URI.
+        if (index(printer, "://") > 0) then
+            device = printer
+        else
+            device = string_attr(resp, "device-uri")
+        end if
+        if (index(device, "ipp://") == 1) call device_state(device, caps)
+        if (.not. caps%live) call ready_from(resp, caps)
         do k = 1, size(caps%media_types)
             if (caps%media_types(k)%label == caps%media_types(k)%keyword) &
                 caps%media_types(k)%label = print_keyword_label(caps%media_types(k)%keyword)
@@ -555,14 +252,6 @@ contains
             if (caps%sources(k)%label == caps%sources(k)%keyword) &
                 caps%sources(k)%label = print_keyword_label(caps%sources(k)%keyword)
         end do
-        call cupsFreeDestInfo(info)
-        call cupsFreeDests(1_c_int, dest)
-#else
-        allocate(caps%media(0), caps%media_types(0), caps%sources(0), caps%qualities(0), &
-            caps%markers(0))
-        if (len(printer) < 0) return
-        call unsupported(res)
-#endif
     end subroutine print_capabilities
 
     subroutine print_page(job, rgb, dpi, res)
@@ -572,21 +261,19 @@ contains
         integer(int8), intent(in) :: rgb(:, :, :)
         integer, intent(in) :: dpi
         type(print_result_t), intent(out) :: res
-#ifdef ENABLE_PRINT
-        type(pwg_stream_t), target :: doc
-        type(cups_size_t) :: sz
-        type(c_ptr) :: dest, info, opts
-        integer(c_int) :: nopt, job_id, st
-        integer :: pos, chunk
-        character(len=16) :: num
+        type(pwg_stream_t) :: doc
+        type(ipp_msg_t) :: req, resp
+        type(target_t) :: where
+        type(print_media_t), allocatable :: media(:)
+        character(len=:), allocatable :: error
+        integer :: k, m
 
         res%message = ""
-        dest = named_dest(job%printer)
-        if (.not. c_associated(dest)) then
-            res%status = PRINT_FAILED
-            res%message = "no printer named '" // job%printer // "'"
-            return
-        end if
+        where = target_of(job%printer)
+        call printer_attributes(where, [character(len=40) :: "media-col-database", &
+            "media-supported"], resp, res, job%printer)
+        if (res%status /= PRINT_OK) return
+        call media_list(resp, media)
         call pwg_begin(doc)
         if (allocated(job%media_type)) then
             call pwg_add_page(doc, rgb, dpi, media=strip_borderless(job%media), &
@@ -595,71 +282,58 @@ contains
             call pwg_add_page(doc, rgb, dpi, media=strip_borderless(job%media), &
                 quality=job%quality)
         end if
-        info = cupsCopyDestInfo(c_null_ptr, dest)
-        nopt = 0
-        opts = c_null_ptr
-        ! The sheet goes as media-col with its size and margins: CUPS maps the
-        ! name "..._borderless" to the bordered size, but zero margins in
-        ! media-col select the borderless one (IPP and PPD queues alike).
-        if (find_media(dest, info, job%media, sz)) then
-            nopt = cupsAddOption(cstr("media-col"), cstr(media_col(sz, job)), nopt, opts)
-        else
-            nopt = cupsAddOption(cstr("media"), cstr(job%media), nopt, opts)
-            if (allocated(job%media_type)) then
-                if (len(job%media_type) > 0) nopt = cupsAddOption(cstr("media-type"), &
-                    cstr(job%media_type), nopt, opts)
-            end if
-            if (allocated(job%source)) then
-                if (len(job%source) > 0) nopt = cupsAddOption(cstr("media-source"), &
-                    cstr(job%source), nopt, opts)
-            end if
-        end if
-        if (job%quality /= PWG_QUALITY_DEFAULT) then
-            write (num, '(i0)') job%quality
-            nopt = cupsAddOption(cstr("print-quality"), cstr(trim(num)), nopt, opts)
-        end if
-        write (num, '(i0)') max(1, job%copies)
-        nopt = cupsAddOption(cstr("copies"), cstr(trim(num)), nopt, opts)
-        nopt = cupsAddOption(cstr("print-color-mode"), &
-            cstr(trim(merge("color     ", "monochrome", job%color))), nopt, opts)
-        if (job%hold) nopt = cupsAddOption(cstr("job-hold-until"), cstr("indefinite"), &
-            nopt, opts)
 
-        job_id = 0
-        st = cupsCreateDestJob(c_null_ptr, dest, info, job_id, cstr(title_of(job)), nopt, &
-            opts)
-        if (st > int(z'00FF', c_int) .or. job_id <= 0) then
-            res%status = PRINT_FAILED
-            res%message = "the printer refused the job: " // f_str(cupsLastErrorString())
-        else
-            res%job_id = job_id
-            st = cupsStartDestDocument(c_null_ptr, dest, info, job_id, cstr(title_of(job)), &
-                cstr("image/pwg-raster"), 0_c_int, c_null_ptr, 1_c_int)
-            pos = 0
-            do while (st == HTTP_STATUS_CONTINUE .and. pos < doc%n)
-                chunk = min(doc%n - pos, 65536)
-                st = cupsWriteRequestData(c_null_ptr, c_loc(doc%bytes(pos + 1)), &
-                    int(chunk, c_size_t))
-                pos = pos + chunk
-            end do
-            if (st /= HTTP_STATUS_CONTINUE) then
-                res%status = PRINT_FAILED
-                res%message = "sending the page failed: " // f_str(cupsLastErrorString())
+        call ipp_request(req, IPP_PRINT_JOB, where%uri)
+        call ipp_add(req, ipp_attr(IPP_OPERATION, "requesting-user-name", &
+            ipp_value_str(IPP_NAME, ipp_user())))
+        call ipp_add(req, ipp_attr(IPP_OPERATION, "job-name", &
+            ipp_value_str(IPP_NAME, title_of(job))))
+        call ipp_add(req, ipp_attr(IPP_OPERATION, "document-format", &
+            ipp_value_str(IPP_MIME, "image/pwg-raster")))
+        ! The sheet goes as media-col with its size and margins: the name
+        ! "..._borderless" means nothing to a printer, but zero margins in
+        ! media-col select the borderless sheet (IPP and PPD queues alike).
+        m = 0
+        do k = 1, size(media)
+            if (media(k)%name == job%media) then
+                m = k
+                exit
             end if
-            st = cupsFinishDestDocument(c_null_ptr, dest, info)
-            if (res%status == PRINT_OK .and. st > int(z'00FF', c_int)) then
+        end do
+        if (m > 0) then
+            call ipp_add(req, media_col(media(m), job))
+        else
+            call ipp_add(req, ipp_attr(IPP_JOB, "media", ipp_value_str(IPP_KEYWORD, job%media)))
+            if (given(job%media_type)) call ipp_add(req, ipp_attr(IPP_JOB, "media-type", &
+                ipp_value_str(IPP_KEYWORD, job%media_type)))
+            if (given(job%source)) call ipp_add(req, ipp_attr(IPP_JOB, "media-source", &
+                ipp_value_str(IPP_KEYWORD, job%source)))
+        end if
+        if (job%quality /= PWG_QUALITY_DEFAULT) call ipp_add(req, ipp_attr(IPP_JOB, &
+            "print-quality", ipp_value_int(IPP_ENUM, job%quality)))
+        call ipp_add(req, ipp_attr(IPP_JOB, "copies", ipp_value_int(IPP_INTEGER, &
+            max(1, job%copies))))
+        call ipp_add(req, ipp_attr(IPP_JOB, "print-color-mode", ipp_value_str(IPP_KEYWORD, &
+            trim(merge("color     ", "monochrome", job%color)))))
+        if (job%hold) call ipp_add(req, ipp_attr(IPP_JOB, "job-hold-until", &
+            ipp_value_str(IPP_KEYWORD, "indefinite")))
+
+        call ipp_post(where%host, where%port, where%resource, req, resp, error, &
+            doc%bytes(1:doc%n), JOB_TIMEOUT_MS)
+        if (len(error) > 0) then
+            res%status = PRINT_FAILED
+            res%message = "sending the page failed: " // error
+        else if (resp%code > 255) then
+            res%status = PRINT_FAILED
+            res%message = "the printer refused the job: " // status_text(resp)
+        else
+            k = ipp_find(resp%attrs, "job-id", resp%n)
+            if (k > 0) res%job_id = ipp_int(resp%attrs(k), 1)
+            if (res%job_id <= 0) then
                 res%status = PRINT_FAILED
-                res%message = "the printer did not accept the page: " // &
-                    f_str(cupsLastErrorString())
+                res%message = "the printer did not accept the page"
             end if
         end if
-        call cupsFreeOptions(nopt, opts)
-        call cupsFreeDestInfo(info)
-        call cupsFreeDests(1_c_int, dest)
-#else
-        if (size(rgb) < 0 .or. dpi < 0 .or. len(job%printer) < 0) return
-        call unsupported(res)
-#endif
     end subroutine print_page
 
     subroutine print_cancel(printer, job_id, res)
@@ -667,25 +341,24 @@ contains
         character(*), intent(in) :: printer
         integer, intent(in) :: job_id
         type(print_result_t), intent(out) :: res
-#ifdef ENABLE_PRINT
-        type(c_ptr) :: dest
+        type(ipp_msg_t) :: req, resp
+        type(target_t) :: where
+        character(len=:), allocatable :: error
 
         res%message = ""
-        dest = named_dest(printer)
-        if (.not. c_associated(dest)) then
+        where = target_of(printer)
+        call ipp_request(req, IPP_CANCEL_JOB, where%uri)
+        call ipp_add(req, ipp_attr(IPP_OPERATION, "job-id", ipp_value_int(IPP_INTEGER, job_id)))
+        call ipp_add(req, ipp_attr(IPP_OPERATION, "requesting-user-name", &
+            ipp_value_str(IPP_NAME, ipp_user())))
+        call ipp_post(where%host, where%port, where%resource, req, resp, error)
+        if (len(error) > 0) then
             res%status = PRINT_FAILED
-            res%message = "no printer named '" // printer // "'"
-            return
-        end if
-        if (cupsCancelDestJob(c_null_ptr, dest, int(job_id, c_int)) > int(z'00FF', c_int)) then
+            res%message = error
+        else if (resp%code > 255) then
             res%status = PRINT_FAILED
-            res%message = f_str(cupsLastErrorString())
+            res%message = status_text(resp)
         end if
-        call cupsFreeDests(1_c_int, dest)
-#else
-        if (len(printer) < 0 .or. job_id < 0) return
-        call unsupported(res)
-#endif
     end subroutine print_cancel
 
     pure function print_media_label(name, width, length) result(label)
@@ -863,83 +536,311 @@ contains
         end if
     end function title_of
 
-#ifdef ENABLE_PRINT
-    subroutine choices(dest, info, name, list)
-        !! Supported keywords of option `name` with the printer's labels.
-        type(c_ptr), intent(in) :: dest, info
-        character(*), intent(in) :: name
-        type(print_choice_t), allocatable, intent(out) :: list(:)
-        type(c_ptr) :: attr
-        integer :: k
-        ! Named, so they outlive the call: CUPS returns the value itself when it
-        ! has no translation.
-        character(kind=c_char, len=:), allocatable :: copt, cval
+    ! --- where requests go ---------------------------------------------------------
 
-        copt = cstr(name)
-        attr = cupsFindDestSupported(c_null_ptr, dest, info, copt)
-        allocate(list(ippGetCount(attr)))
-        do k = 1, size(list)
-            list(k)%keyword = f_str(ippGetString(attr, int(k - 1, c_int), c_null_ptr))
-            cval = cstr(list(k)%keyword)
-            list(k)%label = f_str(cupsLocalizeDestValue(c_null_ptr, dest, info, copt, cval))
-            if (len(list(k)%label) == 0) list(k)%label = list(k)%keyword
-        end do
-    end subroutine choices
+    function cups_server() result(t)
+        !! The CUPS server as libcups finds it.
+        type(target_t) :: t
+        character(len=:), allocatable :: name
+        logical :: there
+        integer :: c, ios
 
-    logical function find_media(dest, info, name, sz) result(found)
-        !! The printer's sheet of exactly this name. cupsGetDestMediaByName does
-        !! not know the "_borderless" names cupsGetDestMediaByIndex reports and
-        !! returns some other size instead (CUPS 2.4.20).
-        type(c_ptr), intent(in) :: dest, info
-        character(*), intent(in) :: name
-        type(cups_size_t), intent(out) :: sz
-        integer :: k
-
-        found = .false.
-        do k = 1, cupsGetDestMediaCount(c_null_ptr, dest, info, MEDIA_FLAGS_DEFAULT)
-            if (cupsGetDestMediaByIndex(c_null_ptr, dest, info, int(k - 1, c_int), &
-                MEDIA_FLAGS_DEFAULT, sz) == 0) cycle
-            if (f_chars(sz%media) == name) then
-                found = .true.
-                return
+        name = env("CUPS_SERVER")
+        if (len(name) == 0) name = conf_value(env("HOME") // "/.cups/client.conf", "ServerName")
+        if (len(name) == 0) name = conf_value("/etc/cups/client.conf", "ServerName")
+        if (len(name) == 0) then
+            inquire (file="/run/cups/cups.sock", exist=there)
+            if (there) then
+                name = "/run/cups/cups.sock"
+            else
+                inquire (file="/var/run/cups/cups.sock", exist=there)
+                name = "localhost"
+                if (there) name = "/var/run/cups/cups.sock"
             end if
-        end do
-    end function find_media
-
-    function media_col(sz, job) result(col)
-        !! The IPP media-col collection of a sheet, as a CUPS option value.
-        type(cups_size_t), intent(in) :: sz
-        type(print_job_t), intent(in) :: job
-        character(len=:), allocatable :: col
-        character(len=160) :: buf
-
-        write (buf, '(a,i0,a,i0,a,i0,a,i0,a,i0,a,i0)') &
-            "{media-size={x-dimension=", sz%width, " y-dimension=", sz%length, &
-            "} media-bottom-margin=", sz%bottom, " media-left-margin=", sz%left, &
-            " media-right-margin=", sz%right, " media-top-margin=", sz%top
-        col = trim(buf)
-        if (allocated(job%source)) then
-            if (len(job%source) > 0) col = col // " media-source=" // job%source
         end if
-        if (allocated(job%media_type)) then
-            if (len(job%media_type) > 0) col = col // " media-type=" // job%media_type
+        t%host = name
+        t%port = 631
+        t%resource = "/"
+        t%uri = "ipp://localhost/"
+        if (name(1:1) == "/") return
+        c = index(name, ":", back=.true.)
+        if (c > 0 .and. index(name, "]") < c) then
+            read (name(c + 1:), *, iostat=ios) t%port
+            if (ios /= 0) t%port = 631
+            t%host = name(1:c - 1)
         end if
-        col = col // "}"
-    end function media_col
+        if (t%host(1:1) == "[") t%host = t%host(2:len(t%host) - 1)
+    end function cups_server
 
-    subroutine cups_ready(dest, info, caps)
-        !! Loaded paper as CUPS last heard it (no tray or type).
-        type(c_ptr), intent(in) :: dest, info
-        type(print_caps_t), intent(inout) :: caps
-        type(cups_size_t) :: sz
+    function target_of(printer) result(t)
+        !! A queue of the CUPS server, or a printer URI to print to directly.
+        character(*), intent(in) :: printer
+        type(target_t) :: t
+        character(len=:), allocatable :: scheme
+        if (index(printer, "://") > 0) then
+            call ipp_split_uri(printer, scheme, t%host, t%port, t%resource)
+            t%uri = printer
+            ! ipps is not spoken; the request then fails to connect.
+            if (scheme /= "ipp") t%host = ""
+            return
+        end if
+        t = cups_server()
+        t%resource = "/printers/" // printer
+        t%uri = "ipp://localhost/printers/" // printer
+    end function target_of
+
+    function default_printer(server) result(name)
+        !! The user's default as libcups picks it: LPDEST, PRINTER, the Default
+        !! line of ~/.cups/lpoptions and /etc/cups/lpoptions, then the server's.
+        type(target_t), intent(in) :: server
+        character(len=:), allocatable :: name
+        type(ipp_msg_t) :: req, resp
+        character(len=:), allocatable :: error
         integer :: k
 
-        do k = 1, cupsGetDestMediaCount(c_null_ptr, dest, info, MEDIA_FLAGS_READY)
-            if (cupsGetDestMediaByIndex(c_null_ptr, dest, info, int(k - 1, c_int), &
-                MEDIA_FLAGS_READY, sz) == 0) cycle
-            call mark_loaded(caps, int(sz%width), int(sz%length), "", "")
+        name = env("LPDEST")
+        if (len(name) == 0) then
+            name = env("PRINTER")
+            if (name == "lp") name = ""
+        end if
+        if (len(name) == 0) name = conf_value(env("HOME") // "/.cups/lpoptions", "Default")
+        if (len(name) == 0) name = conf_value("/etc/cups/lpoptions", "Default")
+        if (len(name) == 0) then
+            call ipp_request(req, IPP_CUPS_GET_DEFAULT)
+            call ipp_add(req, ipp_attr(IPP_OPERATION, "requested-attributes", &
+                ipp_value_str(IPP_KEYWORD, "printer-name")))
+            call ipp_post(server%host, server%port, "/", req, resp, error)
+            if (len(error) == 0 .and. resp%code <= 255) name = string_attr(resp, "printer-name")
+        end if
+        ! "name/instance": the queue is the name.
+        k = index(name, "/")
+        if (k > 0) name = name(1:k - 1)
+        k = index(name, " ")
+        if (k > 0) name = name(1:k - 1)
+    end function default_printer
+
+    subroutine printer_attributes(where, names, resp, res, printer)
+        !! Get-Printer-Attributes for the given attribute names.
+        type(target_t), intent(in) :: where
+        character(*), intent(in) :: names(:), printer
+        type(ipp_msg_t), intent(out) :: resp
+        type(print_result_t), intent(inout) :: res
+        type(ipp_msg_t) :: req
+        type(ipp_attr_t) :: want
+        character(len=:), allocatable :: error
+        integer :: k
+
+        call ipp_request(req, IPP_GET_PRINTER_ATTRIBUTES, where%uri)
+        want = ipp_attr(IPP_OPERATION, "requested-attributes", &
+            ipp_value_str(IPP_KEYWORD, trim(names(1))))
+        do k = 2, size(names)
+            want = ipp_attr(IPP_OPERATION, "requested-attributes", want, &
+                ipp_value_str(IPP_KEYWORD, trim(names(k))))
         end do
-    end subroutine cups_ready
+        call ipp_add(req, want)
+        if (len(where%host) == 0) then
+            res%status = PRINT_FAILED
+            res%message = "only ipp:// printers can be reached directly"
+            return
+        end if
+        call ipp_post(where%host, where%port, where%resource, req, resp, error)
+        if (len(error) > 0) then
+            res%status = PRINT_FAILED
+            res%message = "the printer does not answer (" // error // ")"
+        else if (resp%code == int(z'0406') .or. (resp%code > 255 .and. &
+                index(printer, "://") == 0)) then
+            res%status = PRINT_FAILED
+            res%message = "no printer named '" // printer // "'"
+        else if (resp%code > 255) then
+            res%status = PRINT_FAILED
+            res%message = status_text(resp)
+        end if
+    end subroutine printer_attributes
+
+    ! --- reading capabilities -------------------------------------------------------
+
+    subroutine media_list(resp, media)
+        !! The sheets of media-col-database as cupsGetDestMediaByIndex lists them:
+        !! sorted by size (stable), named by size, source and type, "_borderless"
+        !! for zero margins; without a database the media-supported names with
+        !! default margins. Custom size ranges are not sheets.
+        type(ipp_msg_t), intent(in) :: resp
+        type(print_media_t), allocatable, intent(out) :: media(:)
+        type(ipp_attr_t), allocatable :: col(:)
+        type(print_media_t) :: s
+        character(len=:), allocatable :: key, source, mtype
+        integer :: a, k, w, l, x, y
+
+        allocate(media(0))
+        a = ipp_find(resp%attrs, "media-col-database", resp%n)
+        if (a > 0) then
+            do k = 1, resp%attrs(a)%n
+                if (resp%attrs(a)%tags(k) /= IPP_BEGIN_COLLECTION) cycle
+                col = ipp_members(resp%attrs(a), k)
+                if (.not. sheet_size(col, w, l)) cycle
+                s = print_media_t()
+                s%width = w
+                s%length = l
+                s%bottom = member_int(col, "media-bottom-margin")
+                s%left = member_int(col, "media-left-margin")
+                s%right = member_int(col, "media-right-margin")
+                s%top = member_int(col, "media-top-margin")
+                key = member_str(col, "media-key")
+                if (len(key) == 0) then
+                    key = member_str(col, "media-size-name")
+                    if (len(key) == 0) key = pwg_size_name(w, l)
+                    source = member_str(col, "media-source")
+                    mtype = member_str(col, "media-type")
+                    if (len(source) > 0) key = key // "_" // source
+                    if (len(mtype) > 0) key = key // "_" // mtype
+                    if (all([s%bottom, s%left, s%right, s%top] == 0)) &
+                        key = key // "_borderless"
+                end if
+                s%name = key
+                call insert(s)
+            end do
+        else
+            a = ipp_find(resp%attrs, "media-supported", resp%n)
+            if (a == 0) return
+            do k = 1, resp%attrs(a)%n
+                key = ipp_str(resp%attrs(a), k)
+                if (index(key, "custom_min_") == 1 .or. index(key, "custom_max_") == 1) cycle
+                call pwg_size_of(key, x, y)
+                if (x <= 0 .or. y <= 0) cycle
+                s = print_media_t(name=key, width=x, length=y, left=635, right=635, &
+                    top=1270, bottom=1270)
+                call insert(s)
+            end do
+        end if
+        do k = 1, size(media)
+            media(k)%borderless = max(media(k)%left, media(k)%right, media(k)%top, &
+                media(k)%bottom) == 0
+            media(k)%label = print_media_label(media(k)%name, media(k)%width, media(k)%length)
+            media(k)%source = ""
+            media(k)%media_type = ""
+        end do
+    contains
+        subroutine insert(s)
+            !! After every sheet of the same or a smaller size.
+            type(print_media_t), intent(in) :: s
+            integer :: at
+            at = size(media) + 1
+            do while (at > 1)
+                if (media(at - 1)%width < s%width .or. (media(at - 1)%width == s%width &
+                    .and. media(at - 1)%length <= s%length)) exit
+                at = at - 1
+            end do
+            media = [media(1:at - 1), s, media(at:)]
+        end subroutine insert
+    end subroutine media_list
+
+    logical function sheet_size(col, w, l) result(fixed)
+        !! The fixed size of a media-col (a roll counts with its longest length).
+        type(ipp_attr_t), intent(in) :: col(:)
+        integer, intent(out) :: w, l
+        type(ipp_attr_t), allocatable :: sz(:)
+        integer :: m, x, y
+        fixed = .false.
+        w = 0
+        l = 0
+        m = ipp_find(col, "media-size")
+        if (m == 0) return
+        if (col(m)%n == 0) return
+        if (col(m)%tags(1) /= IPP_BEGIN_COLLECTION) return
+        sz = ipp_members(col(m), 1)
+        x = ipp_find(sz, "x-dimension")
+        y = ipp_find(sz, "y-dimension")
+        if (x == 0 .or. y == 0) return
+        if (sz(x)%tags(1) /= IPP_INTEGER) return
+        w = ipp_int(sz(x), 1)
+        if (sz(y)%tags(1) == IPP_INTEGER) then
+            l = ipp_int(sz(y), 1)
+        else if (sz(y)%tags(1) == IPP_RANGE) then
+            l = ipp_int(sz(y), 1, 2)
+        else
+            return
+        end if
+        fixed = .true.
+    end function sheet_size
+
+    integer function member_int(col, name) result(v)
+        type(ipp_attr_t), intent(in) :: col(:)
+        character(*), intent(in) :: name
+        integer :: m
+        v = 0
+        m = ipp_find(col, name)
+        if (m == 0) return
+        if (col(m)%n > 0) then
+            if (col(m)%tags(1) == IPP_INTEGER) v = ipp_int(col(m), 1)
+        end if
+    end function member_int
+
+    function member_str(col, name) result(v)
+        !! A keyword or name member ("" for none or another type).
+        type(ipp_attr_t), intent(in) :: col(:)
+        character(*), intent(in) :: name
+        character(len=:), allocatable :: v
+        integer :: m
+        v = ""
+        m = ipp_find(col, name)
+        if (m == 0) return
+        if (col(m)%n == 0) return
+        select case (col(m)%tags(1))
+        case (IPP_KEYWORD, IPP_NAME, int(z'36'))
+            v = ipp_str(col(m), 1)
+        end select
+    end function member_str
+
+    function choices(resp, name) result(list)
+        !! Supported keywords of `name`, each named by itself for now.
+        type(ipp_msg_t), intent(in) :: resp
+        character(*), intent(in) :: name
+        type(print_choice_t), allocatable :: list(:)
+        integer :: a, k
+        a = ipp_find(resp%attrs, name, resp%n)
+        if (a == 0) then
+            allocate(list(0))
+            return
+        end if
+        allocate(list(resp%attrs(a)%n))
+        do k = 1, size(list)
+            list(k)%keyword = ipp_str(resp%attrs(a), k)
+            list(k)%label = list(k)%keyword
+        end do
+    end function choices
+
+    function string_attr(resp, name) result(v)
+        type(ipp_msg_t), intent(in) :: resp
+        character(*), intent(in) :: name
+        character(len=:), allocatable :: v
+        integer :: a
+        a = ipp_find(resp%attrs, name, resp%n)
+        v = ""
+        if (a > 0) v = ipp_str(resp%attrs(a), 1)
+    end function string_attr
+
+    subroutine ready_from(resp, caps)
+        !! Loaded paper as CUPS last heard it (no tray or type).
+        type(ipp_msg_t), intent(in) :: resp
+        type(print_caps_t), intent(inout) :: caps
+        type(ipp_attr_t), allocatable :: col(:)
+        integer :: a, k, w, l
+        a = ipp_find(resp%attrs, "media-col-ready", resp%n)
+        if (a > 0) then
+            do k = 1, resp%attrs(a)%n
+                if (resp%attrs(a)%tags(k) /= IPP_BEGIN_COLLECTION) cycle
+                col = ipp_members(resp%attrs(a), k)
+                if (sheet_size(col, w, l)) call mark_loaded(caps, w, l, "", "")
+            end do
+            return
+        end if
+        a = ipp_find(resp%attrs, "media-ready", resp%n)
+        if (a == 0) return
+        do k = 1, resp%attrs(a)%n
+            call pwg_size_of(ipp_str(resp%attrs(a), k), w, l)
+            if (w > 0) call mark_loaded(caps, w, l, "", "")
+        end do
+    end subroutine ready_from
 
     subroutine mark_loaded(caps, width, length, source, media_type)
         !! Every variant of a size within 1 mm counts as loaded.
@@ -961,63 +862,43 @@ contains
         !! Get-Printer-Attributes from the device: media-col-ready and markers.
         character(*), intent(in) :: uri
         type(print_caps_t), intent(inout) :: caps
-        character(kind=c_char, len=32), target :: scheme
-        character(kind=c_char, len=256), target :: user, host, resource
-        character(kind=c_char, len=24), target :: want(4)
-        type(c_ptr) :: values(4), http, req, resp, attr, col, size_col, a
-        integer(c_int) :: port, enc
-        integer :: k, w, l, n
+        type(ipp_msg_t) :: req, resp
+        type(ipp_attr_t), allocatable :: col(:)
+        character(len=:), allocatable :: scheme, host, resource, error
+        integer :: port, a, b, k, n, w, l
 
-        if (httpSeparateURI(HTTP_URI_CODING_ALL, cstr(uri), scheme, 32_c_int, user, &
-            256_c_int, host, 256_c_int, port, resource, 256_c_int) < 0) return
-        enc = HTTP_ENCRYPTION_IF_REQUESTED
-        if (index(uri, "ipps://") == 1) enc = HTTP_ENCRYPTION_ALWAYS
-        http = httpConnect2(host, port, c_null_ptr, 0_c_int, enc, 1_c_int, DEVICE_TIMEOUT_MS, &
-            c_null_ptr)
-        if (.not. c_associated(http)) return
-        req = ippNewRequest(IPP_OP_GET_PRINTER_ATTRIBUTES)
-        a = ippAddString(req, IPP_TAG_OPERATION, IPP_TAG_URI, cstr("printer-uri"), &
-            c_null_ptr, cstr(uri))
-        want(1) = "media-col-ready" // c_null_char
-        want(2) = "marker-names" // c_null_char
-        want(3) = "marker-levels" // c_null_char
-        want(4) = "printer-strings-uri" // c_null_char
-        do k = 1, 4
-            values(k) = c_loc(want(k))
-        end do
-        a = ippAddStrings(req, IPP_TAG_OPERATION, IPP_TAG_KEYWORD, &
-            cstr("requested-attributes"), 4_c_int, c_null_ptr, values)
-        resp = cupsDoRequest(http, req, resource)
-        if (c_associated(resp)) then
-            attr = ippFindAttribute(resp, cstr("media-col-ready"), IPP_TAG_BEGIN_COLLECTION)
-            caps%live = c_associated(attr)
-            do k = 1, ippGetCount(attr)
-                col = ippGetCollection(attr, int(k - 1, c_int))
-                size_col = ippGetCollection(ippFindAttribute(col, cstr("media-size"), &
-                    IPP_TAG_BEGIN_COLLECTION), 0_c_int)
-                w = ippGetInteger(ippFindAttribute(size_col, cstr("x-dimension"), &
-                    IPP_TAG_INTEGER), 0_c_int)
-                l = ippGetInteger(ippFindAttribute(size_col, cstr("y-dimension"), &
-                    IPP_TAG_INTEGER), 0_c_int)
-                call mark_loaded(caps, w, l, keyword_of(col, "media-source"), &
-                    keyword_of(col, "media-type"))
+        call ipp_split_uri(uri, scheme, host, port, resource)
+        if (scheme /= "ipp" .or. len(host) == 0) return
+        call ipp_request(req, IPP_GET_PRINTER_ATTRIBUTES, uri)
+        call ipp_add(req, ipp_attr(IPP_OPERATION, "requested-attributes", &
+            ipp_value_str(IPP_KEYWORD, "media-col-ready"), &
+            ipp_value_str(IPP_KEYWORD, "marker-names"), &
+            ipp_value_str(IPP_KEYWORD, "marker-levels"), &
+            ipp_value_str(IPP_KEYWORD, "printer-strings-uri")))
+        call ipp_post(host, port, resource, req, resp, error, timeout_ms=DEVICE_TIMEOUT_MS)
+        if (len(error) > 0 .or. resp%code > 255) return
+        a = ipp_find(resp%attrs, "media-col-ready", resp%n)
+        caps%live = a > 0
+        if (a > 0) then
+            do k = 1, resp%attrs(a)%n
+                if (resp%attrs(a)%tags(k) /= IPP_BEGIN_COLLECTION) cycle
+                col = ipp_members(resp%attrs(a), k)
+                if (sheet_size(col, w, l)) call mark_loaded(caps, w, l, &
+                    member_str(col, "media-source"), member_str(col, "media-type"))
             end do
-            attr = ippFindAttribute(resp, cstr("marker-names"), IPP_TAG_ZERO)
-            a = ippFindAttribute(resp, cstr("marker-levels"), IPP_TAG_INTEGER)
-            n = min(ippGetCount(attr), ippGetCount(a))
+        end if
+        a = ipp_find(resp%attrs, "marker-names", resp%n)
+        b = ipp_find(resp%attrs, "marker-levels", resp%n)
+        if (a > 0 .and. b > 0) then
+            n = min(resp%attrs(a)%n, resp%attrs(b)%n)
             deallocate(caps%markers)
             allocate(caps%markers(n))
             do k = 1, n
-                caps%markers(k)%name = f_str(ippGetString(attr, int(k - 1, c_int), &
-                    c_null_ptr))
-                caps%markers(k)%level = ippGetInteger(a, int(k - 1, c_int))
+                caps%markers(k)%name = ipp_str(resp%attrs(a), k)
+                caps%markers(k)%level = ipp_int(resp%attrs(b), k)
             end do
-            attr = ippFindAttribute(resp, cstr("printer-strings-uri"), IPP_TAG_URI)
-            if (c_associated(attr)) call load_strings(f_str(ippGetString(attr, 0_c_int, &
-                c_null_ptr)), caps)
-            call ippDelete(resp)
         end if
-        call httpClose(http)
+        call load_strings(string_attr(resp, "printer-strings-uri"), caps)
     end subroutine device_state
 
     subroutine load_strings(uri, caps)
@@ -1025,105 +906,100 @@ contains
         !! and take its names for media types and trays.
         character(*), intent(in) :: uri
         type(print_caps_t), intent(inout) :: caps
-        character(kind=c_char, len=32) :: scheme
-        character(kind=c_char, len=256) :: user, host, resource
-        character(kind=c_char) :: chunk(8192)
-        character(len=:), allocatable :: text
-        type(c_ptr) :: http
-        integer(c_int) :: port, st, enc
-        integer(c_intptr_t) :: got
-        integer :: k
+        character(len=:), allocatable :: scheme, host, resource, text, error
+        integer :: port
 
-        if (httpSeparateURI(HTTP_URI_CODING_ALL, cstr(uri), scheme, 32_c_int, user, &
-            256_c_int, host, 256_c_int, port, resource, 256_c_int) < 0) return
-        enc = HTTP_ENCRYPTION_IF_REQUESTED
-        if (index(uri, "https://") == 1) enc = HTTP_ENCRYPTION_ALWAYS
-        http = httpConnect2(host, port, c_null_ptr, 0_c_int, enc, 1_c_int, DEVICE_TIMEOUT_MS, &
-            c_null_ptr)
-        if (.not. c_associated(http)) return
-        text = ""
-        ! Clearing sets the Host field, which the printer insists on.
-        call httpClearFields(http)
-        if (httpGet(http, resource) == 0) then
-            st = httpUpdate(http)
-            do while (st == HTTP_STATUS_CONTINUE)
-                st = httpUpdate(http)
-            end do
-            if (st == HTTP_STATUS_OK) then
-                do
-                    got = httpRead2(http, chunk, int(size(chunk), c_size_t))
-                    if (got <= 0 .or. len(text) > 4 * 1024 * 1024) exit
-                    text = text // transfer(chunk(1:got), repeat(" ", int(got)))
-                end do
-            end if
-        end if
-        call httpClose(http)
-        k = len(text)
-        if (k > 0) call print_apply_strings(caps, text)
+        if (index(uri, "http://") /= 1) return
+        call ipp_split_uri(uri, scheme, host, port, resource)
+        call ipp_get(host, port, resource, text, error, DEVICE_TIMEOUT_MS)
+        if (len(error) == 0 .and. len(text) > 0 .and. len(text) <= 4 * 1024 * 1024) &
+            call print_apply_strings(caps, text)
     end subroutine load_strings
 
-    function keyword_of(col, name) result(v)
-        type(c_ptr), intent(in) :: col
-        character(*), intent(in) :: name
-        character(len=:), allocatable :: v
-        v = f_str(ippGetString(ippFindAttribute(col, cstr(name), IPP_TAG_ZERO), 0_c_int, &
-            c_null_ptr))
-    end function keyword_of
+    ! --- jobs ---------------------------------------------------------------------
 
-    type(c_ptr) function named_dest(name) result(dest)
-        character(*), intent(in) :: name
-        character(kind=c_char, len=:), allocatable, target :: cname
-        cname = cstr(name)
-        dest = cupsGetNamedDest(c_null_ptr, c_loc(cname), c_null_ptr)
-    end function named_dest
-
-    function option(d, name) result(v)
-        type(cups_dest_t), intent(in) :: d
-        character(*), intent(in) :: name
-        character(len=:), allocatable :: v
-        v = f_str(cupsGetOption(cstr(name), d%num_options, d%options))
-    end function option
-
-    function cstr(s) result(c)
-        character(*), intent(in) :: s
-        character(kind=c_char, len=:), allocatable :: c
-        c = s // c_null_char
-    end function cstr
-
-    function f_str(p) result(s)
-        !! Copy of a C string ("" for NULL).
-        type(c_ptr), intent(in) :: p
-        character(len=:), allocatable :: s
-        character(kind=c_char), pointer :: chars(:)
-        integer :: n, k
-
-        if (.not. c_associated(p)) then
-            s = ""
-            return
+    function media_col(sheet, job) result(a)
+        !! The media-col job attribute of a sheet, with the job's tray and type.
+        type(print_media_t), intent(in) :: sheet
+        type(print_job_t), intent(in) :: job
+        type(ipp_attr_t) :: a
+        type(ipp_attr_t) :: size_, members(4)
+        size_ = ipp_attr(0, "media-size", ipp_value_col( &
+            ipp_attr(0, "x-dimension", ipp_value_int(IPP_INTEGER, sheet%width)), &
+            ipp_attr(0, "y-dimension", ipp_value_int(IPP_INTEGER, sheet%length))))
+        members(1) = ipp_attr(0, "media-bottom-margin", ipp_value_int(IPP_INTEGER, sheet%bottom))
+        members(2) = ipp_attr(0, "media-left-margin", ipp_value_int(IPP_INTEGER, sheet%left))
+        members(3) = ipp_attr(0, "media-right-margin", ipp_value_int(IPP_INTEGER, sheet%right))
+        members(4) = ipp_attr(0, "media-top-margin", ipp_value_int(IPP_INTEGER, sheet%top))
+        if (given(job%source) .and. given(job%media_type)) then
+            a = ipp_attr(IPP_JOB, "media-col", ipp_value_col(size_, members(1), members(2), &
+                members(3), members(4), &
+                ipp_attr(0, "media-source", ipp_value_str(IPP_KEYWORD, job%source)), &
+                ipp_attr(0, "media-type", ipp_value_str(IPP_KEYWORD, job%media_type))))
+        else if (given(job%source)) then
+            a = ipp_attr(IPP_JOB, "media-col", ipp_value_col(size_, members(1), members(2), &
+                members(3), members(4), &
+                ipp_attr(0, "media-source", ipp_value_str(IPP_KEYWORD, job%source))))
+        else if (given(job%media_type)) then
+            a = ipp_attr(IPP_JOB, "media-col", ipp_value_col(size_, members(1), members(2), &
+                members(3), members(4), &
+                ipp_attr(0, "media-type", ipp_value_str(IPP_KEYWORD, job%media_type))))
+        else
+            a = ipp_attr(IPP_JOB, "media-col", ipp_value_col(size_, members(1), members(2), &
+                members(3), members(4)))
         end if
-        n = int(c_strlen(p))
-        call c_f_pointer(p, chars, [n])
-        allocate(character(len=n) :: s)
-        do k = 1, n
-            s(k:k) = chars(k)
-        end do
-    end function f_str
+    end function media_col
 
-    function f_chars(a) result(s)
-        character(kind=c_char), intent(in) :: a(:)
-        character(len=:), allocatable :: s
-        integer :: n, k
+    function status_text(resp) result(t)
+        !! The server's status-message, else the IPP status code.
+        type(ipp_msg_t), intent(in) :: resp
+        character(len=:), allocatable :: t
+        character(len=24) :: buf
+        t = string_attr(resp, "status-message")
+        if (len(t) > 0) return
+        write (buf, '("IPP status 0x",z4.4)') resp%code
+        t = trim(buf)
+    end function status_text
 
-        n = 0
-        do while (n < size(a))
-            if (a(n + 1) == c_null_char) exit
-            n = n + 1
+    logical function given(s)
+        character(len=:), allocatable, intent(in) :: s
+        given = .false.
+        if (allocated(s)) given = len(s) > 0
+    end function given
+
+    ! --- configuration --------------------------------------------------------------
+
+    function env(name) result(v)
+        character(*), intent(in) :: name
+        character(len=:), allocatable :: v
+        integer :: n, st
+        call get_environment_variable(name, length=n, status=st)
+        allocate(character(len=max(n, 0)) :: v)
+        if (st == 0 .and. n > 0) call get_environment_variable(name, v)
+        if (st /= 0) v = ""
+    end function env
+
+    function conf_value(path, key) result(v)
+        !! The value after `key` on its line in a CUPS configuration file.
+        character(*), intent(in) :: path, key
+        character(len=:), allocatable :: v
+        character(len=1024) :: line
+        integer :: u, ios
+        logical :: there
+        v = ""
+        inquire (file=path, exist=there)
+        if (.not. there) return
+        open (newunit=u, file=path, status="old", action="read", iostat=ios)
+        if (ios /= 0) return
+        do
+            read (u, '(a)', iostat=ios) line
+            if (ios /= 0) exit
+            line = adjustl(line)
+            if (index(line, key // " ") == 1 .or. index(line, key // achar(9)) == 1) then
+                v = trim(adjustl(line(len(key) + 2:)))
+            end if
         end do
-        allocate(character(len=n) :: s)
-        do k = 1, n
-            s(k:k) = a(k)
-        end do
-    end function f_chars
-#endif
+        close (u)
+    end function conf_value
 
 end module fortui_print

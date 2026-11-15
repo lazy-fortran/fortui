@@ -249,13 +249,18 @@ bounded work for a large collection, and no unsupported performance claims.
       ignores cell layers today), images and braille for cell layers on the
       terminal host, a waker for the terminal host (it polls at 60 Hz).
 - [ ] Platform-specific menus, services, text, and accessibility evidence per host.
-- [x] Printing service over CUPS (`fortui_print`, `-DENABLE_PRINT=1`): printers,
+- [x] Printing service over IPP in Fortran (`fortui_print`, `fortui_ipp`; no
+      libcups since 2026-11-15): printers,
       media with margins/borderless variants, media types, trays, qualities,
       raster resolution, live loaded paper and ink levels over IPP; pages as
       PWG raster encoded in Fortran (`fortui_pwg`). Evidence 2026-11-14: libcups
       2.4.20 decodes the encoder's pages unchanged; a held borderless job to a
       Canon TS8700 IPP Everywhere queue was accepted as image/pwg-raster and
-      cancelled (`test_print` with `FORTUI_PRINT_TEST_PRINTER`).
+      cancelled (`test_print` with `FORTUI_PRINT_TEST_PRINTER`). Since the IPP
+      rewrite, `test_print` compares the sheets of a virtual printer
+      (ippeveprinter) with libcups's list for it and checks the received jobs
+      byte for byte; on the TS8700 queue every printer, sheet, label, margin,
+      tray and media type equals what the libcups version reported.
 - [ ] Printing requests as asynchronous owned service requests (now blocking).
 - [x] Retained canvas images (`canvas_image`): GPU texture, terminal raster.
 - [ ] Browser semantic DOM controls plus custom canvas; explicit URL/history behavior.

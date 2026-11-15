@@ -107,16 +107,10 @@ FORTUI_THEME=classic fpm run --example theme_gallery
 make install      # library and modules under PREFIX
 ```
 
-Optional printing service (`-DENABLE_PRINT=1`, link `-lcups`):
-
-```sh
-make build-print
-make test-print   # libcups decodes the pages; FORTUI_PRINT_TEST_PRINTER=QUEUE
-                  # also submits a held job to that queue and cancels it
-make test-print-system  # prints through a CUPS queue to a virtual printer
-                        # (ippeveprinter, sudo for lpadmin) and checks the
-                        # tray, media type, quality and margins it receives
-```
+The print tests compare with libcups and talk to a virtual printer
+(ippeveprinter), both from CUPS, when they are installed; neither is needed by
+the library. `FORTUI_PRINT_TEST_PRINTER=QUEUE fpm test test_print` also submits
+a held job to a real queue and cancels it.
 
 Browser (LFortran with target `wasm32-unknown-emscripten` and an emscripten SDK
 in `EMSDK_PATH`):
@@ -229,14 +223,16 @@ make test-term    # real programs on a pseudo-terminal: text, colours, images,
 image into a world rectangle of a canvas; its pixels are uploaded once per
 generation (GPU texture, terminal raster).
 
-`fortui_print` is a printing service over CUPS. It lists printers and reports a
-printer's paper sizes with their margins and borderless variants, media types,
-trays, print qualities and raster resolution; from an IPP printer it also learns
-which paper is loaded where, the ink levels and the printer's own names for its
-media. The application composes each page as an sRGB raster of the whole sheet,
-which is sent as PWG raster (`fortui_pwg`), so the page raster alone decides
-scaling, cropping and borders. Without `-DENABLE_PRINT=1` every request returns
-`PRINT_UNSUPPORTED`. Requests block until CUPS has answered.
+`fortui_print` is a printing service over IPP, written in Fortran
+(`fortui_ipp`): it talks to the local CUPS server, or straight to a printer
+given by its `ipp://` URI. It lists printers and reports a printer's paper sizes
+with their margins and borderless variants (named and ordered as libcups does),
+media types, trays, print qualities and raster resolution; from an IPP printer
+it also learns which paper is loaded where, the ink levels and the printer's own
+names for its media. The application composes each page as an sRGB raster of
+the whole sheet, which is sent as PWG raster (`fortui_pwg`), so the page raster
+alone decides scaling, cropping and borders. Requests block until the server has
+answered; encrypted connections (ipps) are not made.
 
 ## Dependencies and licences
 
@@ -249,7 +245,7 @@ dependency only when their build flag is given.
 |---|---|---|
 | Core, headless, terminal | a Fortran 2008 compiler; termbox2 (bundled in `src/c`) | MIT |
 | Desktop | at run time: an X server with libxcb, a Vulkan 1.3 driver | MIT; Apache-2.0 |
-| Printing (`-DENABLE_PRINT=1`) | libcups 2.3+ | Apache-2.0 |
+| Printing | a CUPS server or an IPP printer on the network | (none linked) |
 | Terminal emulator (`-DENABLE_TERM=1`) | a POSIX pseudo-terminal (`forkpty`) and threads | (system) |
 | Browser | LFortran, emscripten | BSD-3-Clause; MIT/NCSA |
 

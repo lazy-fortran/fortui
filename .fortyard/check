@@ -1,0 +1,19 @@
+#!/bin/sh
+# The print test compares with libcups and prints to a virtual printer
+# (ippeveprinter); the runner image has neither, so they come from conda-forge
+# into a prefix kept between checks. The library itself links neither.
+set -eu
+version=2.10.0-0
+root=${TMPDIR:-/tmp}/fortui-deps-$version
+if [ ! -e "$root/env/bin/ippeveprinter" ]; then
+    mkdir -p "$root"
+    curl -fsSL -o "$root/micromamba" \
+        "https://github.com/mamba-org/micromamba-releases/releases/download/$version/micromamba-linux-64"
+    chmod 755 "$root/micromamba"
+    MAMBA_ROOT_PREFIX=$root/mamba "$root/micromamba" create -y -q -p "$root/env" \
+        -c conda-forge libcups
+fi
+export LD_LIBRARY_PATH="$root/env/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export FORTUI_IPPEVEPRINTER="$root/env/bin/ippeveprinter"
+export FORTUI_PRINT_REFERENCE=require
+fo test "$@"

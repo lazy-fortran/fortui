@@ -1,0 +1,3 @@
+#!/bin/sh
+# Verification needs the same reference library as a landing check.
+exec "$(dirname "$0")/check" "$@"
