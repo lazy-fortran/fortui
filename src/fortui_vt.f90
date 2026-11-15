@@ -10,7 +10,7 @@ module fortui_vt
     private
 
     public :: vt_t, vt_open, vt_resize, vt_feed, vt_line, vt_key, vt_paste, vt_mouse
-    public :: vt_take_output, vt_set_colors
+    public :: vt_take_output, vt_set_colors, char_width
 
     integer, parameter, public :: VT_EV_NONE = 0, VT_EV_OSC = 1, VT_EV_DCS = 2, VT_EV_APC = 3
     integer, parameter, public :: VT_BOLD = 1, VT_ITALIC = 2, VT_UNDERLINE = 4, VT_STRIKE = 8, &

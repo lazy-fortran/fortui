@@ -1,6 +1,6 @@
 #!/bin/bash
 # build.sh - Simple build script wrapper for fortui
-# Pure FPM-based build with embedded termbox2 backend
+# Pure FPM-based build
 
 set -euo pipefail
 

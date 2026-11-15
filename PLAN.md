@@ -315,6 +315,12 @@ bounded work for a large collection, and no unsupported performance claims.
       subroutines); harmless on x86-64, a trap on wasm. Fixed for #150: all
       results are `integer(c_int)` functions and checked; `tb_attr_width` must
       report the 16-bit `uintattr_t` matching the Fortran binding.
+- [x] termbox2 replaced by FortUI's own terminal layer (`fortui_tb`, 2026-11-15):
+      raw mode and resize signal in `src/c/fortui_tty.c`, the cell grid sent
+      as differences, keys and SGR/X10 mouse decoded in Fortran. `test_tb`
+      checks output and input against FortUI's terminal emulator (`fortui_vt`);
+      the scripted `tui_demo` session in tmux gives the same screens as the
+      termbox2 build.
 - [ ] Trusted browser service activation, permission/file/storage behavior.
 - [ ] No explicit-backend silent fallback.
 - [ ] Native hybrid hosts (GTK4, AppKit, Win32) with an embedded custom canvas.

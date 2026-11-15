@@ -22,7 +22,7 @@ focus, accessibility ownership, and lifecycle. Avoid duplicate accessibility
 nodes when both a native editor and a custom visual surface represent one control.
 Test overlays/popups above a canvas and transitions between native/custom focus.
 
-termbox2 remains a bootstrap/reference implementation. It does not define
+The terminal layer (fortui_tb) is a backend detail. It does not define
 portable semantics. Extract shared renderer machinery after two actual consumers
 establish reuse; do not build all Metal/Vulkan/D3D/WebGPU implementations first.
 
@@ -156,8 +156,8 @@ The same conformance scenario (`test/test_backend_conformance.f90`) runs against
 headless and the desktop backend offscreen.
 
 Implemented backends: `fortui_backend_headless` (fixed text metrics, resource-free
-canvas realization), `fortui_tui` (termbox2 with checked `int` results and the
-32-bit attribute width verified at init; terminal size and resize events in
+canvas realization), `fortui_tui` (on fortui_tb, FortUI's own terminal layer:
+raw mode, a cell grid sent as differences, decoded keys and mouse; terminal size and resize events in
 logical units; character-cell metrics, one cell per code point and line whatever
 the text size; canvas layers rasterized in Fortran by `fortui_raster` and shown
 as braille cells, 2x4 dots per cell with one colour per cell, or as kitty
@@ -192,7 +192,7 @@ independent of the thread count. Braille cells take the dot colour of highest
 contrast, brightened by at most 2x so faint edges stay visible; labels are text
 cells. Kitty images (RGB, zlib, base64 chunks of 4096 bytes, one image id per
 canvas, replaced in place, deleted at shutdown) are sent after the cells only
-when the canvas changed; termbox2 then writes only changed cells, so an idle
+when the canvas changed; fortui_tb then writes only changed cells, so an idle
 application writes nothing. Mouse input uses any-motion tracking for hover and
 reports pixels when the terminal supports mode 1016, else cell centres;
 `input_state_t%pointer_slop` and `canvas_events_t%pointer_slop` carry the
@@ -239,11 +239,11 @@ language percentage alone does not prove architectural quality.
 | iOS/iPadOS | UIKit integration plus custom canvas | ARM64/AOT build, lifecycle, text, touch/Pencil, accessibility |
 | Android | Native controls/services plus custom graphics | Compiler/ABI, lifecycle, IME, back, stylus, accessibility |
 | Web | DOM plus canvas and Fortran/WASM | Compiler features, trusted services, navigation, DOM semantics |
-| Terminal | termbox2-class host | Input, resize, Unicode width, structural editing |
+| Terminal | VT/xterm-class host | Input, resize, Unicode width, structural editing |
 | Headless | Owned semantic/runtime state | Deterministic transactions and independent behavioral oracle |
 
 AppKit/UIKit/WinUI/Metal/Vulkan/WebGPU are possible implementation routes, not
-requirements to ship every toolkit or renderer. Headless, termbox2 and the desktop
+requirements to ship every toolkit or renderer. Headless, the terminal and the desktop
 backend (fortwin, fortgfx) are the current adapters. Desktop-native, mobile, and DOM
 backends are planned.
 

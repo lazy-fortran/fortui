@@ -6,6 +6,6 @@ FortUI is not a pure immediate-mode renderer. It exposes an immediate Fortran co
 
 Never put backend tests or drawing calls in widget code. Never reintroduce the old unused `node` tree, unit-class hierarchies, fake context/thread-safety layers, or graphical layout expressed in terminal cells.
 
-The current backends are headless, termbox2 TUI, and optional raylib GUI. Raylib is a bootstrap implementation, not the architecture.
+The current backends are headless, the terminal (fortui_tui on fortui_tb), the desktop (X11 and Vulkan through fortwin and fortgfx) and the browser DOM.
 
 Run `fpm test` for the headless semantic gate. GUI/TUI integration claims require real interactive execution in addition to unit tests.

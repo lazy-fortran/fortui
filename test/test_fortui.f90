@@ -302,7 +302,7 @@ contains
     end subroutine test_text_fit
 
     subroutine test_tui_keys()
-        !! termbox2 key codes (termbox2.h) map to backend-neutral keys.
+        !! fortui_tb key codes map to backend-neutral keys.
         call check(tui_map_key(13) == KEY_ENTER .and. tui_map_key(27) == KEY_ESCAPE .and. &
             tui_map_key(9) == KEY_TAB, "TUI enter/escape/tab")
         call check(tui_map_key(8) == KEY_BACKSPACE .and. &

@@ -1,5 +1,5 @@
 module fortui_tui
-    !! Terminal platform + renderer backend using termbox2. One terminal cell is
+    !! Terminal platform + renderer backend on fortui_tb. One terminal cell is
     !! CELL_W_DP x CELL_H_DP logical units; layout uses matching fixed metrics.
     !!
     !! Canvas layers are rasterized in Fortran (fortui_raster) and realized either
@@ -36,6 +36,16 @@ module fortui_tui
         KITTY_QUERY
     use fortui_theme, only: tui_theme_requested
     use fortui_sixel, only: sixel_encode
+    use fortui_tb, only: tb_event, tb_init, tb_shutdown, tb_width, tb_height, tb_clear, &
+        tb_present, tb_hide_cursor, tb_set_cell, tb_peek_event, tb_poll_event, &
+        tb_set_clear_attrs, tb_set_input_mode, tb_set_output_mode, TB_OK, TB_KEY_CTRL_C, &
+        TB_KEY_BACKSPACE, TB_KEY_TAB, TB_KEY_ENTER, TB_KEY_ESC, TB_KEY_BACKSPACE2, &
+        TB_KEY_INSERT, TB_KEY_DELETE, TB_KEY_HOME, TB_KEY_END, TB_KEY_PGUP, TB_KEY_PGDN, &
+        TB_KEY_ARROW_UP, TB_KEY_ARROW_DOWN, TB_KEY_ARROW_LEFT, TB_KEY_ARROW_RIGHT, &
+        TB_KEY_MOUSE_LEFT, TB_KEY_MOUSE_RIGHT, TB_KEY_MOUSE_MIDDLE, TB_KEY_MOUSE_RELEASE, &
+        TB_KEY_MOUSE_WHEEL_UP, TB_KEY_MOUSE_WHEEL_DOWN, TB_MOD_MOTION, TB_EVENT_KEY, &
+        TB_EVENT_RESIZE, TB_EVENT_MOUSE, TB_INPUT_ESC, TB_INPUT_MOUSE, TB_OUTPUT_256, &
+        TB_OUTPUT_TRUECOLOR, TB_BOLD, TB_REVERSE, TB_HI_BLACK, TB_UNDERLINE, TB_ITALIC
     implicit none
     private
 
@@ -53,30 +63,6 @@ module fortui_tui
     integer, parameter :: MAX_IMAGE_SIDE = 8192
     integer, parameter :: QUERY_TIMEOUT_MS = 1500
 
-    ! termbox2.h constants (termbox2 v2, TB_OPT_ATTR_W 32 as compiled in src/c).
-    integer, parameter :: TB_OK = 0
-    integer, parameter :: TB_KEY_CTRL_C = 3
-    integer, parameter :: TB_KEY_BACKSPACE = 8, TB_KEY_TAB = 9, TB_KEY_ENTER = 13
-    integer, parameter :: TB_KEY_ESC = 27, TB_KEY_BACKSPACE2 = 127
-    integer, parameter :: TB_KEY_INSERT = 65535 - 12, TB_KEY_DELETE = 65535 - 13
-    integer, parameter :: TB_KEY_HOME = 65535 - 14, TB_KEY_END = 65535 - 15
-    integer, parameter :: TB_KEY_PGUP = 65535 - 16, TB_KEY_PGDN = 65535 - 17
-    integer, parameter :: TB_KEY_ARROW_UP = 65535 - 18, TB_KEY_ARROW_DOWN = 65535 - 19
-    integer, parameter :: TB_KEY_ARROW_LEFT = 65535 - 20, TB_KEY_ARROW_RIGHT = 65535 - 21
-    integer, parameter :: TB_KEY_MOUSE_LEFT = 65535 - 23, TB_KEY_MOUSE_RIGHT = 65535 - 24
-    integer, parameter :: TB_KEY_MOUSE_MIDDLE = 65535 - 25
-    integer, parameter :: TB_KEY_MOUSE_RELEASE = 65535 - 26
-    integer, parameter :: TB_KEY_MOUSE_WHEEL_UP = 65535 - 27
-    integer, parameter :: TB_KEY_MOUSE_WHEEL_DOWN = 65535 - 28
-    integer, parameter :: TB_MOD_MOTION = 8
-    integer, parameter :: TB_EVENT_KEY = 1, TB_EVENT_RESIZE = 2, TB_EVENT_MOUSE = 3
-    integer(c_int), parameter :: TB_INPUT_ESC = 1, TB_INPUT_MOUSE = 4
-    integer(c_int), parameter :: TB_OUTPUT_256 = 2, TB_OUTPUT_TRUECOLOR = 5
-    integer, parameter :: ATTR_BITS = 32
-    integer, parameter :: TB_BOLD = 16777216, TB_REVERSE = 67108864
-    integer, parameter :: TB_HI_BLACK = 536870912
-
-    integer, parameter :: TB_UNDERLINE = 33554432, TB_ITALIC = 134217728
 
     ! Colours (0x00RRGGBB) of a terminal look; the 256-colour mode uses the
     ! nearest palette entries. Every cell gets an explicit colour, so the look
@@ -109,68 +95,8 @@ module fortui_tui
 
     character(len=*), parameter :: ESC = achar(27)
 
-    type, bind(C) :: tb_event
-        integer(c_int8_t) :: type
-        integer(c_int8_t) :: mod
-        integer(c_int16_t) :: key
-        integer(c_int32_t) :: ch
-        integer(c_int32_t) :: w, h, x, y
-    end type tb_event
 
     interface
-        integer(c_int) function tb_init() bind(C, name="tb_init")
-            import :: c_int
-        end function tb_init
-        integer(c_int) function tb_shutdown() bind(C, name="tb_shutdown")
-            import :: c_int
-        end function tb_shutdown
-        integer(c_int) function tb_width() bind(C, name="tb_width")
-            import :: c_int
-        end function tb_width
-        integer(c_int) function tb_height() bind(C, name="tb_height")
-            import :: c_int
-        end function tb_height
-        integer(c_int) function tb_clear() bind(C, name="tb_clear")
-            import :: c_int
-        end function tb_clear
-        integer(c_int) function tb_present() bind(C, name="tb_present")
-            import :: c_int
-        end function tb_present
-        integer(c_int) function tb_hide_cursor() bind(C, name="tb_hide_cursor")
-            import :: c_int
-        end function tb_hide_cursor
-        integer(c_int) function tb_attr_width() bind(C, name="tb_attr_width")
-            import :: c_int
-        end function tb_attr_width
-        integer(c_int) function tb_set_cell(x, y, ch, fg, bg) bind(C, name="tb_set_cell")
-            !! uintattr_t is uint32_t for TB_OPT_ATTR_W 32 (checked at init).
-            import :: c_int, c_int32_t
-            integer(c_int), value :: x, y
-            integer(c_int32_t), value :: ch
-            integer(c_int32_t), value :: fg, bg
-        end function tb_set_cell
-        integer(c_int) function tb_peek_event(event, timeout) bind(C, name="tb_peek_event")
-            import :: c_int, tb_event
-            type(tb_event), intent(out) :: event
-            integer(c_int), value :: timeout
-        end function tb_peek_event
-        integer(c_int) function tb_poll_event(event) bind(C, name="tb_poll_event")
-            import :: c_int, tb_event
-            type(tb_event), intent(out) :: event
-        end function tb_poll_event
-        integer(c_int) function tb_set_clear_attrs(fg, bg) &
-                bind(C, name="tb_set_clear_attrs")
-            import :: c_int, c_int32_t
-            integer(c_int32_t), value :: fg, bg
-        end function tb_set_clear_attrs
-        integer(c_int) function tb_set_input_mode(mode) bind(C, name="tb_set_input_mode")
-            import :: c_int
-            integer(c_int), value :: mode
-        end function tb_set_input_mode
-        integer(c_int) function tb_set_output_mode(mode) bind(C, name="tb_set_output_mode")
-            import :: c_int
-            integer(c_int), value :: mode
-        end function tb_set_output_mode
         integer(c_int) function fortui_tty_write(buf, n) bind(C, name="fortui_tty_write")
             import :: c_int, c_long, c_char
             character(kind=c_char), intent(in) :: buf(*)
@@ -225,7 +151,7 @@ module fortui_tui
         type(tui_palette_t) :: pal = PALETTE_LIGHT
         ! Rows the function key line takes at the bottom.
         integer :: band_rows = 1
-        !! termbox2 terminal backend: widgets as cells, canvases as braille or pixels.
+        !! Terminal backend: widgets as cells, canvases as braille or pixels.
         logical :: active = .false.
         logical :: quit_requested = .false.
         logical :: draw_failed = .false.
@@ -440,17 +366,10 @@ contains
 
         status = tb_init()
         if (status /= TB_OK) then
-            call report_error("fortui_tui", "init", &
-                "termbox2 could not initialize a terminal")
+            call report_error("fortui_tui", "init", "no terminal to draw on (/dev/tty)")
             return
         end if
         self%active = .true.
-        if (tb_attr_width() /= ATTR_BITS) then
-            call report_error("fortui_tui", "init", "termbox2 attribute width differs " // &
-                "from the 32-bit binding")
-            call tui_shutdown(self)
-            return
-        end if
 
         ! In-band queries, terminated by a device-attributes request that every
         ! terminal answers.
@@ -541,7 +460,7 @@ contains
             tb_hide_cursor() /= TB_OK .or. &
             tb_set_clear_attrs(int(colour(self, self%pal%text), c_int32_t), &
             int(colour(self, self%pal%panel), c_int32_t)) /= TB_OK) then
-            call report_error("fortui_tui", "init", "termbox2 terminal setup failed")
+            call report_error("fortui_tui", "init", "terminal setup failed")
             call tui_shutdown(self)
             return
         end if
@@ -677,7 +596,7 @@ contains
         if (self%pixel_mouse) call tty_send(ESC // "[?1016l")
         call tty_send(ESC // "[?1003l")
         if (tb_shutdown() /= TB_OK) &
-            call report_error("fortui_tui", "shutdown", "termbox2 shutdown failed")
+            call report_error("fortui_tui", "shutdown", "restoring the terminal failed")
         self%active = .false.
         call write_stats(self)
     end subroutine tui_shutdown
@@ -818,7 +737,7 @@ contains
     end subroutine process_event
 
     pure integer function tui_ctrl_letter(tb_key) result(code)
-        !! The letter of a termbox2 Ctrl+letter key code, or 0: Ctrl+H, Ctrl+I
+        !! The letter of a Ctrl+letter key code, or 0: Ctrl+H, Ctrl+I
         !! and Ctrl+M are what terminals send for Backspace, Tab and Enter.
         integer, intent(in) :: tb_key
         code = 0
@@ -829,7 +748,7 @@ contains
     end function tui_ctrl_letter
 
     pure integer function tui_map_key(tb_key) result(key)
-        !! Backend-neutral KEY_* for a termbox2 key code (KEY_NONE if unnamed).
+        !! Backend-neutral KEY_* for a fortui_tb key code (KEY_NONE if unnamed).
         integer, intent(in) :: tb_key
         select case (tb_key)
         case (TB_KEY_ENTER); key = KEY_ENTER
@@ -877,9 +796,8 @@ contains
     end subroutine tui_present
 
     subroutine send_images(self)
-        !! Transmit changed canvas images after the cells (cursor saved/restored, so
-        !! termbox2's cursor tracking stays valid) and delete images of removed
-        !! canvases.
+        !! Transmit changed canvas images after the cells (cursor saved/restored)
+        !! and delete images of removed canvases.
         type(tui_backend_t), intent(inout) :: self
         integer :: i
         integer(int64) :: t0, t1, rate
@@ -1138,7 +1056,7 @@ contains
     end subroutine draw_labels
 
     integer function colour(self, rgb) result(attr)
-        !! termbox2 attribute of a 0x00RRGGBB colour in the active output mode.
+        !! Cell attribute of a 0x00RRGGBB colour in the active output mode.
         type(tui_backend_t), intent(in) :: self
         integer(int32), intent(in) :: rgb
         integer :: idx
@@ -1157,7 +1075,7 @@ contains
         type(tui_backend_t), intent(inout) :: self
         if (self%draw_failed) return
         self%draw_failed = .true.
-        call report_error("fortui_tui", "present", "termbox2 drawing failed")
+        call report_error("fortui_tui", "present", "drawing to the terminal failed")
     end subroutine draw_failure
 
     logical function tui_should_close(self)

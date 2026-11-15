@@ -6,7 +6,7 @@ same application intent through native controls, custom graphics, web DOM,
 terminals, and headless automation while preserving platform-specific capabilities.
 
 The current implementation is an experimental pre-1.0 prototype: basic semantic
-controls, previous-frame input routing, headless tests, a termbox2 TUI, a desktop
+controls, previous-frame input routing, headless tests, a terminal backend, a desktop
 backend in Fortran (an X11 window drawn with Vulkan), and a browser backend with
 DOM controls. Desktop apps choose between two themes drawn the same
 on every backend: Fluent (Microsoft Fluent 2, light and dark, the default) and
@@ -139,7 +139,7 @@ tui_canvas_bench` measures the terminal raster cost.
 `ui_init("auto", ...)` and `ui_init("gui", ...)` take the desktop backend when an
 X display is there, and "auto" then the terminal; `FORTUI_BACKEND=gui|tui|headless`
 chooses. An explicit backend request must not silently fall back. The window,
-GPU and termbox2 are replaceable adapters rather than framework semantics.
+GPU and terminal layers are replaceable adapters rather than framework semantics.
 
 ## Themes
 
@@ -243,7 +243,7 @@ dependency only when their build flag is given.
 
 | Part | Needs | Licence |
 |---|---|---|
-| Core, headless, terminal | a Fortran 2008 compiler; termbox2 (bundled in `src/c`) | MIT |
+| Core, headless, terminal | a Fortran 2008 compiler and a C compiler for the POSIX terminal and socket helpers in `src/c` | MIT |
 | Desktop | at run time: an X server with libxcb, a Vulkan 1.3 driver | MIT; Apache-2.0 |
 | Printing | a CUPS server or an IPP printer on the network | (none linked) |
 | Terminal emulator (`-DENABLE_TERM=1`) | a POSIX pseudo-terminal (`forkpty`) and threads | (system) |
