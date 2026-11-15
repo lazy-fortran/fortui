@@ -6,9 +6,9 @@ same application intent through native controls, custom graphics, web DOM,
 terminals, and headless automation while preserving platform-specific capabilities.
 
 The current implementation is an experimental pre-1.0 prototype: basic semantic
-controls, previous-frame input routing, headless tests, a termbox2 TUI, an SDL3
-desktop backend drawing with the SDL GPU API, a raylib backend, and a browser
-backend with DOM controls. Desktop apps choose between two themes drawn the same
+controls, previous-frame input routing, headless tests, a termbox2 TUI, a desktop
+backend in Fortran (an X11 window drawn with Vulkan), and a browser backend with
+DOM controls. Desktop apps choose between two themes drawn the same
 on every backend: Fluent (Microsoft Fluent 2, light and dark, the default) and
 Classic (Windows 95 as the Chicago95 desktop shows it). Native widgets, browser canvas,
 mobile, full text/IME/accessibility, commands, and incremental transaction
@@ -53,7 +53,7 @@ widget into view in the browser.
 
 Applications can also inject a backend value without the registry, for example
 `call ui_init(headless_backend_t(), 800, 600, "test")` in tests or
-`call ui_init(sdl_backend_t(), 1200, 800, "app", theme_name="classic")`.
+`call ui_init(gui_backend_t(), 1200, 800, "app", theme_name="classic")`.
 `fortui_testing` provides synthetic input and frame queries for automation.
 Buttons take an `emphasis`: `UI_EMPHASIS_PRIMARY` for a view's main action (the
 Fluent primary button, the Classic default button), `UI_EMPHASIS_QUIET` for a
@@ -93,24 +93,19 @@ fpm build
 fpm test          # or: make test
 ```
 
-SDL3 desktop backend (`-DENABLE_SDL=1`, link `-lSDL3 -lSDL3_ttf -lfontconfig`):
+The desktop backend (`fortui_gui`) needs no build flag and links no library:
+the window comes from [fortwin](https://github.com/lazy-fortran/fortwin)
+(libxcb, opened at run time), drawing from
+[fortgfx](https://github.com/lazy-fortran/fortgfx) (Vulkan, opened at run time;
+offscreen frames fall back to its CPU renderer), text from
+[fortfont](https://github.com/lazy-fortran/fortfont) with the installed fonts it
+finds, images from [fortimg](https://github.com/lazy-fortran/fortimg). The tests
+render it offscreen and check pixels.
 
 ```sh
-make build-sdl
-make test-sdl     # also renders offscreen on the GPU and checks the pixels
-FORTUI_THEME=classic fpm run --example theme_gallery   # with the SDL flags
-```
-
-Raylib backend (`-DENABLE_GUI=1`, link `-lraylib -lfontconfig`):
-
-```sh
-make build-gui
-make test-gui     # also runs the backend conformance scenario in a window
+FORTUI_THEME=classic fpm run --example theme_gallery
 make install      # library and modules under PREFIX
 ```
-
-`tools/gen-shaders.sh` regenerates `src/fortui_sdl_shaders.f90` from `shaders/`
-with glslc (shaderc) after a shader change.
 
 Optional printing service (`-DENABLE_PRINT=1`, link `-lcups`):
 
@@ -147,17 +142,17 @@ the sixel path is the one that works. `FORTUI_TUI_GRAPHICS=braille|kitty|sixel`
 and `FORTUI_TUI_COLOR=truecolor|256` force a choice. `fpm run --example
 tui_canvas_bench` measures the terminal raster cost.
 
-`ui_init("auto", ...)` and `ui_init("gui", ...)` take SDL, else raylib, and
-"auto" then the terminal; `FORTUI_BACKEND=sdl|raylib|tui|headless` chooses. An
-explicit backend request must not silently fall back. SDL, raylib and termbox2
-are replaceable adapters rather than framework semantics.
+`ui_init("auto", ...)` and `ui_init("gui", ...)` take the desktop backend when an
+X display is there, and "auto" then the terminal; `FORTUI_BACKEND=gui|tui|headless`
+chooses. An explicit backend request must not silently fall back. The window,
+GPU and termbox2 are replaceable adapters rather than framework semantics.
 
 ## Themes
 
 The theme decides colours, metrics, type scale and fonts; the theme painter
 (`fortui_paint`) turns the semantic frame into a display list of pixel-aligned
-rectangles, lines and text that both desktop backends draw, so a theme looks the
-same on SDL and raylib. Square edges sit on whole pixels and glyphs are drawn
+rectangles, lines and text that the desktop backend draws with Vulkan or on the
+CPU alike. Square edges sit on whole pixels and glyphs are drawn
 1:1 from atlases rasterized at the exact pixel size, so the interface stays sharp.
 
 - `classic`: Windows 95 as the Chicago95 desktop theme draws it: #C0C0C0 faces,
@@ -175,8 +170,10 @@ The user chooses with `FORTUI_THEME`, else `theme = classic` in
 `~/.config/fortui/config` (`$XDG_CONFIG_HOME/fortui/config`); otherwise the
 application's `theme_name`, else `fluent`. `ui_set_theme(name)` switches at
 run time. FortUI ships no fonts: themes find their fonts among the installed ones
-with fontconfig and fall back with a warning naming the package to install.
-Raylib cannot draw bitmap fonts, so Classic text there uses an outline font.
+(fortfont reads the font folders, no fontconfig) and fall back with a warning
+naming the package to install. Text is laid out as SDL_ttf with HarfBuzz did, so
+layouts keep their positions; a character the face lacks comes from a fallback
+font set on the face's own baseline.
 
 In the browser a theme applies only when the application passes `theme_name`
 (desktop-like web apps); otherwise the page keeps its own look and fonts, as a web
@@ -201,7 +198,7 @@ resolved when text is written; a reader thread drains the program's output into
 a ring buffer so the program never waits for drawing. It parses about 330 MB/s
 of coloured text on one core. Images are decoded in Fortran too (kitty graphics
 with raw, zlib and PNG data, and sixel). It draws the same character cells on every host: glyph by
-glyph on the SDL GPU and one terminal cell per cell inside another terminal.
+glyph on the desktop and one terminal cell per cell inside another terminal.
 
 ```fortran
 use fortui_term, only: term_t           ! native hosts only, not in `use fortui`
@@ -243,18 +240,18 @@ scaling, cropping and borders. Without `-DENABLE_PRINT=1` every request returns
 
 ## Dependencies and licences
 
-FortUI is MIT licensed ([LICENSE](LICENSE)). Each optional part links its
-dependency only when its build flag is given, so the core stays free of them.
+FortUI is MIT licensed ([LICENSE](LICENSE)). The desktop backend's packages are
+Fortran (fortzip, fortimg, fortfont, fortwin, fortgfx, all MIT); libxcb and the
+Vulkan loader are opened at run time only. The remaining optional parts link their
+dependency only when their build flag is given.
 
 | Part | Needs | Licence |
 |---|---|---|
 | Core, headless, terminal | a Fortran 2008 compiler; termbox2 (bundled in `src/c`) | MIT |
-| SDL desktop (`-DENABLE_SDL=1`) | SDL3 3.2+, SDL3_ttf 3.2+ (FreeType, HarfBuzz), fontconfig, a Vulkan driver | zlib; zlib; MIT-style |
-| Raylib desktop (`-DENABLE_GUI=1`) | raylib 5+, fontconfig | zlib; MIT-style |
+| Desktop | at run time: an X server with libxcb, a Vulkan 1.3 driver | MIT; Apache-2.0 |
 | Printing (`-DENABLE_PRINT=1`) | libcups 2.3+ | Apache-2.0 |
 | Terminal emulator (`-DENABLE_TERM=1`) | a POSIX pseudo-terminal (`forkpty`) and threads | (system) |
 | Browser | LFortran, emscripten | BSD-3-Clause; MIT/NCSA |
-| Shader rebuild (development) | glslc from shaderc | Apache-2.0 |
 
 Theme fonts are used from the system at run time, never shipped or linked:
 
@@ -262,7 +259,7 @@ Theme fonts are used from the system at run time, never shipped or linked:
 |---|---|---|
 | classic | Chicago95 fonts (`chicago95-fonts`), More Perfect DOS VGA (`ttf-perfectdos`) | GPL-3.0-or-later; free |
 | fluent | Segoe UI if installed, else Selawik ([microsoft/Selawik](https://github.com/microsoft/Selawik)); Cascadia Mono (`ttf-cascadia-code`) | Microsoft; OFL-1.1; OFL-1.1 |
-| (all, SDL) | for characters a face lacks, where installed: DejaVu Sans Mono (`ttf-dejavu`), Noto Sans Symbols 2 and Noto Color Emoji (`noto-fonts`, `noto-fonts-emoji`) | Bitstream Vera; OFL-1.1; OFL-1.1 |
+| (all, desktop) | for characters a face lacks, where installed: DejaVu Sans Mono (`ttf-dejavu`), Noto Sans Symbols 2 and Noto Color Emoji (`noto-fonts`, `noto-fonts-emoji`) | Bitstream Vera; OFL-1.1; OFL-1.1 |
 
 The API may change before 1.0.
 

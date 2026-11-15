@@ -218,8 +218,17 @@ bounded work for a large collection, and no unsupported performance claims.
       none shipped; opt-in themes in the browser through data-theme.
 - [ ] Group boxes, drop-down choices, scrolling containers and file dialogs
       (SDL dialogs) in both themes; tabs sized to their labels in classic.
-- [ ] SDL GPU on macOS (Metal shaders) and Windows; Wayland evidence.
-- [ ] Android and iOS through SDL3 once a Fortran compiler route (LFortran) works.
+- [x] Desktop backend in Fortran (Chris, 2026-11-15: no SDL, no other
+      dependencies): `fortui_gui` on fortwin (X11 through libxcb opened at run
+      time), fortgfx (Vulkan 1.3, CPU renderer for offscreen frames without a
+      GPU) and fortfont (fonts found without fontconfig, SDL_ttf's HarfBuzz layout
+      reproduced); the SDL3 and raylib backends are removed. Evidence 2026-11-15
+      (Linux/X11, RTX 5060 Ti): `test_gui` (the former SDL pixel checks) passes;
+      the theme gallery renders pixel-identical to the SDL backend in classic and
+      differs only in glyph antialiasing in fluent (0.2 % of pixels; fortfont
+      renders unhinted where FreeType hinted lightly).
+- [ ] Wayland, Windows (Win32, Vulkan) and macOS (Cocoa, Metal) in fortwin and fortgfx.
+- [ ] Light hinting in fortfont, so Fluent text matches FreeType's antialiasing.
 - [ ] Fluent density (compact for dense scientific views) and Fluent system icons
       (MIT) with an icon widget.
 - [x] Terminal look (`tui_theme = auto|light|dark`, auto from the terminal's
@@ -301,13 +310,9 @@ bounded work for a large collection, and no unsupported performance claims.
       subroutines); harmless on x86-64, a trap on wasm. Fixed for #150: all
       results are `integer(c_int)` functions and checked; `tb_attr_width` must
       report the 16-bit `uintattr_t` matching the Fortran binding.
-- [ ] Optional: the same WebGPU backend on desktop through Dawn or wgpu-native.
 - [ ] Trusted browser service activation, permission/file/storage behavior.
-- [ ] Keep raylib as a useful reference; no explicit-backend silent fallback.
-- [ ] SDL3 + SDL_GPU backend implementing `ui_backend_t`.
+- [ ] No explicit-backend silent fallback.
 - [ ] Native hybrid hosts (GTK4, AppKit, Win32) with an embedded custom canvas.
-- [ ] Optional direct Vulkan/Metal/D3D12 canvas renderers.
-- [ ] Executed raylib evidence on Windows and macOS (GL 3.3/4.1 core, Retina).
 
 Desktop routes include Windows, macOS, and selected Linux hosts. Renderer choice
 follows measured consumer needs; do not require every GPU API before proving a slice.

@@ -1,8 +1,8 @@
 program test_canvas_image
     !! Image layers: the store copies pixels only for a new generation or size,
     !! the software raster puts each image pixel where its rectangle says, and a
-    !! composed canvas uploads an image once per version on every buildable
-    !! backend (raylib too when a display is reachable).
+    !! composed canvas uploads an image once per version on the headless and the
+    !! graphical (offscreen) backend.
     use iso_fortran_env, only: int32
     use fortui
     use fortui_backend, only: ui_backend_t
@@ -11,8 +11,7 @@ program test_canvas_image
     use fortui_frame, only: ui_frame_t, ui_node_t, UI_CANVAS, LAYER_IMAGE
     use fortui_canvas, only: canvas_store_t
     use fortui_raster, only: raster_t, raster_map_t, raster_resize, raster_canvas, rgb_pack
-    ! Empty unless built with -DENABLE_GUI=1 (raylib_backend_t, raylib_is_available).
-    use fortui_gui_raylib
+    use fortui_gui, only: gui_backend_t
     implicit none
 
     integer :: failures = 0
@@ -23,13 +22,7 @@ program test_canvas_image
     call test_store()
     call test_raster()
     call scenario(headless_backend_t(), "headless")
-#ifdef ENABLE_GUI
-    if (raylib_is_available()) then
-        call scenario(raylib_backend_t(), "gui")
-    else
-        print '(a)', "canvas image: raylib backend skipped (no display or FORTUI_HEADLESS=1)"
-    end if
-#endif
+    call scenario(gui_backend_t(offscreen=.true.), "gui")
 
     if (failures > 0) then
         print '(i0,a)', failures, " canvas image checks failed"

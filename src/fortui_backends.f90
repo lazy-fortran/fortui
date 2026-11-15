@@ -6,19 +6,16 @@ module fortui_backends
     !!   use fortui_backends, only: ui_init
     !!   call ui_init("auto", 900, 640, "demo", stat=stat)
     !!
-    !! Names: "headless", "tui", "sdl" (-DENABLE_SDL=1 builds), "raylib"
-    !! (-DENABLE_GUI=1 builds), "gui" (sdl, else raylib) or "auto" (gui, then tui,
-    !! then headless only with FORTUI_HEADLESS=1); FORTUI_BACKEND overrides the name.
+    !! Names: "headless", "tui", "gui" (an X11 window drawn with Vulkan) or "auto"
+    !! (gui, then tui, then headless only with FORTUI_HEADLESS=1); FORTUI_BACKEND
+    !! overrides the name.
     !! A requested backend that is unavailable is an error, never a fallback.
     !! Applications that inject a backend value do not need this module.
     use fortui_backend, only: ui_backend_t
     use fortui_core, only: ui_init_backend
     use fortui_backend_headless, only: headless_backend_t
     use fortui_tui, only: tui_backend_t, tui_is_available
-    ! Empty unless built with -DENABLE_GUI=1 (raylib_backend_t, raylib_is_available).
-    use fortui_gui_raylib
-    ! Empty unless built with -DENABLE_SDL=1 (sdl_backend_t, sdl_is_available).
-    use fortui_gui_sdl
+    use fortui_gui, only: gui_backend_t, gui_is_available
     use fortui_error, only: report_error
     implicit none
     private
@@ -57,15 +54,11 @@ contains
         end if
         call ui_init_backend(backend, width, height, title, target_fps, vsync, st, theme, &
             hidden)
-        ! "gui" and "auto" take the next host when SDL finds no GPU at start.
-        if (st /= 0 .and. backend%name() == "sdl" .and. any(trim(choice) == &
-            [character(8) :: "gui", "graphics", "window", "auto", ""])) then
+        ! "auto" takes the terminal when the window or its GPU does not start.
+        if (st /= 0 .and. backend%name() == "gui" .and. any(trim(choice) == &
+            [character(8) :: "auto", ""])) then
             deallocate(backend)
-#ifdef ENABLE_GUI
-            if (raylib_is_available()) allocate(raylib_backend_t :: backend)
-#endif
-            if (.not. allocated(backend) .and. trim(choice) /= "gui" .and. &
-                tui_is_available()) allocate(tui_backend_t :: backend)
+            if (tui_is_available()) allocate(tui_backend_t :: backend)
             if (allocated(backend)) call ui_init_backend(backend, width, height, title, &
                 target_fps, vsync, st, theme, hidden)
         end if
@@ -90,14 +83,6 @@ contains
             allocate(headless_backend_t :: backend)
         case ("tui", "terminal", "console")
             if (tui_is_available()) allocate(tui_backend_t :: backend)
-        case ("sdl")
-#ifdef ENABLE_SDL
-            if (sdl_is_available()) allocate(sdl_backend_t :: backend)
-#endif
-        case ("raylib")
-#ifdef ENABLE_GUI
-            if (raylib_is_available()) allocate(raylib_backend_t :: backend)
-#endif
         case ("gui", "graphics", "window")
             call graphical(backend)
         case ("auto", "")
@@ -114,18 +99,9 @@ contains
     end subroutine create_backend
 
     subroutine graphical(backend)
-        !! The best available graphical backend: SDL, else raylib.
+        !! The graphical backend when an X display is there.
         class(ui_backend_t), allocatable, intent(inout) :: backend
-#ifdef ENABLE_SDL
-        if (sdl_is_available()) then
-            allocate(sdl_backend_t :: backend)
-            return
-        end if
-#endif
-#ifdef ENABLE_GUI
-        if (raylib_is_available()) allocate(raylib_backend_t :: backend)
-#endif
-        if (.false.) deallocate(backend)
+        if (gui_is_available()) allocate(gui_backend_t :: backend)
     end subroutine graphical
 
     pure function lower(value) result(out)

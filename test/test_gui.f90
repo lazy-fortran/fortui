@@ -1,6 +1,6 @@
-program test_sdl_gpu
-    !! SDL GPU backend, rendering offscreen and reading the pixels back (skipped
-    !! without -DENABLE_SDL=1 or without a GPU):
+program test_gui
+    !! The graphical backend offscreen (Vulkan where there is a GPU, else the CPU
+    !! renderer), reading the pixels back:
     !! - a classic button has the Windows 95 bevel pixels on screen;
     !! - its label is drawn (dark glyph pixels inside the face);
     !! - a fluent button's rounded corner is antialiased;
@@ -9,39 +9,24 @@ program test_sdl_gpu
     use iso_c_binding
     use iso_fortran_env, only: int8
     use fortui
-    use fortui_gui_sdl
+    use fortui_gui, only: gui_backend_t, gui_read_pixels, gui_inject
     use fortui_context, only: fortui_context_t, get_default_context
+    use fortwin, only: win_event_t, WIN_EV_MOTION, WIN_EV_BUTTON_DOWN, WIN_EV_BUTTON_UP
     implicit none
 
     integer :: failures = 0
-#ifdef ENABLE_SDL
     integer :: clicks = 0
-    character(len=16) :: mode = "classic"
 
-    interface
-        logical(c_bool) function SDL_PushEvent(ev) bind(C, name="SDL_PushEvent")
-            import :: c_bool, c_int8_t
-            integer(c_int8_t) :: ev(128)
-        end function
-    end interface
-
-    if (.not. sdl_gpu_available()) then
-        print '(a)', "sdl gpu: skipped (no GPU device or FORTUI_HEADLESS=1)"
-        stop
-    end if
     call test_classic_pixels()
     call test_fluent_corner()
     call test_quick_click()
     call test_image_first_frame()
-#else
-    print '(a)', "sdl gpu: skipped (built without -DENABLE_SDL=1)"
-#endif
 
     if (failures > 0) then
-        print '(i0,a)', failures, " sdl gpu checks failed"
+        print '(i0,a)', failures, " gui checks failed"
         error stop 1
     end if
-    print '(a)', " fortui sdl gpu tests passed"
+    print '(a)', " fortui gui tests passed"
 
 contains
 
@@ -54,7 +39,6 @@ contains
         end if
     end subroutine check
 
-#ifdef ENABLE_SDL
     subroutine compose()
         call ui_frame_begin()
         if (button("ok", "OK", emphasis=UI_EMPHASIS_PRIMARY)) clicks = clicks + 1
@@ -76,7 +60,7 @@ contains
     subroutine test_classic_pixels()
         !! Classic margin 8: OK (default) at (8, 8), Cancel right below at (8, 31),
         !! both 75 x 23.
-        type(sdl_backend_t) :: b
+        type(gui_backend_t) :: b
         integer(int8), allocatable :: px(:, :, :)
         integer :: w, h, x, y, dark
         integer :: stat
@@ -111,7 +95,7 @@ contains
     subroutine test_fluent_corner()
         !! Fluent margin 16: the primary OK button (32 px high, 4 px corners) is
         !! brand blue #0F6CBD inside and blended at its rounded top-left corner.
-        type(sdl_backend_t) :: b
+        type(gui_backend_t) :: b
         integer(int8), allocatable :: px(:, :, :)
         integer :: w, h, stat, r
         b%offscreen = .true.
@@ -130,7 +114,7 @@ contains
     subroutine test_quick_click()
         !! Press and release of the left button queued before one frame (a quick
         !! click or tap) click the Cancel button under the pointer.
-        type(sdl_backend_t) :: b
+        type(gui_backend_t) :: b
         integer :: stat, k
         b%offscreen = .true.
         call ui_init(b, 120, 80, "test", stat=stat, theme_name="classic")
@@ -151,7 +135,7 @@ contains
 
     subroutine test_image_first_frame()
         !! One frame, then read: the image's red pixels are on screen at once.
-        type(sdl_backend_t) :: b
+        type(gui_backend_t) :: b
         integer(int8), allocatable :: px(:, :, :)
         integer :: w, h, stat
         integer(c_int32_t) :: red(4, 4)
@@ -178,7 +162,7 @@ contains
         integer, intent(out) :: w, h
         type(fortui_context_t), pointer :: ctx
         ctx => get_default_context()
-        call sdl_read_pixels(ctx%backend, px, w, h)
+        call gui_read_pixels(ctx%backend, px, w, h)
         block
             integer :: u, i, j
             character(len=256) :: dump
@@ -197,26 +181,25 @@ contains
     subroutine push_button(down, x, y)
         logical, intent(in) :: down
         real, intent(in) :: x, y
-        integer(c_int8_t) :: ev(128)
-        ev = 0
-        ev(1:4) = transfer(int(merge(int(z'401'), int(z'402'), down), c_int32_t), ev(1:4))
-        ev(25) = 1
-        ev(26) = merge(1_c_int8_t, 0_c_int8_t, down)
-        ev(27) = 1
-        ev(29:32) = transfer(real(x, c_float), ev(1:4))
-        ev(33:36) = transfer(real(y, c_float), ev(1:4))
-        if (.not. SDL_PushEvent(ev)) call check(.false., "push button event")
+        type(fortui_context_t), pointer :: ctx
+        type(win_event_t) :: ev
+        ctx => get_default_context()
+        ev%kind = merge(WIN_EV_BUTTON_DOWN, WIN_EV_BUTTON_UP, down)
+        ev%button = 1
+        ev%x = x
+        ev%y = y
+        call gui_inject(ctx%backend, ev)
     end subroutine push_button
 
     subroutine push_motion(x, y)
         real, intent(in) :: x, y
-        integer(c_int8_t) :: ev(128)
-        ev = 0
-        ev(1:4) = transfer(int(z'400', c_int32_t), ev(1:4))
-        ev(29:32) = transfer(real(x, c_float), ev(1:4))
-        ev(33:36) = transfer(real(y, c_float), ev(1:4))
-        if (.not. SDL_PushEvent(ev)) call check(.false., "push motion event")
+        type(fortui_context_t), pointer :: ctx
+        type(win_event_t) :: ev
+        ctx => get_default_context()
+        ev%kind = WIN_EV_MOTION
+        ev%x = x
+        ev%y = y
+        call gui_inject(ctx%backend, ev)
     end subroutine push_motion
-#endif
 
-end program test_sdl_gpu
+end program test_gui

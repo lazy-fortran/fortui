@@ -1,8 +1,7 @@
 program test_backend_conformance
-    !! One scenario run against every buildable backend: headless always; the
-    !! raylib backend in -DENABLE_GUI=1 builds and the SDL GPU backend in
-    !! -DENABLE_SDL=1 builds when a display is reachable (a real window opens
-    !! briefly). Expectations are the canvas realization contract:
+    !! One scenario run against both backends: headless and the graphical one,
+    !! offscreen (Vulkan where there is a GPU, else the CPU renderer).
+    !! Expectations are the canvas realization contract:
     !! upload once per data version, nothing for view changes or unchanged frames,
     !! stale segments dropped when vertices shrink, fresh resources after a kind
     !! change or removal, slot growth, and one present per frame.
@@ -12,10 +11,7 @@ program test_backend_conformance
     use fortui_backend_headless, only: headless_backend_t
     use fortui_testing, only: ui_stats, ui_stats_t, ui_layer_uploads, ui_node_rect
     use fortui_context, only: fortui_context_t, get_default_context
-    ! Empty unless built with -DENABLE_GUI=1 (raylib_backend_t, raylib_is_available).
-    use fortui_gui_raylib
-    ! Empty unless built with -DENABLE_SDL=1 (sdl_backend_t, sdl_is_available).
-    use fortui_gui_sdl
+    use fortui_gui, only: gui_backend_t
     use fortui_theme, only: theme
     implicit none
 
@@ -31,20 +27,7 @@ program test_backend_conformance
 
     failures = 0
     call scenario(headless_backend_t(), "headless")
-#ifdef ENABLE_GUI
-    if (raylib_is_available()) then
-        call scenario(raylib_backend_t(), "gui")
-    else
-        print '(a)', "conformance: raylib backend skipped (no display or FORTUI_HEADLESS=1)"
-    end if
-#endif
-#ifdef ENABLE_SDL
-    if (sdl_gpu_available()) then
-        call scenario(sdl_backend_t(), "sdl")
-    else
-        print '(a)', "conformance: sdl backend skipped (no GPU or FORTUI_HEADLESS=1)"
-    end if
-#endif
+    call scenario(gui_backend_t(offscreen=.true.), "gui")
     if (failures > 0) error stop 1
 
 contains

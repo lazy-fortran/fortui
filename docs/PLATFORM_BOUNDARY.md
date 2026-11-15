@@ -22,7 +22,7 @@ focus, accessibility ownership, and lifecycle. Avoid duplicate accessibility
 nodes when both a native editor and a custom visual surface represent one control.
 Test overlays/popups above a canvas and transitions between native/custom focus.
 
-Raylib and termbox2 remain bootstrap/reference implementations. Neither defines
+termbox2 remains a bootstrap/reference implementation. It does not define
 portable semantics. Extract shared renderer machinery after two actual consumers
 establish reuse; do not build all Metal/Vulkan/D3D/WebGPU implementations first.
 
@@ -113,7 +113,7 @@ compile arbitrary TeX documents.
 
 `fortui_backend` defines the abstract `ui_backend_t` that every backend extends.
 An application injects a backend value, `call ui_init(headless_backend_t(), ...)`
-or `call ui_init(raylib_backend_t(font_regular="..."), ...)`; the runtime keeps
+or `call ui_init(gui_backend_t(), ...)`; the runtime keeps
 its own copy. The optional `fortui_backends` registry extends the same generic
 with `ui_init(name, ...)` (`headless`, `tui`, `gui`, or `auto`; `FORTUI_BACKEND`
 overrides) and is the only module that names several backends. The core,
@@ -135,7 +135,7 @@ The runtime calls only these bindings:
 
 Idle rule: `present` never blocks. The runtime decides at each present whether
 the next frame may wait (nothing continuous, requested, or scheduled as a
-follow-up) and passes that decision to the next `poll`. Raylib waits in `poll`
+follow-up) and passes that decision to the next `poll`. The desktop backend waits in `poll`
 only when the events gathered after the last present are empty; the terminal
 backend blocks in `tb_poll_event`; headless counts requested waits.
 
@@ -151,9 +151,9 @@ records the realized serial and versions per store slot, so it uploads a layer
 only after a real change or after recreating its own resource, and it frees
 resources when a slot is released or reassigned. Packed colours are RGBA bytes in
 memory; positions are world units, transformed by `local = world * zoom + pan`.
-No GL, GLSL, or raylib type, handle, or convention appears in the frame, widgets,
-or public API. The same conformance scenario (`test/test_backend_conformance.f90`)
-runs against headless and, in GUI builds with a display, raylib.
+No GPU type, handle, or convention appears in the frame, widgets, or public API.
+The same conformance scenario (`test/test_backend_conformance.f90`) runs against
+headless and the desktop backend offscreen.
 
 Implemented backends: `fortui_backend_headless` (fixed text metrics, resource-free
 canvas realization), `fortui_tui` (termbox2 with checked `int` results and the
@@ -162,17 +162,17 @@ logical units; character-cell metrics, one cell per code point and line whatever
 the text size; canvas layers rasterized in Fortran by `fortui_raster` and shown
 as braille cells, 2x4 dots per cell with one colour per cell, or as kitty
 graphics images; see below),
-`fortui_gui_sdl` (SDL3 with the SDL GPU API, compiled only with
-`-DENABLE_SDL=1`; Vulkan SPIR-V shaders from `shaders/`, embedded by
-`tools/gen-shaders.sh`; an event queue that splits a press and release arriving in
-one frame over two frames; text with SDL_ttf), and `fortui_gui_raylib` (raylib
-6/rlgl, compiled only with `-DENABLE_GUI=1`; one position texture per vertex
-layer read by GLSL 330 instanced quads for points and lines). Both graphical
-backends draw the display list of the theme painter (`fortui_paint`) and take
-the theme's fonts from the installed fonts through fontconfig; FortUI ships no
-fonts. A wake-up from another thread is not implemented. Only the Linux/X11
-(Vulkan) routes have executed evidence; Windows, macOS (which needs Metal shaders
-for SDL GPU) and Wayland are unverified.
+and `fortui_gui` (the desktop backend, Fortran throughout: an X11 window and its
+input from fortwin through libxcb opened at run time; the frame drawn by fortgfx
+with Vulkan 1.3, or by its CPU renderer offscreen without a GPU, from the same
+batch list; text from fortfont with glyph atlases and fallback fonts on the
+face's baseline, laid out as SDL_ttf with HarfBuzz did; a wake-up from other
+threads through a pipe). It draws the display list of the theme painter
+(`fortui_paint`) and takes the theme's fonts from the installed ones; FortUI ships
+no fonts. It replaced the SDL3 and raylib backends (2026-11-15); the theme
+gallery renders pixel-identical to the SDL backend in Classic and within glyph
+antialiasing in Fluent. Only Linux/X11 has executed evidence; Wayland, Windows
+(Win32 and Vulkan) and macOS (Cocoa and Metal) are planned in fortwin and fortgfx.
 
 Terminal canvas realization (`fortui_tui`, `fortui_raster`, `fortui_kitty`,
 `src/c/fortui_tty.c`): at init the backend asks the terminal in-band (kitty
@@ -243,8 +243,9 @@ language percentage alone does not prove architectural quality.
 | Headless | Owned semantic/runtime state | Deterministic transactions and independent behavioral oracle |
 
 AppKit/UIKit/WinUI/Metal/Vulkan/WebGPU are possible implementation routes, not
-requirements to ship every toolkit or renderer. Headless, termbox2, and optional
-raylib are the current adapters. Desktop-native, mobile, and DOM backends are planned.
+requirements to ship every toolkit or renderer. Headless, termbox2 and the desktop
+backend (fortwin, fortgfx) are the current adapters. Desktop-native, mobile, and DOM
+backends are planned.
 
 Backend tests cover native control edit callbacks, IME composition, real keyboard
 focus, clipboard/file cancellation, platform accessibility, canvas overlays,

@@ -173,7 +173,7 @@ composition procedures, `fortui_text` UTF-8/metrics/wrapping, and `fortui_canvas
 the retained canvas layer store. `fortui_backend` defines the backend interface
 that applications inject; the optional `fortui_backends` registry is the only
 module naming several concrete backends (`fortui_backend_headless`, `fortui_tui`,
-`fortui_gui_raylib`). The facade is `fortui`; `fortui_testing` holds automation
+`fortui_gui`). The facade is `fortui`; `fortui_testing` holds automation
 and inspection. Extract commands, services, or reconciliation modules only as a
 slice requires them.
 
