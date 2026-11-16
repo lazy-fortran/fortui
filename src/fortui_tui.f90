@@ -1,6 +1,6 @@
 module fortui_tui
-    !! Terminal platform + renderer backend on fortui_tb. One terminal cell is
-    !! CELL_W_DP x CELL_H_DP logical units; layout uses matching fixed metrics.
+    !! Terminal platform + renderer backend on fortui_tb.
+    !! Logical cells follow the measured pixel aspect, with 8x16 as the fallback.
     !!
     !! Canvas layers are rasterized in Fortran (fortui_raster) and realized either
     !! as braille cells (2x4 dots per cell, per-cell colour; any UTF-8 terminal,
@@ -162,6 +162,7 @@ module fortui_tui
         logical :: pixel_mouse = .false.
         integer :: cell_px_w = 0
         integer :: cell_px_h = 0
+        real :: cell_width = CELL_W_DP
         character(len=96) :: color_note = ""
         character(len=96) :: graphics_note = ""
         type(tui_canvas_t), allocatable :: canvases(:)
@@ -215,30 +216,45 @@ contains
         end if
     end function tui_describe
 
-    pure subroutine tui_cell_to_logical(col, row, x, y)
+    pure subroutine tui_cell_to_logical(col, row, x, y, cell_width)
         !! Logical position of a pointer reported as a terminal cell: its centre.
         integer, intent(in) :: col, row
         real, intent(out) :: x, y
-        x = (real(col) + 0.5) * CELL_W_DP
+        real, intent(in), optional :: cell_width
+        real :: cw
+
+        cw = CELL_W_DP
+        if (present(cell_width)) cw = cell_width
+        x = (real(col) + 0.5) * cw
         y = (real(row) + 0.5) * CELL_H_DP
     end subroutine tui_cell_to_logical
 
-    pure subroutine tui_pixel_to_logical(px, py, cell_px_w, cell_px_h, x, y)
+    pure subroutine tui_pixel_to_logical(px, py, cell_px_w, cell_px_h, x, y, cell_width)
         !! Logical position of a pointer reported in pixels (SGR-pixel mode 1016).
         integer, intent(in) :: px, py, cell_px_w, cell_px_h
         real, intent(out) :: x, y
-        x = (real(px) + 0.5) * CELL_W_DP / real(max(1, cell_px_w))
+        real, intent(in), optional :: cell_width
+        real :: cw
+
+        cw = CELL_W_DP
+        if (present(cell_width)) cw = cell_width
+        x = (real(px) + 0.5) * cw / real(max(1, cell_px_w))
         y = (real(py) + 0.5) * CELL_H_DP / real(max(1, cell_px_h))
     end subroutine tui_pixel_to_logical
 
-    pure function tui_canvas_map(col, row, dots_x, dots_y) result(map)
+    pure function tui_canvas_map(col, row, dots_x, dots_y, cell_width) result(map)
         !! Raster mapping for a canvas whose top-left cell is (col, row) with
         !! dots_x x dots_y raster pixels per cell (2x4 braille, cell pixels kitty).
         integer, intent(in) :: col, row, dots_x, dots_y
         type(raster_map_t) :: map
-        map%origin_x = real(col) * CELL_W_DP
+        real, intent(in), optional :: cell_width
+        real :: cw
+
+        cw = CELL_W_DP
+        if (present(cell_width)) cw = cell_width
+        map%origin_x = real(col) * cw
         map%origin_y = real(row) * CELL_H_DP
-        map%scale_x = real(dots_x) / CELL_W_DP
+        map%scale_x = real(dots_x) / cw
         map%scale_y = real(dots_y) / CELL_H_DP
     end function tui_canvas_map
 
@@ -659,7 +675,7 @@ contains
         type(input_state_t), intent(inout) :: input
         integer :: w, h
 
-        w = max(1, nint(real(tb_width()) * CELL_W_DP))
+        w = max(1, nint(real(tb_width()) * self%cell_width))
         ! The bottom row is the function key line.
         h = max(1, nint(real(max(1, tb_height() - self%band_rows)) * CELL_H_DP))
         if (w /= input%width .or. h /= input%height) input%resized = .true.
@@ -697,16 +713,16 @@ contains
                 call input_set_key(input, tui_map_key(key))
             end if
         case (TB_EVENT_RESIZE)
-            if (self%graphics /= TUI_GRAPHICS_BRAILLE .or. self%pixel_mouse) &
-                call update_cell_pixels(self, none)
+            call update_cell_pixels(self, none)
+            call self%install_text_metrics()
             call report_size(self, input)
             input%resized = .true.
         case (TB_EVENT_MOUSE)
             if (self%pixel_mouse) then
                 call tui_pixel_to_logical(int(event%x), int(event%y), self%cell_px_w, &
-                    self%cell_px_h, px, py)
+                    self%cell_px_h, px, py, self%cell_width)
             else
-                call tui_cell_to_logical(int(event%x), int(event%y), px, py)
+                call tui_cell_to_logical(int(event%x), int(event%y), px, py, self%cell_width)
             end if
             motion = iand(int(event%mod), TB_MOD_MOTION) /= 0
             select case (key)
@@ -915,9 +931,9 @@ contains
         logical :: changed
         integer(int64) :: t0, t1, rate
 
-        cx = max(0, nint(node%x / CELL_W_DP))
+        cx = max(0, nint(node%x / self%cell_width))
         cy = max(0, nint(node%y / CELL_H_DP))
-        cols = min(max(1, nint(node%width / CELL_W_DP)), self%cols - cx)
+        cols = min(max(1, nint(node%width / self%cell_width)), self%cols - cx)
         rows = min(max(1, nint(node%height / CELL_H_DP)), self%rows - cy)
         if (cols <= 0 .or. rows <= 0) return
         do j = node%layer_first, node%layer_first + node%layer_count - 1
@@ -948,7 +964,7 @@ contains
                 c%rows = rows
                 c%signature = sig(1:nsig)
                 call raster_resize(c%raster, cols * dx, rows * dy)
-                map = tui_canvas_map(cx, cy, dx, dy)
+                map = tui_canvas_map(cx, cy, dx, dy, self%cell_width)
                 ! Braille: large discs as one-dot rings, so overlaps stay readable.
                 if (self%graphics == TUI_GRAPHICS_BRAILLE) map%outline = 1.0
                 call raster_canvas(c%raster, store, frame, node, map)
@@ -994,10 +1010,10 @@ contains
 
         if (.not. allocated(l%cp)) return
         x0 = nint((node%x + l%rect(1) * node%canvas_view%zoom + node%canvas_view%pan_x) &
-            / CELL_W_DP)
+            / self%cell_width)
         y0 = nint((node%y + l%rect(2) * node%canvas_view%zoom + node%canvas_view%pan_y) &
             / CELL_H_DP)
-        cx1 = nint((node%x + node%width) / CELL_W_DP)
+        cx1 = nint((node%x + node%width) / self%cell_width)
         cy1 = nint((node%y + node%height) / CELL_H_DP)
         do r = 0, min(l%rows, cy1 - y0) - 1
             do col = 0, min(l%cols, cx1 - x0) - 1
@@ -1039,7 +1055,7 @@ contains
                 sx = node%x + lab%x * node%canvas_view%zoom + node%canvas_view%pan_x
                 sy = node%y + lab%y * node%canvas_view%zoom + node%canvas_view%pan_y
                 n = utf8_length(lab%text)
-                col = nint(sx / CELL_W_DP - 0.5 * real(n))
+                col = nint(sx / self%cell_width - 0.5 * real(n))
                 row = int(floor((sy + 2.0) / CELL_H_DP))
                 if (row < cy .or. row >= cy + rows) cycle
                 fg = colour(self, rgb_of_rgba(lab%rgba))
@@ -1087,7 +1103,10 @@ contains
         !! Every code point and text line occupies one terminal cell, whatever the
         !! text size (sizes and styles adapt to bold/colour, not to pixels).
         class(tui_backend_t), intent(inout) :: self
-        call text_use_cell_metrics(CELL_W_DP, CELL_H_DP)
+        self%cell_width = CELL_W_DP
+        if (self%cell_px_w > 0 .and. self%cell_px_h > 0) &
+            self%cell_width = CELL_H_DP * real(self%cell_px_w) / real(self%cell_px_h)
+        call text_use_cell_metrics(self%cell_width, CELL_H_DP)
     end subroutine tui_metrics
 
     function tui_caps(self) result(caps)
@@ -1109,9 +1128,9 @@ contains
         real :: fraction
         character(len=:), allocatable :: label
 
-        x = max(0, nint(node%x / CELL_W_DP))
+        x = max(0, nint(node%x / self%cell_width))
         y = max(0, nint(node%y / CELL_H_DP))
-        w = max(1, nint(node%width / CELL_W_DP))
+        w = max(1, nint(node%width / self%cell_width))
         h = max(1, nint(node%height / CELL_H_DP))
         associate(p => self%pal)
             select case (node%kind)

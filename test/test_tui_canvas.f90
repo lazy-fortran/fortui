@@ -12,7 +12,8 @@ program test_tui_canvas
         rgb_to_xterm256, rgb_boost, rgb_contrast, BRAILLE_BASE
     use fortui_kitty, only: kitty_encoder_t, kitty_encode_image, KITTY_CHUNK
     use fortui_tui, only: tui_parse_replies, tui_replies_t, tui_cell_to_logical, &
-        tui_pixel_to_logical, tui_canvas_map, CELL_W_DP, CELL_H_DP
+        tui_pixel_to_logical, tui_canvas_map, CELL_W_DP, CELL_H_DP, tui_backend_t
+    use fortui_text, only: text_cell_size, text_use_fixed_metrics
     implicit none
 
     integer :: failures = 0
@@ -24,6 +25,7 @@ program test_tui_canvas
     call test_kitty_round_trip()
     call test_replies()
     call test_pointer_mapping()
+    call test_cell_aspect()
 
     if (failures > 0) then
         print '(i0,a)', failures, " tui canvas checks failed"
@@ -480,5 +482,38 @@ contains
         call check(nx <= 0.5 * CELL_W_DP .and. ny <= 0.5 * CELL_H_DP, &
             "clicked cell maps back within half a cell")
     end subroutine test_pointer_mapping
+
+
+    subroutine test_cell_aspect()
+        type(tui_backend_t) :: backend
+        real :: w, h, lx, ly
+        type(raster_map_t) :: map
+        integer :: i
+        integer, parameter :: widths(3) = [9, 10, 12], heights(3) = [20, 21, 16]
+
+        do i = 1, size(widths)
+            backend%cell_px_w = widths(i)
+            backend%cell_px_h = heights(i)
+            call backend%install_text_metrics()
+            call text_cell_size(20.0, w, h)
+            call check(abs(w / h - real(widths(i)) / real(heights(i))) < 1.0e-6, &
+                "logical cells preserve the measured terminal aspect ratio")
+            map = tui_canvas_map(3, 2, widths(i), heights(i), w)
+            call check(abs(map%scale_x - map%scale_y) < 1.0e-6, &
+                "one logical unit has the same pixel size on both axes")
+            call tui_pixel_to_logical(30, 30, widths(i), heights(i), lx, ly, w)
+            call check(abs(lx - ly) < 1.0e-5, "pixel mouse uses the canvas scale")
+            call tui_cell_to_logical(3, 2, lx, ly, w)
+            call check(abs((lx - map%origin_x) * map%scale_x - 0.5 * widths(i)) &
+                < 1.0e-5, "cell mouse maps to the raster cell centre")
+        end do
+        backend%cell_px_w = 0
+        backend%cell_px_h = 0
+        call backend%install_text_metrics()
+        call text_cell_size(20.0, w, h)
+        call check(w == CELL_W_DP .and. h == CELL_H_DP, &
+            "unknown cell pixels retain the 8x16 fallback")
+        call text_use_fixed_metrics()
+    end subroutine test_cell_aspect
 
 end program test_tui_canvas
