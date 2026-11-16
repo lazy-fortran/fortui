@@ -17,6 +17,35 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+/* Darwin has neither flag; open_socket sets SO_NOSIGPIPE there instead. */
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+
+/* A socket closed on exec that a closed peer does not answer with SIGPIPE. */
+static int open_socket(int domain, int type, int protocol) {
+#ifdef SOCK_CLOEXEC
+    return socket(domain, type | SOCK_CLOEXEC, protocol);
+#else
+    int fd = socket(domain, type, protocol);
+    if (fd < 0) return -1;
+    if (fcntl(fd, F_SETFD, FD_CLOEXEC) != 0) {
+        close(fd);
+        return -1;
+    }
+#ifdef SO_NOSIGPIPE
+    {
+        int one = 1;
+        if (setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one) != 0) {
+            close(fd);
+            return -1;
+        }
+    }
+#endif
+    return fd;
+#endif
+}
+
 static int wait_for(int fd, short events, int timeout_ms) {
     struct pollfd p = {fd, events, 0};
     int r;
@@ -51,7 +80,7 @@ int fortui_net_open(const char *host, int port, int timeout_ms) {
         memset(&a, 0, sizeof a);
         a.sun_family = AF_UNIX;
         strcpy(a.sun_path, host);
-        if ((fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0)) < 0) return -1;
+        if ((fd = open_socket(AF_UNIX, SOCK_STREAM, 0)) < 0) return -1;
         return connect_within(fd, (struct sockaddr *)&a, sizeof a, timeout_ms);
     }
     struct addrinfo hints, *list, *ai;
@@ -63,7 +92,7 @@ int fortui_net_open(const char *host, int port, int timeout_ms) {
     snprintf(service, sizeof service, "%d", port);
     if (getaddrinfo(host, service, &hints, &list) != 0) return -1;
     for (ai = list; ai && fd < 0; ai = ai->ai_next) {
-        int s = socket(ai->ai_family, ai->ai_socktype | SOCK_CLOEXEC, ai->ai_protocol);
+        int s = open_socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
         if (s >= 0) fd = connect_within(s, ai->ai_addr, ai->ai_addrlen, timeout_ms);
     }
     freeaddrinfo(list);
