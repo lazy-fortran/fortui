@@ -29,7 +29,8 @@ module fortui_gui
     use fortui_fonts, only: font_for, font_lookup
     use fortui_error, only: report_error
     use fortwin, only: window_t, win_event_t, win_open, win_close, win_next_event, win_wait, &
-        win_wake, win_set_title, win_set_size, win_set_visible, win_maximize, &
+        win_wake, win_set_title, win_set_size, win_set_visible, win_set_background, &
+        win_maximize, &
         win_clipboard_set, win_clipboard_get, win_primary_set, win_primary_get, win_flush, &
         win_mods_down, win_time, WIN_EV_CLOSE, WIN_EV_RESIZE, WIN_EV_EXPOSE, WIN_EV_MOTION, &
         WIN_EV_BUTTON_DOWN, WIN_EV_BUTTON_UP, WIN_EV_WHEEL, WIN_EV_KEY_DOWN, WIN_EV_TEXT, &
@@ -93,6 +94,10 @@ module fortui_gui
         !! `offscreen` renders frames of the configured size without a window
         !! (tests read them with gui_read_pixels); on the GPU when there is one.
         logical :: offscreen = .false.
+        !! The window is shown once a frame was drawn, never empty; until then it
+        !! has the frame's background colour, which the X server paints.
+        logical :: show_pending = .false., drawn = .false.
+        real :: window_bg(3) = -1.0
         logical :: active = .false., close_requested = .false., gpu = .false.
         type(window_t) :: win
         type(gfx_gpu_t) :: dev
@@ -189,10 +194,11 @@ contains
             self%gpu = gpu_open_offscreen(self%dev, self%pw, self%ph)
         else
             if (.not. win_open(self%win, trim(self%config%title), self%config%width, &
-                self%config%height, visible=.not. self%config%hidden, class=program_name())) then
+                self%config%height, visible=.false., class=program_name())) then
                 call report_error("fortui_gui", "init", "cannot open a window on the X display")
                 return
             end if
+            self%show_pending = .not. self%config%hidden
             self%pw = self%win%width
             self%ph = self%win%height
             self%scale = self%win%scale
@@ -286,6 +292,8 @@ contains
         class(gui_backend_t), intent(inout) :: self
         logical, intent(in) :: visible
         if (.not. self%active .or. self%offscreen) return
+        self%show_pending = visible .and. .not. self%drawn
+        if (self%show_pending) return
         call win_set_visible(self%win, visible)
     end subroutine gb_set_window_visible
 
@@ -885,6 +893,12 @@ contains
         call sync_layers(self, store)
         call paint_frame(frame, self%scale, real(self%pw), real(self%ph), self%paint)
         call unpack(self%paint%background, bg)
+        if (.not. self%offscreen) then
+            if (any(abs(bg(1:3) - self%window_bg) > 1.0e-3)) then
+                call win_set_background(self%win, bg(1:3))
+                self%window_bg = bg(1:3)
+            end if
+        end if
         call gfx_list_reset(self%list, self%pw, self%ph, bg)
         self%clip = [0, 0, self%pw, self%ph]
         self%clip_depth = 0
@@ -896,7 +910,14 @@ contains
         else
             call cpu_render(self%cpu, self%list)
         end if
-        if (.not. self%offscreen) call win_flush(self%win)
+        if (.not. self%offscreen) then
+            self%drawn = .true.
+            if (self%show_pending) then
+                self%show_pending = .false.
+                call win_set_visible(self%win, .true.)
+            end if
+            call win_flush(self%win)
+        end if
     end subroutine gb_present
 
     subroutine record(self, frame, store, k)
