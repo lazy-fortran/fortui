@@ -97,6 +97,11 @@ module fortui_tui
 
 
     interface
+#ifdef _WIN32
+        integer(c_int) function fortui_tty_available() bind(C, name="fortui_tty_available")
+            import :: c_int
+        end function
+#endif
         integer(c_int) function fortui_tty_write(buf, n) bind(C, name="fortui_tty_write")
             import :: c_int, c_long, c_char
             character(kind=c_char), intent(in) :: buf(*)
@@ -1530,8 +1535,12 @@ contains
             tui_is_available = .false.
             return
         end if
+#ifdef _WIN32
+        tui_is_available = fortui_tty_available() /= 0
+#else
         call get_environment_variable("TERM", value, status=status)
         tui_is_available = status == 0 .and. len_trim(value) > 0
+#endif
     end function tui_is_available
 
 end module fortui_tui

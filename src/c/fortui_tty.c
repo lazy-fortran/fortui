@@ -220,6 +220,10 @@ static HANDLE input = INVALID_HANDLE_VALUE, output = INVALID_HANDLE_VALUE;
 static DWORD saved_in, saved_out, saved_input_cp, saved_output_cp;
 static DWORD last_buttons;
 static char pending[128]; static long available;
+int fortui_tty_available(void) {
+    DWORD mode;
+    return GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &mode) != 0;
+}
 int fortui_tty_open(void) {
     if(input!=INVALID_HANDLE_VALUE)return -1;
     input=CreateFileW(L"CONIN$",GENERIC_READ|GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE,NULL,OPEN_EXISTING,0,NULL);
