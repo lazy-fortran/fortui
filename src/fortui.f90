@@ -15,11 +15,13 @@ module fortui
         ui_run, ui_run_step, ui_frame_proc, ui_set_theme, ui_theme_name
     use fortui_layout, only: column_begin, column_end, row_begin, row_end, split_begin, &
         split_next, split_end
-    use fortui_widgets, only: text, button, link, slider, checkbox, tabs, scroll_text, &
+    use fortui_widgets, only: text, button, link, slider, checkbox, tabs, list_box, scroll_text, &
         text_input, canvas_begin, canvas_end, canvas_vertices, canvas_points, &
         canvas_lines, canvas_label, canvas_image, canvas_cells, canvas_keys, ui_cell_metrics, &
         ui_set_cell_font, ui_focus, &
         ui_reveal
+    use fortui_file_dialog, only: file_dialog_t, file_dialog_open, file_dialog_show, &
+        file_open_button, FILE_IDLE, FILE_PENDING, FILE_ACCEPTED, FILE_CANCELLED
     use fortui_canvas, only: canvas_view_t, canvas_events_t, ui_rgba, canvas_to_world, &
         canvas_to_local, canvas_zoom_at
     use fortui_frame, only: UI_BODY, UI_CAPTION, UI_HEADING, UI_TITLE, UI_FILL, UI_CODE, &
@@ -38,6 +40,8 @@ module fortui
     implicit none
     private
 
+    public :: file_dialog_t, file_dialog_open, file_dialog_show, file_open_button
+    public :: FILE_IDLE, FILE_PENDING, FILE_ACCEPTED, FILE_CANCELLED
     public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
     public :: ui_run, ui_run_step, ui_frame_proc, ui_set_theme, ui_theme_name
     public :: ui_request_quit, ui_is_initialized, ui_get_backend
@@ -51,7 +55,7 @@ module fortui
     public :: ui_shortcut, ui_focus, ui_reveal
     public :: column_begin, column_end, row_begin, row_end
     public :: split_begin, split_next, split_end
-    public :: text, button, link, slider, checkbox, tabs, scroll_text, text_input
+    public :: text, button, link, slider, checkbox, tabs, list_box, scroll_text, text_input
     public :: canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_lines
     public :: canvas_label, canvas_image, canvas_view_t, canvas_events_t, ui_rgba
     public :: canvas_to_world, canvas_to_local, canvas_zoom_at

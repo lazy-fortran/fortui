@@ -30,9 +30,10 @@ cd "$out/obj"
 # are native only.
 for m in fortui_error fortui_theme fortui_text fortui_layout fortui_frame fortui_canvas \
     fortui_raster fortui_input fortui_backend fortui_backend_headless \
-    fortui_context fortui_core fortui_widgets fortui_testing fortui; do
+    fortui_context fortui_core fortui_widgets fortui_files fortui_file_dialog fortui_testing fortui; do
     "$lf" -c $flags "$top/src/$m.f90" -o "$m.o"
 done
+"$emcc" -c "$top/src/c/fortui_files.c" -o fortui_files_c.o
 "$lf" -c $flags "$here/fortui_web.f90" -o fortui_web.o
 for src in ${FORTUI_WEB_SOURCES:-}; do
     case $src in /*) ;; *) src=$caller/$src ;; esac

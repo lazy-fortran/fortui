@@ -4,9 +4,9 @@
 import { createServer } from 'node:http';
 import { readFile, writeFile } from 'node:fs/promises';
 import { spawn, execFileSync } from 'node:child_process';
-import { join, extname } from 'node:path';
+import { join, extname, resolve } from 'node:path';
 
-const dir = process.argv[2];
+const dir = resolve(process.argv[2]);
 const shot = process.argv[3];
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.css': 'text/css' };
 // The demo's first frame rendered natively by fortui_html, as a server would.
@@ -253,6 +253,29 @@ try {
   await until(`document.querySelector('[data-id="keys"]').textContent === 'Keys 12 mod+k'`, 'mod+k by key code');
   await until(`document.activeElement.dataset.id === 'name'`, 'focus in a window without focus');
   check(true, 'ui_focus moves the focus also while the window does not have it');
+  await send('Page.navigate', { url });
+  await until(`!!document.querySelector('[data-id="open-file"]')`, 'open button');
+  await send('Page.setInterceptFileChooserDialog', { enabled: true });
+  await click('[data-id="open-file"]');
+  await until(`!!document.querySelector('input[type="file"]')`, 'trusted browser picker');
+  const fixture = join(dir, 'chooser-test.png');
+  await writeFile(fixture, Buffer.from([1, 2, 3, 4]));
+  const root = await send('DOM.getDocument');
+  const picker = await send('DOM.querySelector', { nodeId: root.result.root.nodeId, selector: 'input[type="file"]' });
+  await send('DOM.setFileInputFiles', { nodeId: picker.result.nodeId, files: [fixture] });
+  await until(`document.querySelector('[data-id="file-result"]')?.textContent === 'chooser-test.png: 4 bytes'`, 'owned browser file bytes');
+  check(true, 'the trusted browser picker delivers an owned filename and bytes');
+  await click('[data-id="open-file"]');
+  await evaluate(`document.querySelector('input[type="file"]').dispatchEvent(new Event('cancel'))`);
+  await until(`!document.querySelector('input[type="file"]')`, 'picker cancellation');
+  check(true, 'cancellation releases the browser picker');
+  await click('[data-id="appearance"]');
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
+  await until(`document.querySelector('.fui-root').dataset.theme === 'fluent-dark'`, 'automatic dark theme');
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
+  await until(`document.querySelector('.fui-root').dataset.theme === 'fluent'`, 'automatic light theme');
+  check(true, 'Fluent follows live browser light and dark preferences');
+  await send('Emulation.setEmulatedMedia', { features: [] });
   // A page the server rendered: the WebAssembly adopts its elements.
   await send('Page.navigate', { url: url + '?ssr' });
   await until(`window.__ssrCount > 0 && !!document.querySelector('[data-id="count"]')`, 'server page');

@@ -12,7 +12,7 @@ module fortui_widgets
     use iso_fortran_env, only: int32
     use fortui_context, only: fortui_context_t, get_default_context
     use fortui_frame, only: ui_node_t, canvas_view_t, ui_label_t, UI_TEXT, UI_BUTTON, UI_LINK, &
-        UI_SLIDER, UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, &
+        UI_SLIDER, UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, UI_LIST_BOX, &
         LAYER_VERTICES, ui_scroll_padding, ui_scrollbar_width, ui_input_padding, &
         ui_control_padding, ui_control_height, ui_control_min_width, ui_check_size, &
         ui_check_gap, ui_tab_height, label_size, style_size, style_weight, WIDTH_NATURAL, &
@@ -53,7 +53,7 @@ module fortui_widgets
         module procedure canvas_lines_own, canvas_lines_shared
     end interface canvas_lines
 
-    public :: text, button, link, slider, checkbox, tabs
+    public :: text, button, link, slider, checkbox, tabs, list_box
     public :: canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_lines
     public :: canvas_label, canvas_image, canvas_cells, canvas_keys, ui_cell_metrics, ui_set_cell_font, scroll_text, text_input, ui_focus, ui_reveal
 
@@ -242,6 +242,112 @@ contains
         node%height = text_line_height(node%text_size)
         call place_and_emit(ctx, node)
     end subroutine text
+
+    logical function list_box(id, items, selected, activated, width, height) result(changed)
+        !! A single selection, with wheel, pointer and keyboard navigation.
+        character(*), intent(in) :: id, items(:)
+        integer, intent(inout) :: selected
+        logical, intent(out), optional :: activated
+        real, intent(in), optional :: width, height
+        type(fortui_context_t), pointer :: ctx
+        type(ui_node_t) :: node
+        real :: aw, ah, lh, pad, wheel
+        integer :: st, k, old, ios, picked, first
+        logical :: go, reveal
+        character(:), allocatable :: typed
+        changed = .false.
+        if (present(activated)) activated = .false.
+        ctx => get_default_context()
+        if (.not. composing(ctx)) return
+        node%kind = UI_LIST_BOX
+        node%id = scoped_id(id)
+        if (.not. claim(ctx, trim(node%id), "list_box")) return
+        node%focusable = .true.
+        node%text = "Files and folders"
+        node%text_size = label_size()
+        node%width_mode = width_mode(width)
+        call layout_get_cursor(node%x, node%y)
+        call layout_available(aw, ah)
+        node%width = resolve_width(width, aw)
+        node%height = ah
+        if (present(height)) node%height = max(1.0, height)
+        call decorate_from_input(ctx, node)
+        st = ctx%state(trim(node%id))
+        lh = text_line_height(node%text_size)
+        pad = ui_scroll_padding()
+        old = selected
+        go = .false.
+        reveal = .false.
+        if (input_host_value(ctx%input, trim(node%id), typed)) then
+            read(typed, *, iostat=ios) picked
+            if (ios == 0) selected = picked
+        end if
+        associate(inp => ctx%input, state => ctx%states(st))
+            wheel = input_wheel_for(inp, trim(node%id))
+            state%scroll = max(0.0, state%scroll - wheel * 3.0 * lh)
+            if (node%active .and. inp%pointer_pressed .and. &
+                inp%pointer_x >= node%x + node%width - ui_scrollbar_width()) then
+                state%dragging = .true.
+                state%anchor = state%scroll
+            end if
+            if (state%dragging .and. node%active .and. inp%pointer_down) then
+                state%scroll = state%anchor + (inp%pointer_y - inp%press_y) * &
+                    (size(items) * lh + 2 * pad) / max(node%height, 1.0)
+            else
+                state%dragging = .false.
+            end if
+            if (node%active .and. inp%pointer_pressed .and. .not. state%dragging) then
+                picked = 1 + floor((inp%pointer_y - node%y - pad + state%scroll) / lh)
+                if (picked >= 1 .and. picked <= size(items)) then
+                    selected = picked
+                    reveal = .true.
+                end if
+            end if
+            if (node%focused) then
+                do k = 1, inp%key_count
+                    select case(inp%keys(k))
+                    case(KEY_ARROW_UP); selected = max(1, selected - 1)
+                    case(KEY_ARROW_DOWN); selected = min(size(items), selected + 1)
+                    case(KEY_HOME); selected = 1
+                    case(KEY_END); selected = size(items)
+                    case(KEY_PAGE_UP)
+                        selected = max(1, selected - max(1, int(node%height / lh) - 1))
+                    case(KEY_PAGE_DOWN)
+                        selected = min(size(items), selected + max(1, int(node%height / lh) - 1))
+                    case(KEY_ENTER); go = .true.
+                    end select
+                end do
+                reveal = reveal .or. selected /= old
+            end if
+            go = go .or. input_host_submitted(inp, trim(node%id))
+            if (inp%double_click_id == node%id .and. selected == old) go = .true.
+            selected = max(0, min(size(items), selected))
+            if (reveal .and. selected > 0) then
+                state%scroll = min(state%scroll, (selected - 1) * lh)
+                state%scroll = max(state%scroll, selected * lh + 2 * pad - node%height)
+            end if
+            node%content_height = size(items) * lh
+            state%scroll = max(0.0, min(state%scroll, &
+                node%content_height + 2 * pad - node%height))
+            node%scroll = state%scroll
+        end associate
+        node%value = real(selected)
+        node%line_count = size(items)
+        allocate(node%lines(size(items)))
+        node%body = ""
+        do k = 1, size(items)
+            first = len(node%body) + 1
+            node%body = node%body // trim(items(k)) // new_line('a')
+            node%lines(k)%first = first
+            node%lines(k)%last = len(node%body) - 1
+            node%lines(k)%y = (k - 1) * lh
+            node%lines(k)%size = node%text_size
+        end do
+        changed = selected /= old
+        if (present(activated)) activated = go .and. selected > 0
+        if (changed .or. go) ctx%followup = .true.
+        call place_and_emit(ctx, node)
+    end function list_box
 
     logical function button(id, label, key, width, height, enabled, ellipsis, size, &
             look, anchor, emphasis) result(clicked)

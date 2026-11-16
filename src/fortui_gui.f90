@@ -35,6 +35,9 @@ module fortui_gui
         win_mods_down, win_time, WIN_EV_CLOSE, WIN_EV_RESIZE, WIN_EV_EXPOSE, WIN_EV_MOTION, &
         WIN_EV_BUTTON_DOWN, WIN_EV_BUTTON_UP, WIN_EV_WHEEL, WIN_EV_KEY_DOWN, WIN_EV_TEXT, &
         WIN_EV_LEAVE, WIN_MOD_SHIFT, WIN_MOD_CTRL, WIN_MOD_ALT, WIN_MOD_META
+#if defined(_WIN32) || defined(__APPLE__)
+    use fortwin, only: win_present_pixels
+#endif
     use fortwin_keys, only: WIN_KEY_NONE, WIN_KEY_ENTER, WIN_KEY_ESCAPE, WIN_KEY_BACKSPACE, &
         WIN_KEY_TAB, WIN_KEY_SPACE, WIN_KEY_DELETE, WIN_KEY_RIGHT, WIN_KEY_LEFT, WIN_KEY_DOWN, &
         WIN_KEY_UP, WIN_KEY_HOME, WIN_KEY_END, WIN_KEY_PAGE_UP, WIN_KEY_PAGE_DOWN, &
@@ -178,8 +181,12 @@ contains
         gui_is_available = .false.
         call get_environment_variable("FORTUI_HEADLESS", v, n, st)
         if (st == 0 .and. trim(v) == "1") return
+#if defined(_WIN32) || defined(__APPLE__)
+        gui_is_available = .true.
+#else
         call get_environment_variable("DISPLAY", v, n, st)
         gui_is_available = st == 0 .and. n > 0
+#endif
     end function gui_is_available
 
     ! --- life cycle -----------------------------------------------------------------------------
@@ -202,12 +209,14 @@ contains
             self%pw = self%win%width
             self%ph = self%win%height
             self%scale = self%win%scale
+#if !defined(_WIN32) && !defined(__APPLE__)
             self%gpu = gpu_open_window(self%dev, self%win%conn, self%win%id, self%pw, self%ph)
             if (.not. self%gpu) then
                 call report_error("fortui_gui", "init", "no Vulkan device can draw the window")
                 call win_close(self%win)
                 return
             end if
+#endif
         end if
         px_scale = self%scale
         allocate (self%layers(8), self%glyphs(4096), self%pages(4), self%queue(256))
@@ -467,11 +476,19 @@ contains
             key = KEY_NONE
         end select
         if (key /= KEY_NONE) then
-            call input_key_press(input, key, 0, mods, repeat=ev%repeat, widgets=.true.)
+            call input_key_press(input, key, 0, mods, repeat=ev%repeat, widgets=.true., mac=host_is_mac())
         else if (ev%codepoint > 32 .and. iand(mods, MOD_CTRL + MOD_ALT + MOD_META) /= 0) then
-            call input_key_press(input, KEY_NONE, ev%codepoint, mods, repeat=ev%repeat)
+            call input_key_press(input, KEY_NONE, ev%codepoint, mods, repeat=ev%repeat, mac=host_is_mac())
         end if
     end subroutine key_event
+
+    logical function host_is_mac()
+#ifdef __APPLE__
+        host_is_mac = .true.
+#else
+        host_is_mac = .false.
+#endif
+    end function
 
     ! --- fonts -----------------------------------------------------------------------------------------------
 
@@ -917,6 +934,9 @@ contains
             if (.not. gpu_render(self%dev, self%list)) self%redraw = .true.
         else
             call cpu_render(self%cpu, self%list)
+#if defined(_WIN32) || defined(__APPLE__)
+            if (.not. self%offscreen) call win_present_pixels(self%win, self%cpu%rgba)
+#endif
         end if
         if (.not. self%offscreen) then
             self%drawn = .true.

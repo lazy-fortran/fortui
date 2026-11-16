@@ -14,10 +14,11 @@ module fortui_paint
     !! line segments, text runs (face, pixel size, colour; `h` is the line box),
     !! clip push/pop, and canvas nodes the backend realizes itself.
     use iso_fortran_env, only: int32
+    use fortui_layout, only: KIND_DIALOG
     use fortui_theme, only: theme, STYLE_CLASSIC, FACE_REGULAR, FACE_STRONG, FACE_MONO, &
         ROLE_LABEL
     use fortui_frame, only: ui_frame_t, ui_node_t, UI_TEXT, UI_BUTTON, UI_LINK, UI_SLIDER, &
-        UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, &
+        UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, UI_LIST_BOX, &
         UI_CAPTION, UI_TONE_NORMAL, UI_TONE_POSITIVE, UI_TONE_NEGATIVE, UI_TONE_MUTED, &
         UI_TONE_ACCENT, UI_TONE_KEYWORD, UI_TONE_HUNK, UI_TONE_LINK, UI_TONE_ATTENTION, &
         UI_EMPHASIS_PRIMARY, UI_EMPHASIS_QUIET, style_weight
@@ -236,6 +237,20 @@ contains
         if (present(window)) back = window
         list%background = back
         call rect(list, 0.0, 0.0, width, height, back)
+        do i = 1, frame%box_count
+            if (frame%boxes(i)%kind /= KIND_DIALOG) cycle
+            associate(b => frame%boxes(i)%bounds)
+                call rect(list, 0.0, 0.0, width, height, with_alpha(theme%dark_shadow, 56))
+                call rect(list, px(b(1)) + 4 * s, px(b(2)) + 6 * s, px(b(3)), px(b(4)), &
+                    with_alpha(theme%dark_shadow, 56), radius=8 * s)
+                if (theme%kind == STYLE_CLASSIC) then
+                    call raised(list, px(b(1)), px(b(2)), px(b(3)), px(b(4)))
+                else
+                    call rect(list, px(b(1)), px(b(2)), px(b(3)), px(b(4)), theme%surface, &
+                        radius=8 * s, border=s, stroke=theme%outline_variant)
+                end if
+            end associate
+        end do
         do i = 1, frame%count
             call paint_node(list, frame, frame%nodes(i), i)
         end do
@@ -327,7 +342,7 @@ contains
             end if
         case (UI_TEXT_INPUT, UI_TEXT_AREA)
             call paint_field(list, node)
-        case (UI_SCROLL_TEXT)
+        case (UI_SCROLL_TEXT, UI_LIST_BOX)
             call paint_scroll_text(list, node)
         case (UI_CANVAS)
             call node_box(node, cmd%x, cmd%y, cmd%w, cmd%h)
@@ -898,6 +913,7 @@ contains
         type(ui_node_t), intent(in) :: node
         real :: x, y, w, h, top, ly, lh, total, max_scroll, sw, th, ty, pad, tl
         integer :: i
+        integer(int32) :: ink
 
         call node_box(node, x, y, w, h)
         pad = real(nint(theme%scroll_padding * s))
@@ -915,8 +931,21 @@ contains
                 ly = top + real(nint(ln%y * s))
                 if (ly + lh < y) cycle
                 if (ly > y + h) exit
+                ink = theme%on_field
+                if (node%kind == UI_LIST_BOX .and. i == nint(node%value)) then
+                    call rect(list, x + 2 * u, ly, w - 4 * u, lh, theme%selection)
+                    ink = theme%on_selection
+                    if (node%focused) then
+                        call rect(list, x + 2 * u, ly, w - 4 * u, lh, theme%primary)
+                        ink = theme%on_primary
+                        if (theme%kind == STYLE_CLASSIC) then
+                            call rect(list, x + 2 * u, ly, w - 4 * u, lh, theme%caption)
+                            ink = theme%on_caption
+                        end if
+                    end if
+                end if
                 if (ln%last >= ln%first) call text_run(list, node%body(ln%first:ln%last), &
-                    x + pad, ly, lh, paint_face(ln%style), ln%size * s, theme%on_field)
+                    x + pad, ly, lh, paint_face(ln%style), ln%size * s, ink)
             end associate
         end do
         call unclip(list)

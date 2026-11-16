@@ -5,10 +5,10 @@ module fortui_html
     !! the page shows before any script runs; the browser backend then adopts the
     !! elements by key instead of rebuilding them.
     use fortui_frame, only: ui_frame_t, ui_node_t, UI_TEXT, UI_BUTTON, UI_LINK, UI_SLIDER, &
-        UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, &
+        UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, UI_LIST_BOX, &
         WIDTH_FIXED, &
         WIDTH_FILL
-    use fortui_layout, only: KIND_ROW, KIND_SPLIT, KIND_PANE
+    use fortui_layout, only: KIND_ROW, KIND_SPLIT, KIND_PANE, KIND_DIALOG
     use fortui_text, only: ui_str
     use fortui_context, only: fortui_context_t, get_default_context
     implicit none
@@ -120,6 +120,8 @@ contains
             s = '<div data-key="b'//ui_str(b)//'" class="'//cls//'"'
             if (len_trim(frame%boxes(b)%id) > 0) s = s//' data-box="'// &
                 html_escape(trim(frame%boxes(b)%id))//'"'
+            if (frame%boxes(b)%kind == KIND_DIALOG) &
+                s = s//' role="dialog" aria-modal="true" aria-label="Open file"'
             s = s//marks(frame%boxes(b)%look, frame%boxes(b)%anchor)
             call put(s//' style="'//style//'">')
             call children(b)
@@ -136,6 +138,7 @@ contains
         function node_html(k, row) result(s)
             integer, intent(in) :: k
             logical, intent(in) :: row
+            integer :: j
             character(len=:), allocatable :: s, a, style, text, body
 
             associate (n => frame%nodes(k))
@@ -183,6 +186,15 @@ contains
                 case (UI_CANVAS)
                     s = '<canvas width="'//ui_str(nint(n%width))//'" height="'// &
                         ui_str(nint(n%height))//'"'//a//'></canvas>'
+                case (UI_LIST_BOX)
+                    s = '<select size="12" aria-label="Files and folders"'//a//'>'
+                    do j = 1, n%line_count
+                        s = s//'<option value="'//ui_str(j)//'"'
+                        if (j == nint(n%value)) s = s//' selected'
+                        s = s//'>'//html_escape(n%body(n%lines(j)%first:n%lines(j)%last))// &
+                            '</option>'
+                    end do
+                    s = s//'</select>'
                 case (UI_SCROLL_TEXT)
                     s = '<div'//a//'>'//body//'</div>'
                 case (UI_TEXT_INPUT)

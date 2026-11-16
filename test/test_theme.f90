@@ -7,19 +7,29 @@ program test_theme
     use iso_c_binding
     use iso_fortran_env, only: int32
     use fortui_theme, only: ui_theme_t, theme, theme_named, theme_select, theme_requested, &
-        theme_rgb, STYLE_CLASSIC, STYLE_FLUENT
+        theme_refresh, theme_follows_desktop, theme_rgb, STYLE_CLASSIC, STYLE_FLUENT
     use fortui_frame, only: ui_frame_t, ui_node_t, UI_BUTTON, UI_CHECKBOX, UI_EMPHASIS_PRIMARY, &
         ui_control_height
     use fortui_paint, only: paint_list_t, paint_frame, PAINT_RECT, PAINT_TEXT, PATTERN_CHECKER
     implicit none
 
     interface
-        integer(c_int) function setenv(name, value, overwrite) bind(C, name="setenv")
+        integer(c_int) function setenv(name, value, overwrite) &
+#ifdef _WIN32
+                bind(C, name="fortui_test_setenv")
+#else
+            bind(C, name="setenv")
+#endif
             import :: c_int, c_char
             character(kind=c_char), intent(in) :: name(*), value(*)
             integer(c_int), value :: overwrite
         end function
-        integer(c_int) function unsetenv(name) bind(C, name="unsetenv")
+        integer(c_int) function unsetenv(name) &
+#ifdef _WIN32
+                bind(C, name="fortui_test_unsetenv")
+#else
+            bind(C, name="unsetenv")
+#endif
             import :: c_int, c_char
             character(kind=c_char), intent(in) :: name(*)
         end function
@@ -27,6 +37,7 @@ program test_theme
 
     integer :: failures = 0
 
+    call test_auto()
     call test_names()
     call test_requested()
     call test_classic_button()
@@ -50,6 +61,25 @@ contains
         end if
     end subroutine check
 
+    subroutine test_auto()
+        logical :: ok, changed
+        call theme_select("fluent", ok)
+        call check(ok .and. theme_follows_desktop(), "Fluent follows desktop appearance")
+        changed = theme_refresh(1)
+        call check(theme%dark, "desktop dark preference")
+        changed = theme_refresh(2)
+        call check(changed .and. .not. theme%dark, "scheduled desktop switch to light")
+        call theme_select("fluent-dark", ok)
+        changed = theme_refresh(2)
+        call check(.not. changed .and. theme%dark, "explicit dark overrides desktop")
+        call theme_select("fluent-light", ok)
+        changed = theme_refresh(1)
+        call check(.not. changed .and. .not. theme%dark, "explicit light overrides desktop")
+        call theme_select("classic", ok)
+        changed = theme_refresh(1)
+        call check(.not. changed .and. theme%kind == STYLE_CLASSIC, "classic stays classic")
+    end subroutine
+
     subroutine test_names()
         type(ui_theme_t) :: t
         logical :: ok
@@ -72,7 +102,12 @@ contains
         character(len=512) :: dir
         integer :: u, rc
         dir = "build/test-theme-config"
+#ifdef _WIN32
+        call execute_command_line('if not exist "build\test-theme-config\fortui" ' // &
+            'mkdir "build\test-theme-config\fortui"')
+#else
         call execute_command_line("mkdir -p " // trim(dir) // "/fortui")
+#endif
         open (newunit=u, file=trim(dir) // "/fortui/config", status="replace", action="write")
         write (u, '(a)') "# FortUI settings"
         write (u, '(a)') "theme = classic"
@@ -202,7 +237,7 @@ contains
         type(paint_list_t) :: list
         logical :: ok
         integer :: k, n
-        call theme_select("fluent", ok)
+        call theme_select("fluent-light", ok)
         call check(ui_control_height() == 32.0, "fluent metrics in composition")
         node%kind = UI_BUTTON
         node%text = "Save"

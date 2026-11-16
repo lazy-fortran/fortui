@@ -26,6 +26,7 @@ program test_gui
     call test_image_first_frame()
     call test_cell_grid_edges()
     call test_window_background()
+    call test_file_dialog_pixels()
 
     if (failures > 0) then
         print '(i0,a)', failures, " gui checks failed"
@@ -43,6 +44,33 @@ contains
             print '(a)', "FAIL: " // what
         end if
     end subroutine check
+
+    subroutine test_file_dialog_pixels()
+        use fortui_testing, only: ui_node_rect
+        type(gui_backend_t) :: b
+        type(file_dialog_t) :: d
+        integer(int8), allocatable :: px(:,:,:)
+        character(12), parameter :: names(3) = [character(12) :: &
+            "classic", "fluent-light", "fluent-dark"]
+        real :: x, y, width, height
+        integer :: k, w, h, stat
+        logical :: found
+        do k = 1, size(names)
+            b%offscreen = .true.
+            call ui_init(b, 800, 650, "Open photo", stat=stat)
+            call ui_set_theme(trim(names(k)))
+            call file_dialog_open(d, "Open photo", ".", ".png,.jpg")
+            call ui_frame_begin()
+            call file_dialog_show(d)
+            call ui_present()
+            call read_frame(px, w, h)
+            found = ui_node_rect("file-dialog/accept", x, y, width, height)
+            call check(found .and. y + height <= h, "dialog actions visible in " // trim(names(k)))
+            call check(any(px(1:3, 400, 300) /= px(1:3, 4, 4)), &
+                "dialog surface visible in " // trim(names(k)))
+            call ui_shutdown()
+        end do
+    end subroutine
 
     subroutine compose()
         call ui_frame_begin()
@@ -123,9 +151,9 @@ contains
         integer(int8), allocatable :: px(:, :, :)
         integer :: w, h, stat, r
         b%offscreen = .true.
-        call ui_init(b, 200, 140, "test", stat=stat, theme_name="fluent")
+        call ui_init(b, 200, 140, "test", stat=stat, theme_name="fluent-light")
         if (stat /= 0) return
-        call ui_set_theme("fluent")
+        call ui_set_theme("fluent-light")
         call compose()
         call read_frame(px, w, h)
         if (w /= 200) return
@@ -165,9 +193,9 @@ contains
         integer(c_int32_t) :: red(4, 4)
         type(canvas_view_t) :: view
         b%offscreen = .true.
-        call ui_init(b, 100, 100, "test", stat=stat, theme_name="fluent")
+        call ui_init(b, 100, 100, "test", stat=stat, theme_name="fluent-light")
         if (stat /= 0) return
-        call ui_set_theme("fluent")
+        call ui_set_theme("fluent-light")
         red = ui_rgba(255, 0, 0)
         call ui_frame_begin()
         call canvas_begin("c", view, width=60.0, height=60.0, fill=ui_rgba(0, 0, 255))
@@ -189,9 +217,9 @@ contains
         integer(int32) :: cp(4), fg(4), bg(4), attr(4)
         type(canvas_view_t) :: view
         b%offscreen = .true.
-        call ui_init(b, 200, 200, "test", stat=stat, theme_name="fluent")
+        call ui_init(b, 200, 200, "test", stat=stat, theme_name="fluent-light")
         if (stat /= 0) return
-        call ui_set_theme("fluent")
+        call ui_set_theme("fluent-light")
         cp = iachar("x")
         fg = ui_rgba(0, 255, 0)
         bg = ui_rgba(0, 255, 0)

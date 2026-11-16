@@ -26,6 +26,13 @@ cpp.directories = ["src", "app", "test", "example"]
 [dependencies]
 fortzip = { git = "https://github.com/lazy-fortran/fortzip.git", rev = "4353df1767953a8d38ce68fec04c98098a13a5ff" }
 fortimg = { git = "https://github.com/lazy-fortran/fortimg.git", rev = "22716c3ed5424e1e463bde5e6bc0daf40d78cb2e" }
-fortfont = { git = "https://github.com/lazy-fortran/fortfont.git", rev = "cd47a110f4e6d5df93b1e988811f33b3aaa85de8" }
-fortwin = { git = "https://github.com/lazy-fortran/fortwin.git", rev = "7bef87047ce1d8f0bd006a20fc8769868a252f41" }
-fortgfx = { git = "https://github.com/lazy-fortran/fortgfx.git", rev = "3cdc924335ac88d6a67d53920736a0e659d5c24c" }
+fortfont = { git = "https://github.com/lazy-fortran/fortfont.git", rev = "7d53dd0dd5f88897dfa531b86287a01b934c2ed7" }
+fortwin = { git = "https://github.com/lazy-fortran/fortwin.git", rev = "64731448b5469765c2185944b6be86863457a1e1" }
+fortgfx = { git = "https://github.com/lazy-fortran/fortgfx.git", rev = "c328a346e2aea19cbcd1edbaa0a956c594cf9455" }
+
+[features]
+platform.macos.preprocess.cpp.macros = ["__APPLE__"]
+platform.windows.preprocess.cpp.macros = ["_WIN32"]
+
+[profiles]
+default = ["platform"]

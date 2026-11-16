@@ -283,7 +283,8 @@ contains
             ui_str(n%tone)//US//clean(trim(n%text))//US
         if (allocated(n%body)) r = r//clean(n%body)
         r = r//US//runs(n)//US//clean(trim(n%look))//US//clean(trim(n%anchor))//US// &
-            ui_str(n%emphasis)
+            ui_str(n%emphasis) // US
+        if (allocated(n%file_accept)) r = r // "1" // clean(n%file_accept)
     end function node_record
 
     function runs(n) result(s)

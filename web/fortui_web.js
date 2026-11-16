@@ -7,13 +7,15 @@
 // Every element carries a stable data-key, so a page rendered by the server
 // is adopted rather than rebuilt (no flash when the WebAssembly starts).
 addToLibrary({
-  $FUI__deps: ['$UTF8ToString'],
+  $FUI__deps: ['$UTF8ToString', '$FS'],
   $FUI: {
     root: null,
     els: new Map(),
     events: [],
     scheduled: false,
     started: false,
+    fileSequence: 0,
+    filePicker: null,
     HOST: { activate: 1, focus: 2, blur: 3, value: 4, submit: 5 },
     // Named keys as the runtime numbers them (KEY_* in fortui_input).
     KEYS: { Enter: 1, Escape: 2, Tab: 3, Backspace: 4, Delete: 5, Home: 6, End: 7, ArrowLeft: 8,
@@ -76,7 +78,10 @@ addToLibrary({
       root.addEventListener('click', function (e) {
         var el = e.target.closest('[data-id]');
         if (!el || !root.contains(el)) return;
-        if (el.tagName === 'BUTTON') FUI.host(H.activate, el);
+        if (el.tagName === 'BUTTON') {
+          if (el.hasAttribute('data-file-accept')) FUI.chooseFile(el);
+          else FUI.host(H.activate, el);
+        }
         // A plain click on a link is the application's to handle; with a
         // modifier or another button the browser opens the location itself.
         if (el.tagName === 'A' && e.button === 0 && !e.metaKey && !e.ctrlKey &&
@@ -88,11 +93,12 @@ addToLibrary({
       root.addEventListener('change', function (e) {
         var el = e.target.closest('[data-id]');
         if (el && e.target.type === 'checkbox') FUI.host(H.activate, el);
+        if (el && el.tagName === 'SELECT') FUI.host(H.value, el, el.value);
       });
       root.addEventListener('input', function (e) {
         var t = e.target, el = t.closest('[data-id]');
         if (!el || (t.tagName !== 'INPUT' && t.tagName !== 'TEXTAREA')) return;
-        if (t.type === 'checkbox') return;
+        if (t.type === 'checkbox' || t.type === 'file') return;
         t._reported = t.value;
         FUI.host(H.value, el, t.value);
       });
@@ -112,6 +118,9 @@ addToLibrary({
         var t = e.target;
         if (e.key === 'Enter' && t.tagName === 'INPUT' && t.type === 'text' && root.contains(t)) {
           FUI.host(H.submit, t.closest('[data-id]'));
+        }
+        if (e.key === 'Enter' && t.tagName === 'SELECT' && root.contains(t)) {
+          e.preventDefault(); FUI.host(H.submit, t); return;
         }
         var k = FUI.key(e);
         if (!k) return;
@@ -136,14 +145,19 @@ addToLibrary({
         var steps = e.deltaY / (e.deltaMode === 1 ? 3 : 100);
         FUI.push([3, Math.round(-steps), -steps, 0]);
       }, { passive: false });
+      root.addEventListener('dblclick', function (e) {
+        var el = e.target.closest('select[data-id]');
+        if (el) FUI.host(H.submit, el);
+      });
       window.addEventListener('resize', FUI.resize);
     },
     tags: { 2: 'button', 3: 'input', 4: 'label', 5: 'button', 6: 'canvas', 8: 'input', 9: 'a',
-      10: 'textarea' },
+      10: 'textarea', 11: 'select' },
     create: function (kind, key) {
       var el = document.createElement(FUI.tags[kind] || 'div');
       if (kind === 3) { el.type = 'range'; el.step = 'any'; }
       if (kind === 8) el.type = 'text';
+      if (kind === 11) { el.size = 12; el.setAttribute('aria-label', 'Files and folders'); }
       if (kind === 5) el.setAttribute('role', 'tab');
       if (kind === 4) {
         var box = document.createElement('input'); box.type = 'checkbox';
@@ -178,6 +192,8 @@ addToLibrary({
       FUI.size(s, +f[13], +f[4], inRow);
       if ('disabled' in el) el.disabled = (flags & 2) !== 0;
       if (kind === 2 || kind === 5 || kind === 6 || kind === 7 || kind === 10) s.height = f[5] + 'px';
+      if (f[21] && f[21][0] === '1') el.setAttribute('data-file-accept', f[21].slice(1));
+      else el.removeAttribute('data-file-accept');
       switch (kind) {
         case 2:
           if (el.textContent !== text) el.textContent = text;
@@ -197,6 +213,17 @@ addToLibrary({
         case 6:
           el._x = +f[2]; el._y = +f[3];
           el.width = +f[4]; el.height = +f[5];
+          break;
+        case 11:
+          if (el._body !== body) {
+            el._body = body;
+            el.replaceChildren(...body.trimEnd().split('\n').filter(Boolean).map(function (name, i) {
+              var option = document.createElement('option');
+              option.value = String(i + 1); option.textContent = name; return option;
+            }));
+          }
+          el.value = String(Math.round(+f[7]));
+          el.size = Math.max(3, Math.round(+f[5] / 24));
           break;
         case 7:
           if (el.textContent !== body) el.textContent = body;
@@ -245,6 +272,37 @@ addToLibrary({
       if (at < bytes.length) frag.appendChild(document.createTextNode(dec.decode(bytes.subarray(at))));
       el.replaceChildren(frag);
     },
+    chooseFile: function (el) {
+      // click() stays inside the trusted button handler, including keyboard activation.
+      if (FUI.filePicker) return;
+      var input = document.createElement('input');
+      input.type = 'file'; input.accept = el.getAttribute('data-file-accept') || '';
+      input.hidden = true; document.body.appendChild(input);
+      var token = ++FUI.fileSequence, id = el.dataset.id;
+      FUI.filePicker = input;
+      function finish() { input.remove(); if (FUI.filePicker === input) FUI.filePicker = null; }
+      input.addEventListener('cancel', function () {
+        if (token === FUI.fileSequence && FUI.root) FUI.host(FUI.HOST.value, el, '');
+        finish();
+      }, { once: true });
+      input.addEventListener('change', async function () {
+        var file = input.files[0];
+        if (!file) { finish(); return; }
+        try {
+          var bytes = new Uint8Array(await file.arrayBuffer());
+          if (token !== FUI.fileSequence || !FUI.root || !el.isConnected || el.dataset.id !== id) return;
+          var dir = '/fortui-selected-' + token;
+          FS.mkdir(dir);
+          var path = dir + '/' + file.name.replace(/[\/\x00-\x1f]/g, '_');
+          FS.writeFile(path, bytes);
+          FUI.host(FUI.HOST.value, el, path);
+        } catch (error) {
+          FUI.host(FUI.HOST.value, el, '');
+          console.error('File selection failed', error);
+        } finally { finish(); }
+      }, { once: true });
+      input.click();
+    },
     box: function (el, b) {
       var kind = +b[1], s = el.style;
       el.className = 'fui-box ' + (kind === 2 || kind === 3 ? 'fui-row' : 'fui-col');
@@ -253,10 +311,15 @@ addToLibrary({
       s.minHeight = +b[5] > 0 ? b[5] + 'px' : '';
       if (kind === 4 && +b[6] >= 0) { s.width = b[6] + 'px'; s.flex = '0 0 auto'; }
       if ((b[7] || '') !== (el.dataset.box || '')) { if (b[7]) el.dataset.box = b[7]; else delete el.dataset.box; }
+      if (kind === 5) { el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', 'Open file'); }
+      else { el.removeAttribute('role'); el.removeAttribute('aria-modal'); el.removeAttribute('aria-label'); }
       FUI.mark(el, b[8] || '', b[9] || '');
     },
   },
 
+  fortui_system_appearance: function () {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 1 : 2;
+  },
   // The application's theme as data-theme on the root ('' keeps the page's look).
   fortui_web_theme__deps: ['$FUI'],
   fortui_web_theme: function (ptr, n) {
@@ -291,6 +354,8 @@ addToLibrary({
 
   fortui_web_shutdown__deps: ['$FUI'],
   fortui_web_shutdown: function () {
+    ++FUI.fileSequence;
+    if (FUI.filePicker) { FUI.filePicker.remove(); FUI.filePicker = null; }
     if (FUI.root) FUI.root.remove();
     FUI.root = null;
     FUI.els.clear();

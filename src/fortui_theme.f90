@@ -18,6 +18,7 @@ module fortui_theme
     !! Graphical backends take the theme from FORTUI_THEME, else from `theme =`
     !! in $XDG_CONFIG_HOME/fortui/config (~/.config/fortui/config), else the
     !! application's default (ui_init theme=, else "fluent").
+    use iso_c_binding, only: c_int
     use iso_fortran_env, only: int32
     implicit none
     private
@@ -100,6 +101,13 @@ module fortui_theme
 
     public :: theme_plain, theme_classic, theme_fluent, theme_named
     public :: theme_current, theme_set, theme_select, theme_requested
+    logical, save :: follow_desktop = .false.
+    public :: theme_refresh, theme_follows_desktop
+    interface
+        integer(c_int) function system_appearance() bind(C, name="fortui_system_appearance")
+            import c_int
+        end function
+    end interface
     public :: theme_rgb, theme_names, tui_theme_requested
 
 contains
@@ -329,7 +337,7 @@ contains
         select case (lower(trim(adjustl(name))))
         case ("classic", "windows95", "win95", "chicago95")
             t = theme_classic()
-        case ("fluent", "fluent-light", "fluent2")
+        case ("fluent", "fluent-light", "fluent2", "fluent-auto", "auto")
             t = theme_fluent(.false.)
         case ("fluent-dark")
             t = theme_fluent(.true.)
@@ -350,6 +358,7 @@ contains
     subroutine theme_set(t)
         type(ui_theme_t), intent(in) :: t
         theme = t
+        follow_desktop = .false.
     end subroutine theme_set
 
     function theme_requested(fallback) result(name)
@@ -411,8 +420,33 @@ contains
         logical, intent(out) :: ok
         type(ui_theme_t) :: t
         call theme_named(name, t, ok)
-        if (ok) call theme_set(t)
+        if (ok) then
+            call theme_set(t)
+            follow_desktop = any(lower(trim(name)) == &
+                [character(16) :: "fluent", "fluent2", "fluent-auto", "auto"])
+            if (follow_desktop) theme = theme_fluent(system_appearance() == 1)
+        end if
     end subroutine theme_select
+
+    logical function theme_follows_desktop()
+        theme_follows_desktop = follow_desktop
+    end function
+
+    logical function theme_refresh(preference) result(changed)
+        !! The host's current preference includes any desktop-managed schedule.
+        integer, intent(in), optional :: preference
+        integer :: p
+        changed = .false.
+        if (.not. follow_desktop) return
+        p = 0
+        if (present(preference)) then
+            p = preference
+        else
+            p = system_appearance()
+        end if
+        changed = theme%dark .neqv. (p == 1)
+        if (changed) theme = theme_fluent(p == 1)
+    end function
 
     pure function lower(s) result(t)
         character(*), intent(in) :: s

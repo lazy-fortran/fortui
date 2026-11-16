@@ -1,3 +1,4 @@
+#ifndef _WIN32
 #define _DEFAULT_SOURCE
 /*
  * fortui_tty.c - the terminal device of the TUI backend (POSIX).
@@ -208,3 +209,116 @@ int fortui_tty_size(int *cols, int *rows, int *xpixel, int *ypixel) {
     *ypixel = ws.ws_ypixel;
     return 0;
 }
+
+#else
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <stdio.h>
+#include <string.h>
+static HANDLE input = INVALID_HANDLE_VALUE, output = INVALID_HANDLE_VALUE;
+static DWORD saved_in, saved_out, saved_input_cp, saved_output_cp;
+static DWORD last_buttons;
+static char pending[128]; static long available;
+int fortui_tty_open(void) {
+    if(input!=INVALID_HANDLE_VALUE)return -1;
+    input=CreateFileW(L"CONIN$",GENERIC_READ|GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE,NULL,OPEN_EXISTING,0,NULL);
+    output=CreateFileW(L"CONOUT$",GENERIC_READ|GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE,NULL,OPEN_EXISTING,0,NULL);
+    if(input==INVALID_HANDLE_VALUE||output==INVALID_HANDLE_VALUE)goto fail;
+    if(!GetConsoleMode(input,&saved_in)||!GetConsoleMode(output,&saved_out))goto fail;
+    saved_input_cp=GetConsoleCP();saved_output_cp=GetConsoleOutputCP();
+    SetConsoleCP(CP_UTF8);SetConsoleOutputCP(CP_UTF8);
+    SetConsoleMode(input,ENABLE_EXTENDED_FLAGS|ENABLE_WINDOW_INPUT|ENABLE_MOUSE_INPUT);
+    SetConsoleMode(output,saved_out|ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    return 0;
+fail:
+    if(input!=INVALID_HANDLE_VALUE)CloseHandle(input);
+    if(output!=INVALID_HANDLE_VALUE)CloseHandle(output);
+    input=output=INVALID_HANDLE_VALUE;
+    return -1;
+}
+int fortui_tty_close(void) {
+    if(input==INVALID_HANDLE_VALUE)return -1;
+    SetConsoleMode(input,saved_in);SetConsoleMode(output,saved_out);
+    SetConsoleCP(saved_input_cp);SetConsoleOutputCP(saved_output_cp);
+    CloseHandle(input);CloseHandle(output);input=output=INVALID_HANDLE_VALUE;available=0;return 0;
+}
+static void key_record(KEY_EVENT_RECORD *k) {
+    if(!k->bKeyDown)return;
+    static wchar_t high;
+    wchar_t ch[2]={k->uChar.UnicodeChar,0};
+    DWORD mods=k->dwControlKeyState;
+    int modifier=1+!!(mods&SHIFT_PRESSED)+2*!!(mods&(LEFT_ALT_PRESSED|RIGHT_ALT_PRESSED))+
+        4*!!(mods&(LEFT_CTRL_PRESSED|RIGHT_CTRL_PRESSED));
+    if(k->wVirtualKeyCode==VK_TAB && (mods&SHIFT_PRESSED)) {
+        memcpy(pending,"\033[Z",3);available=3;return;
+    }
+    if(ch[0]) {
+        if(ch[0]>=0xd800 && ch[0]<=0xdbff){high=ch[0];return;}
+        int count=1;
+        if(high && ch[0]>=0xdc00 && ch[0]<=0xdfff){ch[1]=ch[0];ch[0]=high;count=2;}
+        high=0;
+        int alt=!!(mods&LEFT_ALT_PRESSED);
+        if(alt)pending[0]='\033';
+        available=alt+WideCharToMultiByte(CP_UTF8,0,ch,count,pending+alt,sizeof pending-alt,NULL,NULL);
+        return;
+    }
+    const char *seq=NULL;
+    switch(k->wVirtualKeyCode){case VK_UP:seq="\033[A";break;case VK_DOWN:seq="\033[B";break;
+    case VK_RIGHT:seq="\033[C";break;case VK_LEFT:seq="\033[D";break;case VK_HOME:seq="\033[H";break;
+    case VK_END:seq="\033[F";break;case VK_PRIOR:seq="\033[5~";break;case VK_NEXT:seq="\033[6~";break;
+    case VK_DELETE:seq="\033[3~";break;case VK_INSERT:seq="\033[2~";break;
+    case VK_F1:seq="\033OP";break;case VK_F2:seq="\033OQ";break;case VK_F3:seq="\033OR";break;
+    case VK_F4:seq="\033OS";break;}
+    if(seq){
+        size_t n=strlen(seq);
+        if(modifier>1 && seq[1]=='[') {
+            if(n==3)available=snprintf(pending,sizeof pending,"\033[1;%d%c",modifier,seq[2]);
+            else available=snprintf(pending,sizeof pending,"\033[%c;%d~",seq[2],modifier);
+        } else {available=(long)n;memcpy(pending,seq,n);}
+    }
+}
+long fortui_tty_read(char *buf,long cap,int timeout_ms) {
+    ULONGLONG end=GetTickCount64()+(timeout_ms<0?0:(DWORD)timeout_ms);
+    while(!available){
+        DWORD left=timeout_ms<0?INFINITE:(GetTickCount64()>=end?0:(DWORD)(end-GetTickCount64()));
+        if(WaitForSingleObject(input,left)!=WAIT_OBJECT_0)return 0;
+        INPUT_RECORD record;DWORD n;if(!ReadConsoleInputW(input,&record,1,&n))return -1;
+        if(record.EventType==WINDOW_BUFFER_SIZE_EVENT)return -2;
+        if(record.EventType==KEY_EVENT)key_record(&record.Event.KeyEvent);
+        if(record.EventType==MOUSE_EVENT){
+            MOUSE_EVENT_RECORD *m=&record.Event.MouseEvent;
+            CONSOLE_SCREEN_BUFFER_INFO info;GetConsoleScreenBufferInfo(output,&info);
+            int button=0;char endch='M';
+            if(m->dwEventFlags==MOUSE_WHEELED)button=(SHORT)HIWORD(m->dwButtonState)>0?64:65;
+            else if(m->dwEventFlags==MOUSE_MOVED)button=32+((m->dwButtonState&1)?0:3);
+            else {DWORD buttons=m->dwButtonState&0xffff;
+                if(buttons==last_buttons)continue;
+                DWORD which=buttons?buttons:last_buttons;
+                button=(which&FROM_LEFT_1ST_BUTTON_PRESSED)?0:((which&RIGHTMOST_BUTTON_PRESSED)?2:1);
+                if(!buttons)endch='m';last_buttons=buttons;}
+            available=snprintf(pending,sizeof pending,"\033[<%d;%d;%d%c",button,
+                m->dwMousePosition.X-info.srWindow.Left+1,m->dwMousePosition.Y-info.srWindow.Top+1,endch);
+        }
+    }
+    long n=available<cap?available:cap;memcpy(buf,pending,(size_t)n);
+    memmove(pending,pending+n,(size_t)(available-n));available-=n;return n;
+}
+int fortui_tty_write(const char *buf,long n) {
+    while(n>0){DWORD wrote;if(!WriteFile(output,buf,(DWORD)n,&wrote,NULL)||!wrote)return -1;buf+=wrote;n-=wrote;}return 0;
+}
+long fortui_tty_query(const char *query,long nquery,char *reply,long cap,int timeout_ms) {
+    (void)query;(void)nquery;(void)reply;(void)cap;(void)timeout_ms;
+    /* Console events are read directly, so terminal response bytes are unavailable. */
+    return 0;
+}
+int fortui_tty_size(int *cols,int *rows,int *xpixel,int *ypixel) {
+    CONSOLE_SCREEN_BUFFER_INFO info;CONSOLE_FONT_INFOEX font={0};font.cbSize=sizeof font;
+    *cols=*rows=*xpixel=*ypixel=0;
+    if(!GetConsoleScreenBufferInfo(output,&info))return -1;
+    *cols=info.srWindow.Right-info.srWindow.Left+1;*rows=info.srWindow.Bottom-info.srWindow.Top+1;
+    if(GetCurrentConsoleFontEx(output,FALSE,&font)){*xpixel=*cols*font.dwFontSize.X;*ypixel=*rows*font.dwFontSize.Y;}
+    return 0;
+}
+
+#endif

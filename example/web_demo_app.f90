@@ -8,6 +8,7 @@ module web_demo_app
     public :: compose
 
     logical :: checked = .false., submitted = .false., to_name = .false., to_end = .false.
+    type(file_dialog_t) :: picker
     integer :: value = 25, tab = 1, clicks = 0, ticks = 0, presses = 0
     double precision :: next_tick = 0d0
     character(len=:), allocatable :: name, notes, last_key
@@ -71,6 +72,11 @@ contains
             end if
             if (slider("value", 0, 100, value, step=5, width=240.0)) continue
             if (checkbox("check", checked, "Enabled")) continue
+            call file_open_button("open-file", "Open file...", picker, &
+                extensions=".png,.jpg,.jpeg")
+            if (picker%status == FILE_ACCEPTED) call text(picker%name // ": " // &
+                ui_str(size(picker%bytes)) // " bytes", id="file-result")
+            if (button("appearance", "Follow desktop theme")) call ui_set_theme("fluent")
         case (2)
             if (text_input("name", name, placeholder="Your name", submitted=submitted, &
                 width=320.0)) continue

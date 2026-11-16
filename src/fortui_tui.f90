@@ -17,7 +17,7 @@ module fortui_tui
     use iso_c_binding, only: c_int, c_int8_t, c_int16_t, c_int32_t, c_long, c_char
     use iso_fortran_env, only: int32, int64
     use fortui_frame, only: ui_frame_t, ui_node_t, UI_TEXT, UI_BUTTON, UI_LINK, UI_SLIDER, &
-        UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, UI_CAPTION, &
+        UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, UI_LIST_BOX, UI_CAPTION, &
         UI_HEADING, UI_TITLE, ui_scroll_padding, UI_EMPHASIS_PRIMARY, UI_TONE_NORMAL, &
         UI_TONE_POSITIVE, UI_TONE_NEGATIVE, UI_TONE_MUTED, UI_TONE_ACCENT, UI_TONE_LINK, &
         UI_TONE_ATTENTION, UI_TONE_STRONG, UI_TONE_KEYWORD, UI_TONE_HUNK, LAYER_CELLS, &
@@ -1216,7 +1216,7 @@ contains
                     call put_cell(self, x + knob, y, 9608, colour(self, merge(p%disabled, &
                         p%text, node%disabled)), bg)
                 end if
-            case (UI_SCROLL_TEXT)
+            case (UI_SCROLL_TEXT, UI_LIST_BOX)
                 call draw_scroll_text(self, node, x, y, w, h)
             case (UI_TEXT_INPUT, UI_TEXT_AREA)
                 call draw_field(self, node, x, y, w, h)
@@ -1392,6 +1392,13 @@ contains
             row = nint((ui_scroll_padding() + node%lines(i)%y - node%scroll) / CELL_H_DP)
             if (row < 0) cycle
             if (row >= h) exit
+            fg = colour(self, self%pal%text)
+            bg = colour(self, self%pal%panel)
+            if (node%kind == UI_LIST_BOX .and. i == nint(node%value)) then
+                fg = colour(self, self%pal%on_cursor)
+                bg = colour(self, self%pal%cursor)
+                call fill(self, x, y + row, tw, 1, bg)
+            end if
             if (node%lines(i)%last >= node%lines(i)%first) call draw_string(self, x, &
                 y + row, node%body(node%lines(i)%first:node%lines(i)%last), fg, bg, tw, .false.)
         end do

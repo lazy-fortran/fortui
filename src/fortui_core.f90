@@ -11,11 +11,12 @@ module fortui_core
         FOCUS_CONTROL, FOCUS_RANGE, FOCUS_FIELD, FOCUS_EDITOR, FOCUS_TERMINAL
     use fortui_layout, only: layout_reset, layout_check_balance, layout_boxes
     use fortui_frame, only: UI_TEXT_INPUT, UI_TEXT_AREA, UI_NONE, UI_SLIDER, &
-        UI_SCROLL_TEXT, style_weight
+        UI_SCROLL_TEXT, UI_LIST_BOX, style_weight
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t, ui_window_config_t
     use fortui_text, only: text_use_fixed_metrics, text_width
     use fortui_error, only: report_error
-    use fortui_theme, only: theme, theme_select, theme_requested, theme_set, theme_plain
+    use fortui_theme, only: theme, theme_select, theme_requested, theme_set, theme_plain, &
+        theme_refresh, theme_follows_desktop
     use iso_c_binding, only: c_funptr, c_null_funptr
     implicit none
     private
@@ -45,6 +46,7 @@ module fortui_core
 
     ! The application's frame procedure while a host drives the frames.
     procedure(ui_frame_proc), pointer, save :: driven_frame => null()
+    double precision, save :: appearance_checked = -1d9
 
 contains
 
@@ -120,6 +122,7 @@ contains
         end if
         ctx%backend_name = ctx%backend%name()
         call ctx%backend%install_text_metrics()
+        appearance_checked = -1d9
         ctx%initialized = .true.
         call set_default_context(ctx)
     end subroutine ui_init_backend
@@ -181,7 +184,7 @@ contains
             case (UI_NONE); focus_level = FOCUS_PLAIN
             case (UI_TEXT_INPUT); focus_level = FOCUS_FIELD
             case (UI_TEXT_AREA); focus_level = FOCUS_EDITOR
-            case (UI_SLIDER, UI_SCROLL_TEXT); focus_level = FOCUS_RANGE
+            case (UI_SLIDER, UI_SCROLL_TEXT, UI_LIST_BOX); focus_level = FOCUS_RANGE
             case default; focus_level = FOCUS_CONTROL
             end select
         end if
@@ -194,6 +197,12 @@ contains
         if (ctx%text_focused .and. input_key_arrived(ctx%input, KEY_ESCAPE)) &
             ctx%input%focus_id = ""
 
+        if (theme_follows_desktop()) then
+            if (ui_time() - appearance_checked >= 2d0) then
+                if (theme_refresh()) call ctx%backend%install_text_metrics()
+                appearance_checked = ui_time()
+            end if
+        end if
         call ctx%current_frame%reset()
         ctx%canvas_node = 0
         if (ctx%window_margin >= 0.0) then
@@ -237,6 +246,14 @@ contains
                 ctx%wait_next = .false.
             else if (ctx%wait_next) then
                 ctx%backend%wake_in = real(ctx%wake_at - ui_time())
+            end if
+        end if
+        if (ctx%wait_next .and. theme_follows_desktop()) then
+            if (ctx%backend%wake_in < 0.0) then
+                ctx%backend%wake_in = real(max(0d0, appearance_checked + 2d0 - ui_time()))
+            else
+                ctx%backend%wake_in = min(ctx%backend%wake_in, &
+                    real(max(0d0, appearance_checked + 2d0 - ui_time())))
             end if
         end if
         if (ctx%wait_next) ctx%waiting_presents = ctx%waiting_presents + 1

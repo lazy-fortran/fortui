@@ -77,12 +77,12 @@ module cups_reference
     end interface
 
     interface
-        type(c_ptr) function dlopen(name, flags) bind(C)
+        type(c_ptr) function dlopen(name, flags) bind(C, name="fortgfx_dlopen")
             import :: c_ptr, c_char, c_int
             character(kind=c_char), intent(in) :: name(*)
             integer(c_int), value :: flags
         end function
-        type(c_funptr) function dlsym(handle, name) bind(C)
+        type(c_funptr) function dlsym(handle, name) bind(C, name="fortgfx_dlsym")
             import :: c_ptr, c_funptr, c_char
             type(c_ptr), value :: handle
             character(kind=c_char), intent(in) :: name(*)

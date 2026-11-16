@@ -153,7 +153,7 @@ CPU alike. Square edges sit on whole pixels and glyphs are drawn
   two-pixel bevels, default buttons with a black frame, dotted focus rectangles,
   sunken fields, 16 px scroll bars with arrows, 11 px bitmap Helvetica from the
   Chicago95 fonts and More Perfect DOS VGA for code.
-- `fluent`, `fluent-dark` (default): Microsoft Fluent 2 as the Fluent UI web
+- `fluent` (default), `fluent-light`, `fluent-dark`: Microsoft Fluent 2 as the Fluent UI web
   themes define it: neutral greys with visible 1 px strokes, brand blue, 4 px
   corners, 32 px controls, fields with a darker underline that turns into a brand
   underline with the focus, the Fluent type ramp and two-tone focus outlines;
@@ -163,7 +163,11 @@ CPU alike. Square edges sit on whole pixels and glyphs are drawn
 The user chooses with `FORTUI_THEME`, else `theme = classic` in
 `~/.config/fortui/config` (`$XDG_CONFIG_HOME/fortui/config`); otherwise the
 application's `theme_name`, else `fluent`. `ui_set_theme(name)` switches at
-run time. FortUI ships no fonts: themes find their fonts among the installed ones
+run time. `fluent` follows the desktop light/dark preference, including schedules
+managed by the desktop. `fluent-light` and `fluent-dark` stay fixed. The browser
+uses its preferred color scheme. Classic stays fixed.
+
+FortUI ships no fonts: themes find their fonts among the installed ones
 (fortfont reads the font folders, no fontconfig) and fall back with a warning
 naming the package to install. Text is laid out as SDL_ttf with HarfBuzz did, so
 layouts keep their positions; a character the face lacks comes from a fallback
@@ -261,3 +265,33 @@ The API may change before 1.0.
 
 AI assistance: this architecture documentation was prepared with GPT assistance;
 project maintainers retain responsibility for its content and technical decisions.
+
+## File selection
+
+`file_open_button` opens a themed chooser on desktop and terminal backends. The
+browser opens its own file picker directly from the button's user gesture. A
+selection owns either a desktop path or browser bytes and a display name.
+
+```fortran
+type(file_dialog_t) :: picker
+! In the frame callback, compose only the dialog while it is active.
+if (picker%active) then
+    call file_dialog_show(picker)
+    return
+end if
+call file_open_button("open", "Open photo...", picker, extensions=".png,.jpg,.jpeg")
+if (picker%status == FILE_ACCEPTED) then
+    ! Read picker%path on desktop, or picker%bytes in the browser.
+    picker%status = FILE_IDLE
+end if
+```
+
+The desktop chooser supports folders, location entry (Ctrl+L or Cmd+L), filename
+filtering, hidden files, keyboard selection, Enter to open and Escape to cancel.
+Errors keep the chooser open. Keep the current document until a
+replacement has loaded successfully.
+
+Native Windows and macOS windows use CPU bitmap presentation through Win32 and
+AppKit. Linux retains X11/Vulkan. Build native platforms with fpm 0.13 or later,
+whose default platform features select the required preprocessing macros. The
+custom-drawn controls do not yet provide native IME or accessibility bridges.

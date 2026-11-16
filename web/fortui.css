@@ -147,3 +147,8 @@
 .fui-root[data-theme^="fluent"] .fui[data-style="5"] {
   font-family: "Cascadia Mono", Consolas, ui-monospace, Menlo, monospace;
 }
+
+.fui-k11 { min-height: 96px; overflow: auto; background: var(--fui-field, Canvas); color: var(--fui-text, CanvasText); border: 1px solid GrayText; padding: 4px; }
+.fui-k11 option { padding: 4px 8px; }
+
+.fui-box[role="dialog"] { width: min(880px, 100%); align-self: center; padding: 16px; box-sizing: border-box; border: 1px solid GrayText; border-radius: 8px; box-shadow: 0 8px 32px #0003; }

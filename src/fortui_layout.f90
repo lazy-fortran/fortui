@@ -15,8 +15,9 @@ module fortui_layout
     integer, parameter :: KIND_ROW = 2
     integer, parameter :: KIND_SPLIT = 3
     integer, parameter :: KIND_PANE = 4
-    character(len=*), parameter :: KIND_NAMES(0:4) = [character(len=6) :: "root", &
-        "column", "row", "split", "pane"]
+    integer, parameter :: KIND_DIALOG = 5
+    character(len=*), parameter :: KIND_NAMES(0:5) = [character(len=6) :: "root", &
+        "column", "row", "split", "pane", "dialog"]
 
     type :: layout_entry_t
         integer :: kind = KIND_ROOT
@@ -47,6 +48,7 @@ module fortui_layout
 
     type, public :: layout_box_t
         !! A container as hosts that lay out themselves (the browser) need it.
+        real :: bounds(4) = 0.0
         integer :: kind = KIND_COLUMN
         integer :: parent = 0
         !! Nodes emitted before the container opened: its place among its
@@ -78,12 +80,12 @@ module fortui_layout
     integer, save :: told_count = 0
 
     public :: layout_reset, layout_get_cursor, layout_advance, layout_depth, layout_place
-    public :: column_begin, column_end, row_begin, row_end
+    public :: column_begin, column_end, row_begin, row_end, dialog_begin, dialog_end
     public :: layout_available, split_begin, split_next, split_end
     public :: layout_scope, layout_fill_width, layout_check_balance
     public :: layout_boxes, layout_note_node
     public :: layout_marks
-    public :: KIND_COLUMN, KIND_ROW, KIND_SPLIT, KIND_PANE
+    public :: KIND_COLUMN, KIND_ROW, KIND_SPLIT, KIND_PANE, KIND_DIALOG
 
 contains
 
@@ -305,6 +307,27 @@ contains
             gap=gap, origin_x=x, origin_y=y, cursor_x=x, cursor_y=y, region_x=x, &
             region_y=y, region_w=w, region_h=h, scope=scope, box=box_count)
     end subroutine push_region
+
+    subroutine dialog_begin(id, width, height, gap, padding)
+        character(*), intent(in) :: id
+        real, intent(in) :: width, height, gap, padding
+        real :: x, y, aw, ah, w, h, pad
+        call layout_get_cursor(x, y)
+        call layout_available(aw, ah)
+        w = min(width, aw)
+        h = min(height, ah)
+        pad = min(padding, min(w, h) * 0.05)
+        x = x + max(0.0, (aw - w) * 0.5)
+        y = y + max(0.0, (ah - h) * 0.5)
+        call push_region(KIND_DIALOG, DIR_COLUMN, gap, x + pad, y + pad, &
+            w - 2 * pad, h - 2 * pad, id)
+        boxes(box_count)%bounds = [x, y, w, h]
+    end subroutine
+
+    subroutine dialog_end()
+        logical :: ok
+        ok = close_kind(KIND_DIALOG, "dialog_end")
+    end subroutine
 
     subroutine column_begin(gap, id, look, anchor)
         !! Vertical container; `id` (optional) scopes the identities inside.

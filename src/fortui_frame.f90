@@ -21,6 +21,7 @@ module fortui_frame
     integer, parameter, public :: UI_LINK = 9
     ! A text field of several lines: Enter starts a new line instead of submitting.
     integer, parameter, public :: UI_TEXT_AREA = 10
+    integer, parameter, public :: UI_LIST_BOX = 11
 
     integer, parameter, public :: LAYER_POINTS = 1
     integer, parameter, public :: LAYER_LINES = 2
@@ -141,6 +142,7 @@ module fortui_frame
         integer, allocatable :: run_end(:), run_tone(:)
         real :: text_size = TEXT_DEFAULT_SIZE
         logical :: ellipsis = .false.
+        character(len=:), allocatable :: file_accept
         character(len=:), allocatable :: body
         type(text_line_t), allocatable :: lines(:)
         integer :: line_count = 0
