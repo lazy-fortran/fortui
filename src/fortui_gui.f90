@@ -46,8 +46,8 @@ module fortui_gui
         gpu_texture_release, gpu_layer_set, gpu_layer_release
     use fortgfx_cpu, only: gfx_cpu_t, cpu_render, cpu_texture_create, cpu_texture_update, &
         cpu_texture_release, cpu_layer_set, cpu_layer_release
-    use fortfont, only: font_t, glyph_t, font_open_file, font_has, font_glyph, font_advance, &
-        font_advance26, font_glyph_box
+    use fortfont, only: font_t, glyph_t, font_open_file, font_set_hinting, font_has, font_glyph, &
+        font_advance, font_advance26, font_glyph_box
     implicit none
     private
 
@@ -536,6 +536,8 @@ contains
             k = 0
             return
         end if
+        ! The fonts' own hinting, as FreeType applies it for the desktop's text.
+        call font_set_hinting(slots(k)%font, .true.)
         slots(k)%mono = pixel .or. (theme%fonts(min(face, FACE_MONO))%pixel .and. .not. &
             (face == FACE_CELL .and. len_trim(cell_font_family) > 0))
         ! A named cell font is hinted fully (whole-pixel advances), others lightly.
@@ -547,6 +549,7 @@ contains
             call font_lookup(trim(FALLBACK_FAMILIES(j)), "", 0, path, index=idx)
             if (len(path) == 0) cycle
             slots(k)%has_fallback(j) = font_open_file(slots(k)%fallback(j), path, size_px, idx)
+            if (slots(k)%has_fallback(j)) call font_set_hinting(slots(k)%fallback(j), .true.)
         end do
     end function font_slot
 
