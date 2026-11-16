@@ -6,8 +6,10 @@ program test_gui
     !! - a fluent button's rounded corner is antialiased;
     !! - a press and release that arrive between two frames activate a button;
     !! - a canvas image shows in the first frame it is composed in.
+    !! - a cell grid's last column reaches the canvas's right edge, while the
+    !!   strip below its last row keeps the canvas fill.
     use iso_c_binding
-    use iso_fortran_env, only: int8
+    use iso_fortran_env, only: int8, int32
     use fortui
     use fortui_gui, only: gui_backend_t, gui_read_pixels, gui_inject
     use fortui_context, only: fortui_context_t, get_default_context
@@ -21,6 +23,7 @@ program test_gui
     call test_fluent_corner()
     call test_quick_click()
     call test_image_first_frame()
+    call test_cell_grid_edges()
 
     if (failures > 0) then
         print '(i0,a)', failures, " gui checks failed"
@@ -156,6 +159,38 @@ contains
         call check(rgb_is(px, 16 + 5, 16 + 5, int(z'0000FF')), "canvas fill around it")
         call ui_shutdown()
     end subroutine test_image_first_frame
+
+    subroutine test_cell_grid_edges()
+        !! Two green rows of two cells in a blue canvas much larger than them.
+        type(gui_backend_t) :: b
+        integer(int8), allocatable :: px(:, :, :)
+        integer :: w, h, stat
+        integer(int32) :: cp(4), fg(4), bg(4), attr(4)
+        type(canvas_view_t) :: view
+        b%offscreen = .true.
+        call ui_init(b, 200, 200, "test", stat=stat, theme_name="fluent")
+        if (stat /= 0) return
+        call ui_set_theme("fluent")
+        cp = iachar("x")
+        fg = ui_rgba(0, 255, 0)
+        bg = ui_rgba(0, 255, 0)
+        attr = 0
+        call ui_frame_begin()
+        call canvas_begin("c", view, width=160.0, height=160.0, fill=ui_rgba(0, 0, 255))
+        call canvas_cells("cells", 1, 2, 2, cp, fg, bg, attr, 0.0, 0.0, 40.0, 40.0, 10.0, &
+            extend_edges=.true.)
+        call canvas_end(view)
+        call ui_present()
+        call read_frame(px, w, h)
+        if (w /= 200) return
+        call check(rgb_is(px, 16 + 155, 16 + 2, int(z'00FF00')), &
+            "the first row's background reaches the right edge")
+        call check(rgb_is(px, 16 + 5, 16 + 155, int(z'0000FF')), &
+            "below the last row the canvas fill shows")
+        call check(rgb_is(px, 16 + 155, 16 + 155, int(z'0000FF')), &
+            "the corner below the last row keeps the canvas fill")
+        call ui_shutdown()
+    end subroutine test_cell_grid_edges
 
     subroutine read_frame(px, w, h)
         integer(int8), allocatable, intent(out) :: px(:, :, :)

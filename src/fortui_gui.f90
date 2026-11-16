@@ -1232,39 +1232,22 @@ contains
         end do
     contains
         subroutine edges()
-            !! The last column's backgrounds out to the right edge of the clip,
-            !! the last row's down to its bottom (corner included).
-            real :: xr, yb, right, bottom
+            !! The last column's backgrounds out to the right edge of the clip, so
+            !! a full-width bar (tmux's status line) reaches the window edge. The
+            !! strip below the last row is no row and keeps the canvas fill, the
+            !! terminal's default background.
+            real :: xr, right
             integer :: j
             xr = x0 + real(l%cols) * cw
-            yb = y0 + real(l%rows) * ch
             right = real(self%clip(1) + self%clip(3))
-            bottom = real(self%clip(2) + self%clip(4))
-            if (right > xr) then
-                do j = 0, l%rows - 1
-                    k = j * l%cols + l%cols
-                    if (alpha(l%bg(k)) == 0 .or. iand(l%attr(k), CELL_CURSOR) /= 0) cycle
-                    call unpack(l%bg(k), c)
-                    call gfx_add_shape(self%list, self%clip, [xr, y0 + real(j) * ch, right - xr, &
-                        ch], c, c, [0.0, 0.0, 0.0, 0.0])
-                end do
-            end if
-            if (bottom > yb) then
-                do j = 0, l%cols - 1
-                    k = (l%rows - 1) * l%cols + j + 1
-                    if (alpha(l%bg(k)) == 0 .or. iand(l%attr(k), CELL_CURSOR) /= 0) cycle
-                    call unpack(l%bg(k), c)
-                    call gfx_add_shape(self%list, self%clip, [x0 + real(j) * cw, yb, cw, &
-                        bottom - yb], c, c, [0.0, 0.0, 0.0, 0.0])
-                end do
-                k = l%rows * l%cols
-                if (right > xr .and. alpha(l%bg(k)) > 0 .and. &
-                    iand(l%attr(k), CELL_CURSOR) == 0) then
-                    call unpack(l%bg(k), c)
-                    call gfx_add_shape(self%list, self%clip, [xr, yb, right - xr, bottom - yb], &
-                        c, c, [0.0, 0.0, 0.0, 0.0])
-                end if
-            end if
+            if (right <= xr) return
+            do j = 0, l%rows - 1
+                k = j * l%cols + l%cols
+                if (alpha(l%bg(k)) == 0 .or. iand(l%attr(k), CELL_CURSOR) /= 0) cycle
+                call unpack(l%bg(k), c)
+                call gfx_add_shape(self%list, self%clip, [xr, y0 + real(j) * ch, right - xr, &
+                    ch], c, c, [0.0, 0.0, 0.0, 0.0])
+            end do
         end subroutine edges
         pure integer function alpha(rgba)
             integer(int32), intent(in) :: rgba

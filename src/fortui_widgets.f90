@@ -912,8 +912,9 @@ contains
         integer, intent(in) :: generation, cols, rows
         integer(int32), intent(in) :: cp(:), fg(:), bg(:), attr(:)
         real, intent(in) :: x, y, width, height, size
-        !! The backgrounds of the last column and row reach the canvas edges, so
-        !! a grid that fills its canvas leaves no strip of another colour.
+        !! The backgrounds of the last column reach the canvas's right edge, so a
+        !! full-width bar leaves no strip of another colour; below the last row
+        !! the canvas fill shows.
         logical, intent(in), optional :: extend_edges
 
         type(fortui_context_t), pointer :: ctx
