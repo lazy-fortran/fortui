@@ -217,20 +217,25 @@ contains
 
     ! --- frame -----------------------------------------------------------------------
 
-    subroutine paint_frame(frame, scale, width, height, list)
+    subroutine paint_frame(frame, scale, width, height, list, window)
         !! Display list of `frame` for a window of `width` x `height` pixels at
-        !! `scale` pixels per logical unit, in the current theme.
+        !! `scale` pixels per logical unit, in the current theme; `window` in
+        !! place of the theme's window colour.
         type(ui_frame_t), intent(in) :: frame
         real, intent(in) :: scale, width, height
         type(paint_list_t), intent(inout) :: list
+        integer(int32), intent(in), optional :: window
         integer :: i
+        integer(int32) :: back
 
         call list%clear()
         list%scale = scale
         s = scale
         u = max(1.0, real(nint(scale)))
-        list%background = theme%window
-        call rect(list, 0.0, 0.0, width, height, theme%window)
+        back = theme%window
+        if (present(window)) back = window
+        list%background = back
+        call rect(list, 0.0, 0.0, width, height, back)
         do i = 1, frame%count
             call paint_node(list, frame, frame%nodes(i), i)
         end do

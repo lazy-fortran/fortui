@@ -7,7 +7,8 @@ program test_gui
     !! - a press and release that arrive between two frames activate a button;
     !! - a canvas image shows in the first frame it is composed in.
     !! - a cell grid's last column reaches the canvas's right edge, while the
-    !!   strip below its last row keeps the canvas fill.
+    !!   strip below its last row keeps the canvas fill;
+    !! - an application's window background replaces the theme's window face.
     use iso_c_binding
     use iso_fortran_env, only: int8, int32
     use fortui
@@ -24,6 +25,7 @@ program test_gui
     call test_quick_click()
     call test_image_first_frame()
     call test_cell_grid_edges()
+    call test_window_background()
 
     if (failures > 0) then
         print '(i0,a)', failures, " gui checks failed"
@@ -59,6 +61,25 @@ contains
         rgb_is = r == iand(ishft(hex, -16), 255) .and. g == iand(ishft(hex, -8), 255) .and. &
             b == iand(hex, 255)
     end function rgb_is
+
+    subroutine test_window_background()
+        !! A terminal's black, not the classic theme's grey, where nothing is drawn.
+        type(gui_backend_t) :: b
+        integer(int8), allocatable :: px(:, :, :)
+        integer :: w, h, stat
+        b%offscreen = .true.
+        call ui_init(b, 60, 40, "test", stat=stat, theme_name="classic")
+        call check(stat == 0, "offscreen init")
+        if (stat /= 0) return
+        call ui_set_window_background(ui_rgba(0, 0, 0))
+        call ui_frame_begin()
+        call ui_present()
+        call read_frame(px, w, h)
+        call check(w == 60 .and. h == 40, "read back the frame")
+        if (w == 60) call check(rgb_is(px, 4, 4, int(z'000000')) .and. &
+            rgb_is(px, 50, 30, int(z'000000')), "own window background")
+        call ui_shutdown()
+    end subroutine test_window_background
 
     subroutine test_classic_pixels()
         !! Classic margin 8: OK (default) at (8, 8), Cancel right below at (8, 31),

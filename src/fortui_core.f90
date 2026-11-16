@@ -1,7 +1,7 @@
 module fortui_core
     !! FortUI lifecycle, frame transactions and idle scheduling. The core knows only
     !! the abstract backend interface; applications inject a backend value.
-    use iso_fortran_env, only: int64
+    use iso_fortran_env, only: int32, int64
     use fortui_context, only: fortui_context_t, create_context, destroy_context, &
         get_default_context, set_default_context
     use fortui_input, only: input_begin_frame, input_route, input_update_pointer, &
@@ -31,6 +31,7 @@ module fortui_core
     public :: ui_time, ui_wake_after
     public :: ui_clipboard_set, ui_clipboard_text, ui_set_title, ui_waker, ui_set_window_margin
     public :: ui_set_window_size, ui_set_window_visible, ui_maximize_window, ui_open_url
+    public :: ui_set_window_background
     public :: ui_primary_set, ui_primary_text
     public :: ui_key_pressed, ui_text_width, ui_backend_capabilities, ui_backend_caps_t
     public :: ui_shortcut, ui_set_theme, ui_theme_name
@@ -535,6 +536,20 @@ contains
         if (.not. associated(ctx)) return
         if (ctx%initialized) call ctx%backend%open_url(url)
     end subroutine ui_open_url
+
+    subroutine ui_set_window_background(colour)
+        !! The window's background (ui_rgba) in place of the theme's: what shows
+        !! where nothing is drawn and before the first frame, so that an
+        !! application drawn over in another colour (a terminal) never shows the
+        !! theme's. Call it after ui_init, before the first frame.
+        integer(int32), intent(in) :: colour
+        type(fortui_context_t), pointer :: ctx
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (.not. ctx%initialized) return
+        ctx%backend%own_background = .true.
+        ctx%backend%background = colour
+    end subroutine ui_set_window_background
 
     subroutine ui_maximize_window()
         !! Fill the screen's work area with the window.

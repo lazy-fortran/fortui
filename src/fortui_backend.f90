@@ -11,6 +11,7 @@ module fortui_backend
     !! Idle rule: `present` never blocks. The runtime decides at each present whether
     !! the next frame may wait and passes that decision to the next `poll`; a host
     !! that cannot block (a browser frame callback) treats `wait` as advisory.
+    use iso_fortran_env, only: int32
     use iso_c_binding, only: c_funptr, c_null_funptr
     use fortui_frame, only: ui_frame_t
     use fortui_input, only: input_state_t
@@ -57,6 +58,10 @@ module fortui_backend
         !! Canvas layers this backend realized (versions and upload counters).
         type(canvas_realizer_t) :: canvas = canvas_realizer_t()
         integer :: presents = 0
+        !! The application's window background (ui_set_window_background) in
+        !! place of the theme's, when `own_background`.
+        logical :: own_background = .false.
+        integer(int32) :: background = 0
         integer :: waits = 0
         !! Seconds until a frame is due when the next poll may wait; negative: wait
         !! for input only. Set by the runtime before each present.

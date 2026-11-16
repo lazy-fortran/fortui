@@ -894,7 +894,12 @@ contains
         measuring = .true.
         call self%canvas%sync(store)
         call sync_layers(self, store)
-        call paint_frame(frame, self%scale, real(self%pw), real(self%ph), self%paint)
+        if (self%own_background) then
+            call paint_frame(frame, self%scale, real(self%pw), real(self%ph), self%paint, &
+                self%background)
+        else
+            call paint_frame(frame, self%scale, real(self%pw), real(self%ph), self%paint)
+        end if
         call unpack(self%paint%background, bg)
         if (.not. self%offscreen) then
             if (any(abs(bg(1:3) - self%window_bg) > 1.0e-3)) then
