@@ -8,6 +8,7 @@
 # FORTUI_WEB_SOURCES: further Fortran sources of the application, in dependency
 # order, compiled before PROGRAM. FORTUI_WEB_JS: further emscripten JavaScript
 # libraries. FORTUI_WEB_LDFLAGS: further emcc link flags (e.g. --profiling-funcs).
+# FORTUI_WEB_FFLAGS: additional LFortran flags for measured build profiles.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 top=$(dirname "$here")
@@ -21,7 +22,7 @@ out=${2:-$top/build/web}
 emcc=${EMCC:-${EMSDK_PATH:?set EMSDK_PATH to the emscripten SDK}/upstream/emscripten/emcc}
 lf=${LFORTRAN:-lfortran}
 runtime=$(dirname "$(command -v "$lf")")/../lib/lfortran_runtime_wasm_emcc.o
-flags="--target=wasm32-unknown-emscripten --realloc-lhs-arrays"
+flags="--target=wasm32-unknown-emscripten --realloc-lhs-arrays ${FORTUI_WEB_FFLAGS:-}"
 
 rm -rf "$out/obj"
 mkdir -p "$out/obj"
