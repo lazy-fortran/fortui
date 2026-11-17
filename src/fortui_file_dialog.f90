@@ -1,7 +1,7 @@
 module fortui_file_dialog
     !! An owned Open request. Compose only this dialog while it is active, so
     !! keyboard and pointer input cannot reach the document underneath it.
-    use iso_fortran_env, only: int8
+    use iso_fortran_env, only: int8, int64
     use fortui_files
     use fortui_core, only: ui_request_frame, ui_shortcut, ui_window_size
     use fortui_widgets, only: text, button, text_input, checkbox, list_box, ui_focus
@@ -14,8 +14,8 @@ module fortui_file_dialog
     use fortui_text, only: text_line_height, ui_str
     implicit none
     private
-    integer, parameter, public :: FILE_IDLE = 0, FILE_PENDING = 1, FILE_ACCEPTED = 2, &
-        FILE_CANCELLED = 3
+    public :: FILE_IDLE, FILE_PENDING, FILE_ACCEPTED, FILE_CANCELLED
+    integer(int64) :: next_request = 0
     type, public :: file_dialog_t
         integer :: status = FILE_IDLE
         logical :: active = .false., hidden = .false., all_files = .false.
@@ -25,13 +25,17 @@ module fortui_file_dialog
         integer(int8), allocatable :: bytes(:)
         type(file_entry_t), allocatable :: entries(:)
         integer :: selected = 0
+        integer(int64) :: request = 0
     end type
     public :: file_dialog_open, file_dialog_show, file_open_button
+    public :: file_dialog_poll, file_dialog_cancel
 contains
     subroutine file_dialog_open(d, title, initial, extensions)
         type(file_dialog_t), intent(inout) :: d
         character(*), intent(in), optional :: title, initial, extensions
         character(:), allocatable :: start
+        type(fortui_context_t), pointer :: ctx
+        call file_dialog_cancel(d)
         d%title = "Open file"
         if (present(title)) d%title = title
         d%extensions = ""
@@ -51,11 +55,73 @@ contains
         end if
         if (.not. allocated(d%folder)) d%folder = file_home()
         if (.not. file_is_directory(d%folder)) d%folder = "."
+        d%folder = file_absolute(start)
+        d%status = FILE_PENDING
+        d%active = .false.
+        ctx => get_default_context()
+        if (associated(ctx)) then
+            if (allocated(ctx%backend)) then
+                if (next_request == huge(next_request)) next_request = 0
+                next_request = next_request + 1
+                if (ctx%backend%file_open(next_request, d%title, file_absolute(start), d%extensions)) then
+                    d%request = next_request
+                    call ui_request_frame()
+                    return
+                end if
+            end if
+        end if
         call navigate(d, start)
         if (.not. allocated(d%entries)) call navigate(d, d%folder)
-        d%status = FILE_PENDING
         d%active = .true.
         d%first_frame = .true.
+        call ui_request_frame()
+    end subroutine
+    subroutine file_dialog_cancel(d)
+        type(file_dialog_t), intent(inout) :: d
+        type(fortui_context_t), pointer :: ctx
+        if (d%request /= 0) then
+            ctx => get_default_context()
+            if (associated(ctx)) then
+                if (allocated(ctx%backend)) call ctx%backend%file_cancel(d%request)
+            end if
+        end if
+        d%request = 0
+        d%active = .false.
+        d%status = FILE_CANCELLED
+    end subroutine
+    subroutine file_dialog_poll(d)
+        type(file_dialog_t), intent(inout) :: d
+        type(fortui_context_t), pointer :: ctx
+        character(:), allocatable :: path, folder
+        integer :: status
+        if (d%request == 0) return
+        ctx => get_default_context()
+        if (.not. associated(ctx)) then
+            call file_dialog_cancel(d)
+            return
+        end if
+        if (.not. allocated(ctx%backend)) then
+            call file_dialog_cancel(d)
+            return
+        end if
+        call ctx%backend%file_poll(d%request, status, path)
+        if (status == FILE_PENDING) return
+        d%request = 0
+        select case (status)
+        case (FILE_ACCEPTED)
+            d%path = path
+            d%name = file_name(path)
+            d%folder = file_parent(path)
+            d%status = FILE_ACCEPTED
+        case (FILE_CANCELLED)
+            d%status = FILE_CANCELLED
+        case default
+            ! Keep file opening available when the desktop service is missing.
+            folder = d%folder
+            call navigate(d, folder)
+            d%active = .true.
+            d%first_frame = .true.
+        end select
         call ui_request_frame()
     end subroutine
     subroutine file_open_button(id, label, d, title, initial, extensions, width)
@@ -67,6 +133,7 @@ contains
         character(:), allocatable :: picked, msg
         integer :: k, u, ios
         logical :: clicked
+        call file_dialog_poll(d)
         clicked = button(id, label, width=width)
         ctx => get_default_context()
         if (.not. associated(ctx)) return
@@ -141,6 +208,7 @@ contains
         real :: w, h, gap, list_h, side
         integer :: i, n, longest, selected, old
         logical :: changed, go, submit, compact
+        call file_dialog_poll(d)
         if (.not. d%active) return
         if (ui_shortcut("Escape", label="Cancel")) then
             d%status = FILE_CANCELLED

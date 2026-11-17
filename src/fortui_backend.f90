@@ -11,8 +11,9 @@ module fortui_backend
     !! Idle rule: `present` never blocks. The runtime decides at each present whether
     !! the next frame may wait and passes that decision to the next `poll`; a host
     !! that cannot block (a browser frame callback) treats `wait` as advisory.
-    use iso_fortran_env, only: int32
+    use iso_fortran_env, only: int32, int64
     use iso_c_binding, only: c_funptr, c_null_funptr
+    use fortui_files, only: FILE_UNSUPPORTED
     use fortui_frame, only: ui_frame_t
     use fortui_input, only: input_state_t
     use fortui_canvas, only: canvas_store_t, canvas_realizer_t
@@ -88,6 +89,9 @@ module fortui_backend
         procedure :: open_url => backend_open_url
         procedure :: primary_set => backend_primary_set
         procedure :: primary_get => backend_primary_get
+        procedure :: file_open => backend_file_open
+        procedure :: file_poll => backend_file_poll
+        procedure :: file_cancel => backend_file_cancel
     end type ui_backend_t
 
     abstract interface
@@ -150,6 +154,24 @@ module fortui_backend
     end interface
 
 contains
+    logical function backend_file_open(self, request, title, folder, extensions) result(started)
+        class(ui_backend_t), intent(inout) :: self
+        integer(int64), intent(in) :: request
+        character(*), intent(in) :: title, folder, extensions
+        started = .false.
+    end function
+    subroutine backend_file_poll(self, request, status, path)
+        class(ui_backend_t), intent(inout) :: self
+        integer(int64), intent(in) :: request
+        integer, intent(out) :: status
+        character(:), allocatable, intent(out) :: path
+        status = FILE_UNSUPPORTED
+        path = ""
+    end subroutine
+    subroutine backend_file_cancel(self, request)
+        class(ui_backend_t), intent(inout) :: self
+        integer(int64), intent(in) :: request
+    end subroutine
 
     subroutine backend_hand_over(self)
         !! Called by ui_run when the host drives the frames, after the application

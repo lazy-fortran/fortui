@@ -5,6 +5,8 @@ module fortui_files
     use iso_fortran_env, only: int8
     implicit none
     private
+    integer, parameter, public :: FILE_IDLE = 0, FILE_PENDING = 1, FILE_ACCEPTED = 2, &
+        FILE_CANCELLED = 3, FILE_FAILED = 4, FILE_UNSUPPORTED = 5
     type, public :: file_entry_t
         character(len=:), allocatable :: name
         logical :: directory = .false.

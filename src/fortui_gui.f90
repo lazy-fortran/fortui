@@ -13,6 +13,7 @@ module fortui_gui
     !! are drawn with the view as a transform.
     use iso_c_binding
     use iso_fortran_env, only: int8, int32, int64
+    use fortui_files, only: FILE_PENDING, FILE_ACCEPTED, FILE_CANCELLED, FILE_FAILED
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t
     use fortui_frame, only: ui_frame_t, ui_layer_ref_t, LAYER_POINTS, LAYER_IMAGE, LAYER_CELLS, &
         CELL_UNDERLINE, CELL_STRIKE, CELL_CONT, CELL_WIDE, CELL_CURSOR, CELL_BAR
@@ -32,7 +33,7 @@ module fortui_gui
         win_wake, win_set_title, win_set_size, win_set_visible, win_set_background, &
         win_maximize, &
         win_clipboard_set, win_clipboard_get, win_primary_set, win_primary_get, win_flush, &
-        win_mods_down, win_time, WIN_EV_CLOSE, WIN_EV_RESIZE, WIN_EV_EXPOSE, WIN_EV_MOTION, &
+        win_mods_down, win_time, win_native_handle, WIN_EV_CLOSE, WIN_EV_RESIZE, WIN_EV_EXPOSE, WIN_EV_MOTION, &
         WIN_EV_BUTTON_DOWN, WIN_EV_BUTTON_UP, WIN_EV_WHEEL, WIN_EV_KEY_DOWN, WIN_EV_TEXT, &
         WIN_EV_LEAVE, WIN_MOD_SHIFT, WIN_MOD_CTRL, WIN_MOD_ALT, WIN_MOD_META
 #if defined(_WIN32) || defined(__APPLE__)
@@ -123,7 +124,13 @@ module fortui_gui
         logical :: pointer_down = .false.
         logical :: redraw = .false.
         real :: retry_delay = 0.0
+        type(c_ptr) :: file_request = c_null_ptr
+        integer(int64) :: file_owner = 0
+        integer :: file_status = FILE_CANCELLED
     contains
+        procedure :: file_open => gb_file_open
+        procedure :: file_poll => gb_file_poll
+        procedure :: file_cancel => gb_file_cancel
         procedure :: name => gb_name
         procedure :: init => gb_init
         procedure :: shutdown => gb_shutdown
@@ -151,7 +158,91 @@ module fortui_gui
     real, save :: px_scale = 1.0
     logical, save :: measuring = .false.
 
+    interface
+        type(c_ptr) function native_open(parent, xid, title, folder, extensions) &
+                bind(C, name="fortui_file_native_open")
+            import c_ptr, c_int64_t, c_char
+            type(c_ptr), value :: parent
+            integer(c_int64_t), value :: xid
+            character(c_char), intent(in) :: title(*), folder(*), extensions(*)
+        end function
+        integer(c_int) function native_poll(request) bind(C, name="fortui_file_native_poll")
+            import c_ptr, c_int
+            type(c_ptr), value :: request
+        end function
+        integer(c_int) function native_result(request, text, capacity) &
+                bind(C, name="fortui_file_native_result")
+            import c_ptr, c_char, c_int
+            type(c_ptr), value :: request
+            character(c_char), intent(out) :: text(*)
+            integer(c_int), value :: capacity
+        end function
+        subroutine native_close(request) bind(C, name="fortui_file_native_close")
+            import c_ptr
+            type(c_ptr), value :: request
+        end subroutine
+    end interface
+
 contains
+
+    logical function gb_file_open(self, request, title, folder, extensions) result(started)
+        class(gui_backend_t), intent(inout) :: self
+        integer(int64), intent(in) :: request
+        character(*), intent(in) :: title, folder, extensions
+        started = .false.
+        if (.not. self%active .or. self%offscreen) return
+        call native_close(self%file_request)
+        self%file_request = native_open(win_native_handle(self%win), &
+            int(self%win%id, c_int64_t), title // c_null_char, &
+            folder // c_null_char, extensions // c_null_char)
+        started = c_associated(self%file_request)
+        self%file_owner = request
+        self%file_status = FILE_PENDING
+    end function
+    subroutine gb_file_poll(self, request, status, path)
+        class(gui_backend_t), intent(inout) :: self
+        integer(int64), intent(in) :: request
+        integer, intent(out) :: status
+        character(:), allocatable, intent(out) :: path
+        character(c_char), allocatable :: bytes(:)
+        integer(c_int) :: n, copied
+        integer :: k
+        path = ""
+        status = FILE_CANCELLED
+        if (request /= self%file_owner .or. .not. c_associated(self%file_request)) return
+        status = native_poll(self%file_request)
+        self%file_status = status
+        if (status == FILE_PENDING) return
+        if (status == FILE_ACCEPTED) then
+            allocate(bytes(1))
+            n = native_result(self%file_request, bytes, 0_c_int)
+            if (n > 0) then
+                deallocate(bytes)
+                allocate(bytes(n + 1))
+                copied = native_result(self%file_request, bytes, n + 1)
+                if (copied == n) then
+                    path = repeat(" ", n)
+                    do k = 1, n
+                        path(k:k) = bytes(k)
+                    end do
+                else
+                    status = FILE_FAILED
+                end if
+            else
+                status = FILE_FAILED
+            end if
+        end if
+        call native_close(self%file_request)
+        self%file_request = c_null_ptr
+    end subroutine
+    subroutine gb_file_cancel(self, request)
+        class(gui_backend_t), intent(inout) :: self
+        integer(int64), intent(in) :: request
+        if (request /= self%file_owner) return
+        call native_close(self%file_request)
+        self%file_request = c_null_ptr
+        self%file_status = FILE_CANCELLED
+    end subroutine
 
     ! --- identity -----------------------------------------------------------------------
 
@@ -239,6 +330,7 @@ contains
     subroutine gb_shutdown(self)
         class(gui_backend_t), intent(inout) :: self
         if (.not. self%active) return
+        call gb_file_cancel(self, self%file_owner)
         if (self%gpu) call gpu_close(self%dev)
         if (.not. self%offscreen) call win_close(self%win)
         self%active = .false.
@@ -341,18 +433,30 @@ contains
         logical, intent(in) :: wait
         type(win_event_t) :: ev
         real :: timeout
+        logical :: file_ready
+        integer :: previous_status
         if (.not. self%active) return
         call input_set_time(input, real(win_time(), kind(1.0d0)))
+        file_ready = .false.
+        if (c_associated(self%file_request)) then
+            previous_status = self%file_status
+            self%file_status = native_poll(self%file_request)
+            file_ready = self%file_status /= previous_status
+        end if
         if (.not. self%offscreen) then
             do while (win_next_event(self%win, ev))
                 call enqueue(self, ev)
             end do
-            if (wait .and. self%nqueue == 0 .and. .not. self%close_requested) then
+            if (wait .and. self%nqueue == 0 .and. .not. self%close_requested .and. .not. file_ready) then
                 timeout = self%wake_in
                 if (self%redraw) then
                     ! A lost surface must not turn idle redraws into a busy loop.
                     timeout = self%retry_delay
                     if (self%wake_in >= 0.0) timeout = min(timeout, self%wake_in)
+                end if
+                if (c_associated(self%file_request) .and. self%file_status == FILE_PENDING) then
+                    if (timeout < 0.0) timeout = 0.05
+                    timeout = min(timeout, 0.05)
                 end if
                 self%waits = self%waits + 1
                 call win_wait(self%win, timeout)
@@ -363,6 +467,8 @@ contains
             end if
         end if
         call apply_events(self, input)
+        if (file_ready) input%resized = .true.
+        if (self%close_requested) call gb_file_cancel(self, self%file_owner)
         if (self%redraw) then
             input%resized = .true.
             self%redraw = .false.

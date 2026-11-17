@@ -1,7 +1,122 @@
+module file_dialog_test_backend
+    use fortui_backend, only: ui_backend_t, ui_backend_caps_t
+    use fortui_frame, only: ui_frame_t
+    use fortui_input, only: input_state_t
+    use fortui_canvas, only: canvas_store_t
+    use fortui_text, only: text_use_fixed_metrics
+    use iso_fortran_env, only: int64
+    use fortui_files, only: FILE_PENDING, FILE_CANCELLED
+    implicit none
+    private
+
+    logical, public :: start_native = .true.
+    integer, public :: response = FILE_PENDING, cancellations = 0
+    integer(int64), public :: current_request = 0, cancelled_request = 0
+    character(:), allocatable, public :: selected_path
+    type, extends(ui_backend_t), public :: dialog_test_backend_t
+        logical :: running = .false.
+        logical :: host_driven = .false.
+    contains
+        procedure :: name => dialog_test_name
+        procedure :: init => dialog_test_init
+        procedure :: shutdown => dialog_test_shutdown
+        procedure :: poll => dialog_test_poll
+        procedure :: present => dialog_test_present
+        procedure :: should_close => dialog_test_should_close
+        procedure :: install_text_metrics => dialog_test_metrics
+        procedure :: capabilities => dialog_test_caps
+        procedure :: file_open => test_open
+        procedure :: file_poll => test_poll
+        procedure :: file_cancel => test_cancel
+    end type dialog_test_backend_t
+
+contains
+
+    function dialog_test_name(self) result(name)
+        class(dialog_test_backend_t), intent(in) :: self
+        character(len=:), allocatable :: name
+        name = "dialog_test"
+    end function dialog_test_name
+
+    logical function dialog_test_init(self)
+        class(dialog_test_backend_t), intent(inout) :: self
+        self%running = self%config%width > 0 .and. self%config%height > 0
+        dialog_test_init = self%running
+    end function dialog_test_init
+
+    subroutine dialog_test_shutdown(self)
+        class(dialog_test_backend_t), intent(inout) :: self
+        self%running = .false.
+    end subroutine dialog_test_shutdown
+
+    subroutine dialog_test_poll(self, input, wait)
+        class(dialog_test_backend_t), intent(inout) :: self
+        type(input_state_t), intent(inout) :: input
+        logical, intent(in) :: wait
+        if (wait) self%waits = self%waits + 1
+        input%width = max(1, input%width)
+        input%height = max(1, input%height)
+        input%scale = max(1.0, input%scale)
+    end subroutine dialog_test_poll
+
+    subroutine dialog_test_present(self, frame, store)
+        class(dialog_test_backend_t), intent(inout) :: self
+        type(ui_frame_t), intent(in) :: frame
+        type(canvas_store_t), intent(in), target :: store
+        call self%canvas%realize_frame(store, frame)
+        self%presents = self%presents + 1
+    end subroutine dialog_test_present
+
+    logical function dialog_test_should_close(self)
+        class(dialog_test_backend_t), intent(in) :: self
+        dialog_test_should_close = .not. self%running
+    end function dialog_test_should_close
+
+    subroutine dialog_test_metrics(self)
+        class(dialog_test_backend_t), intent(inout) :: self
+        call text_use_fixed_metrics()
+    end subroutine dialog_test_metrics
+
+    function dialog_test_caps(self) result(caps)
+        class(dialog_test_backend_t), intent(in) :: self
+        type(ui_backend_caps_t) :: caps
+        caps%canvas_layers = .true.
+        caps%pointer = .true.
+        caps%text_entry = .true.
+        caps%host_driven = self%host_driven
+    end function dialog_test_caps
+
+    logical function test_open(self, request, title, folder, extensions) result(started)
+        class(dialog_test_backend_t), intent(inout) :: self
+        integer(int64), intent(in) :: request
+        character(*), intent(in) :: title, folder, extensions
+        started = start_native
+        if (started) current_request = request
+    end function
+    subroutine test_poll(self, request, status, path)
+        class(dialog_test_backend_t), intent(inout) :: self
+        integer(int64), intent(in) :: request
+        integer, intent(out) :: status
+        character(:), allocatable, intent(out) :: path
+        status = FILE_CANCELLED
+        path = ""
+        if (request /= current_request) return
+        status = response
+        if (allocated(selected_path)) path = selected_path
+    end subroutine
+    subroutine test_cancel(self, request)
+        class(dialog_test_backend_t), intent(inout) :: self
+        integer(int64), intent(in) :: request
+        cancellations = cancellations + 1
+        cancelled_request = request
+    end subroutine
+end module file_dialog_test_backend
+
 program test_file_dialog
     use iso_c_binding, only: c_char, c_int, c_null_char
     use iso_fortran_env, only: int8
     use fortui
+    use file_dialog_test_backend
     use fortui_files
     use fortui_backend_headless, only: headless_backend_t
     use fortui_testing, only: ui_inject_key, ui_inject_host, ui_focused_id, &
@@ -19,6 +134,7 @@ program test_file_dialog
     type(file_dialog_t) :: d
     integer(int8), allocatable :: bytes(:)
     character(:), allocatable :: message, names(:), saved
+    integer(kind(current_request)) :: first_request
     integer :: rc, u, k, selected
     real :: x, y, w, h, scroll, content
     logical :: changed, go, found
@@ -114,6 +230,41 @@ program test_file_dialog
     call check(content > scroll, "scrollbar drag scrolls list")
     call ui_inject_pointer(x+w-2,y+70,.false.)
     call list_frame()
+    call ui_shutdown()
+    call ui_init(dialog_test_backend_t(), 800, 650, "native dialog")
+    call file_dialog_open(d, initial="build/test-file-dialog", extensions=".jpg")
+    call check(d%status == FILE_PENDING .and. .not. d%active, "native request preserves document composition")
+    first_request = d%request
+    call file_dialog_poll(d)
+    call check(d%request == first_request, "pending request remains owned")
+    selected_path = file_absolute("build/test-file-dialog/Photo ä space.JPG")
+    response = FILE_ACCEPTED
+    call file_dialog_poll(d)
+    call check(d%status == FILE_ACCEPTED .and. d%path == selected_path, "native UTF-8 result")
+    call check(d%name == "Photo ä space.JPG" .and. d%request == 0, "native result consumed once")
+    selected_path = "changed after completion"
+    call file_dialog_poll(d)
+    call check(d%name == "Photo ä space.JPG", "result owns its path")
+    response = FILE_PENDING
+    call file_dialog_open(d)
+    first_request = d%request
+    call file_dialog_open(d)
+    call check(cancelled_request == first_request .and. d%request /= first_request, "reopen cancels previous generation")
+    response = FILE_CANCELLED
+    call file_dialog_poll(d)
+    call check(d%status == FILE_CANCELLED .and. .not. d%active, "native cancellation does not open fallback")
+    call file_dialog_open(d)
+    call file_dialog_cancel(d)
+    call check(d%request == 0 .and. d%status == FILE_CANCELLED, "explicit cancellation releases request")
+    call file_dialog_open(d)
+    response = FILE_UNSUPPORTED
+    call file_dialog_poll(d)
+    call check(d%active .and. d%status == FILE_PENDING, "unavailable service opens in-window fallback")
+    call file_dialog_cancel(d)
+    start_native = .false.
+    call file_dialog_open(d)
+    call check(d%active .and. d%request == 0, "unsupported backend uses in-window chooser")
+    call file_dialog_cancel(d)
     call ui_shutdown()
     print *, "File chooser navigation, filtering, selection, cancellation and errors passed"
 contains

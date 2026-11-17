@@ -21,7 +21,7 @@ module fortui
         ui_set_cell_font, ui_focus, &
         ui_reveal
     use fortui_file_dialog, only: file_dialog_t, file_dialog_open, file_dialog_show, &
-        file_open_button, FILE_IDLE, FILE_PENDING, FILE_ACCEPTED, FILE_CANCELLED
+        file_open_button, file_dialog_poll, file_dialog_cancel, FILE_IDLE, FILE_PENDING, FILE_ACCEPTED, FILE_CANCELLED
     use fortui_canvas, only: canvas_view_t, canvas_events_t, ui_rgba, canvas_to_world, &
         canvas_to_local, canvas_zoom_at
     use fortui_frame, only: UI_BODY, UI_CAPTION, UI_HEADING, UI_TITLE, UI_FILL, UI_CODE, &
@@ -40,7 +40,7 @@ module fortui
     implicit none
     private
 
-    public :: file_dialog_t, file_dialog_open, file_dialog_show, file_open_button
+    public :: file_dialog_t, file_dialog_open, file_dialog_show, file_open_button, file_dialog_poll, file_dialog_cancel
     public :: FILE_IDLE, FILE_PENDING, FILE_ACCEPTED, FILE_CANCELLED
     public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
     public :: ui_run, ui_run_step, ui_frame_proc, ui_set_theme, ui_theme_name

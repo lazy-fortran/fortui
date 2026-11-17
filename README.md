@@ -268,13 +268,17 @@ project maintainers retain responsibility for its content and technical decision
 
 ## File selection
 
-`file_open_button` opens a themed chooser on desktop and terminal backends. The
-browser opens its own file picker directly from the button's user gesture. A
-selection owns either a desktop path or browser bytes and a display name.
+`file_open_button` opens the desktop's native file chooser: the XDG desktop
+portal on Linux, the Windows common dialog, or an Open sheet on macOS. The
+terminal uses FortUI's themed chooser, which also serves as the desktop fallback
+when the native service is unavailable. The browser opens its own file picker
+directly from the button's user gesture. A selection owns either a desktop path
+or browser bytes and a display name.
 
 ```fortran
 type(file_dialog_t) :: picker
-! In the frame callback, compose only the dialog while it is active.
+call file_dialog_poll(picker)
+! Only the in-window fallback replaces document composition.
 if (picker%active) then
     call file_dialog_show(picker)
     return
@@ -286,7 +290,16 @@ if (picker%status == FILE_ACCEPTED) then
 end if
 ```
 
-The desktop chooser supports folders, location entry (Ctrl+L or Cmd+L), filename
+Native requests are asynchronous. Keep composing the document while the system
+dialog is open, and call `file_dialog_poll` each frame to collect its result.
+`file_dialog_cancel` cancels a pending request. Closing the backend cancels its
+native dialog too. Cancellation keeps the current document.
+
+Linux loads `libdbus-1.so.3` at runtime and uses `xdg-desktop-portal` with a
+FileChooser provider, such as the GTK or KDE portal. No GTK, Qt or D-Bus development
+libraries are needed to build or link FortUI. Windows and macOS use system APIs.
+
+The in-window chooser supports folders, location entry (Ctrl+L or Cmd+L), filename
 filtering, hidden files, keyboard selection, Enter to open and Escape to cancel.
 Errors keep the chooser open. Keep the current document until a
 replacement has loaded successfully.
