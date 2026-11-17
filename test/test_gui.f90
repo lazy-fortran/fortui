@@ -27,6 +27,7 @@ program test_gui
     call test_cell_grid_edges()
     call test_window_background()
     call test_file_dialog_pixels()
+    call test_startup_frame()
     call test_failed_window_render()
 
     if (failures > 0) then
@@ -45,6 +46,46 @@ contains
             print '(a)', "FAIL: " // what
         end if
     end subroutine check
+
+    subroutine await_gpu(b)
+        use fortwin, only: win_time, win_wait
+        use fortui_input, only: input_state_t
+        type(gui_backend_t), intent(inout) :: b
+        type(input_state_t) :: input
+        double precision :: started
+        started = win_time()
+        do while (.not. b%gpu .and. win_time() - started < 5.0d0)
+            call b%poll(input, .false.)
+            if (.not. b%gpu) call win_wait(b%win, 0.005)
+        end do
+        call check(b%gpu, "window adopts initialized GPU")
+    end subroutine
+    subroutine test_startup_frame()
+#if !defined(_WIN32) && !defined(__APPLE__)
+        use fortui_frame, only: ui_frame_t
+        use fortui_canvas, only: canvas_store_t
+        type(gui_backend_t) :: b
+        type(ui_frame_t) :: frame
+        type(canvas_store_t) :: store
+        logical :: opened
+        if (.not. gui_is_available()) return
+        b%config%width = 120
+        b%config%height = 80
+        opened = b%init()
+        call check(opened, "startup test opens")
+        if (.not. opened) return
+        call b%present(frame, store)
+        call check(allocated(b%cpu%rgba), "first frame is available before GPU initialization")
+        call await_gpu(b)
+        if (b%gpu) call b%present(frame, store)
+        call b%shutdown()
+        call check(.not. associated(b%dev), "shutdown releases device ownership")
+        opened = b%init()
+        call check(opened, "immediate-close test opens")
+        if (opened) call b%shutdown()
+        call check(.not. c_associated(b%gpu_start), "immediate close joins initialization")
+#endif
+    end subroutine
 
     subroutine test_failed_window_render()
 #if !defined(_WIN32) && !defined(__APPLE__)
@@ -71,6 +112,11 @@ contains
         opened = b%init()
         call check(opened, "window-show test opens")
         if (.not. opened) return
+        call await_gpu(b)
+        if (.not. b%gpu) then
+            call b%shutdown()
+            return
+        end if
         call gpu_close(b%dev)
         call b%set_window_visible(.true.)
         call b%present(frame, store)

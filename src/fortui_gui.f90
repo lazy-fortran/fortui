@@ -36,15 +36,14 @@ module fortui_gui
         win_mods_down, win_time, win_native_handle, WIN_EV_CLOSE, WIN_EV_RESIZE, WIN_EV_EXPOSE, WIN_EV_MOTION, &
         WIN_EV_BUTTON_DOWN, WIN_EV_BUTTON_UP, WIN_EV_WHEEL, WIN_EV_KEY_DOWN, WIN_EV_TEXT, &
         WIN_EV_LEAVE, WIN_MOD_SHIFT, WIN_MOD_CTRL, WIN_MOD_ALT, WIN_MOD_META
-#if defined(_WIN32) || defined(__APPLE__)
     use fortwin, only: win_present_pixels
-#endif
     use fortwin_keys, only: WIN_KEY_NONE, WIN_KEY_ENTER, WIN_KEY_ESCAPE, WIN_KEY_BACKSPACE, &
         WIN_KEY_TAB, WIN_KEY_SPACE, WIN_KEY_DELETE, WIN_KEY_RIGHT, WIN_KEY_LEFT, WIN_KEY_DOWN, &
         WIN_KEY_UP, WIN_KEY_HOME, WIN_KEY_END, WIN_KEY_PAGE_UP, WIN_KEY_PAGE_DOWN, &
         WIN_KEY_INSERT, WIN_KEY_F1
     use fortgfx_list, only: gfx_list_t, gfx_list_reset, gfx_add_shape, gfx_add_quad, &
         gfx_add_layer
+    use fortgfx_gpu_async, only: gpu_start_window, gpu_start_ready, gpu_start_finish
     use fortgfx_gpu, only: gfx_gpu_t, gpu_open_window, gpu_open_offscreen, gpu_close, &
         gpu_resize, gpu_render, gpu_read, gpu_texture_create, gpu_texture_update, &
         gpu_texture_release, gpu_layer_set, gpu_layer_release
@@ -66,7 +65,7 @@ module fortui_gui
         integer :: face = 0, px = 0
         type(font_t) :: font
         type(font_t) :: fallback(3)
-        logical :: has_fallback(3) = .false.
+        logical :: has_fallback(3) = .false., tried_fallback(3) = .false.
         logical :: mono = .false. ! monochrome (pixel designs)
         logical :: light = .false. ! light hinting: fractional advances (as SDL_ttf)
         integer :: height = 0, ascent = 0
@@ -104,7 +103,8 @@ module fortui_gui
         real :: window_bg(3) = -1.0
         logical :: active = .false., close_requested = .false., gpu = .false.
         type(window_t) :: win
-        type(gfx_gpu_t) :: dev
+        type(gfx_gpu_t), pointer :: dev => null()
+        type(c_ptr) :: gpu_start = c_null_ptr
         type(gfx_cpu_t) :: cpu
         type(gfx_list_t) :: list
         type(paint_list_t) :: paint
@@ -286,6 +286,15 @@ contains
     logical function gb_init(self)
         class(gui_backend_t), intent(inout) :: self
         gb_init = .false.
+        self%gpu = .false.
+        self%close_requested = .false.
+        self%drawn = .false.
+        self%window_bg = -1.0
+        self%frame_no = 0
+        self%nqueue = 0
+        self%redraw = .false.
+        self%retry_delay = 0.0
+        allocate(self%dev)
         if (self%offscreen) then
             self%pw = max(1, self%config%width)
             self%ph = max(1, self%config%height)
@@ -295,6 +304,7 @@ contains
             if (.not. win_open(self%win, trim(self%config%title), self%config%width, &
                 self%config%height, visible=.false., class=program_name())) then
                 call report_error("fortui_gui", "init", "cannot open a window on the X display")
+                deallocate(self%dev)
                 return
             end if
             self%show_pending = .not. self%config%hidden
@@ -302,9 +312,14 @@ contains
             self%ph = self%win%height
             self%scale = self%win%scale
 #if !defined(_WIN32) && !defined(__APPLE__)
-            self%gpu = gpu_open_window(self%dev, self%win%conn, self%win%id, self%pw, self%ph)
-            if (.not. self%gpu) then
+            if (self%win%depth == 24) self%gpu_start = gpu_start_window(self%dev, &
+                self%win%conn, self%win%id, self%pw, self%ph)
+            if (.not. c_associated(self%gpu_start)) &
+                self%gpu = gpu_open_window(self%dev, self%win%conn, self%win%id, self%pw, self%ph)
+            if (.not. self%gpu .and. .not. c_associated(self%gpu_start)) then
                 call report_error("fortui_gui", "init", "no Vulkan device can draw the window")
+                call gpu_close(self%dev)
+                deallocate(self%dev)
                 call win_close(self%win)
                 return
             end if
@@ -331,9 +346,16 @@ contains
         class(gui_backend_t), intent(inout) :: self
         if (.not. self%active) return
         call gb_file_cancel(self, self%file_owner)
-        if (self%gpu) call gpu_close(self%dev)
+        call release_pages(self)
+        if (c_associated(self%gpu_start)) self%gpu = gpu_start_finish(self%gpu_start)
+        if (associated(self%dev)) then
+            call gpu_close(self%dev)
+            deallocate(self%dev)
+        end if
         if (.not. self%offscreen) call win_close(self%win)
         self%active = .false.
+        self%cpu = gfx_cpu_t()
+        deallocate(self%layers, self%glyphs, self%pages, self%queue)
         nslots = 0
         measuring = .false.
     end subroutine gb_shutdown
@@ -437,6 +459,22 @@ contains
         integer :: previous_status
         if (.not. self%active) return
         call input_set_time(input, real(win_time(), kind(1.0d0)))
+        if (c_associated(self%gpu_start)) then
+            if (gpu_start_ready(self%gpu_start) /= 0) then
+                call release_pages(self)
+                self%layers = gpu_layer_t()
+                self%cpu = gfx_cpu_t()
+                self%gpu = gpu_start_finish(self%gpu_start)
+                if (self%gpu) then
+                    call gpu_resize(self%dev, self%pw, self%ph)
+                    self%redraw = .true.
+                    self%retry_delay = 0.0
+                else
+                    call report_error("fortui_gui", "init", "cannot initialize Vulkan")
+                    self%close_requested = .true.
+                end if
+            end if
+        end if
         file_ready = .false.
         if (c_associated(self%file_request)) then
             previous_status = self%file_status
@@ -457,6 +495,10 @@ contains
                 if (c_associated(self%file_request) .and. self%file_status == FILE_PENDING) then
                     if (timeout < 0.0) timeout = 0.05
                     timeout = min(timeout, 0.05)
+                end if
+                if (c_associated(self%gpu_start)) then
+                    if (timeout < 0.0) timeout = 0.01
+                    timeout = min(timeout, 0.01)
                 end if
                 self%waits = self%waits + 1
                 call win_wait(self%win, timeout)
@@ -504,7 +546,7 @@ contains
                 case (WIN_EV_RESIZE)
                     self%pw = max(1, self%win%width)
                     self%ph = max(1, self%win%height)
-                    call gpu_resize(self%dev, self%pw, self%ph)
+                    if (self%gpu) call gpu_resize(self%dev, self%pw, self%ph)
                     input%resized = .true.
                 case (WIN_EV_EXPOSE)
                     input%resized = .true.
@@ -675,12 +717,6 @@ contains
             len_trim(cell_font_family) > 0)
         slots(k)%height = slots(k)%font%height
         slots(k)%ascent = slots(k)%font%ascent
-        do j = 1, size(FALLBACK_FAMILIES)
-            call font_lookup(trim(FALLBACK_FAMILIES(j)), "", 0, path, index=idx)
-            if (len(path) == 0) cycle
-            slots(k)%has_fallback(j) = font_open_file(slots(k)%fallback(j), path, size_px, idx)
-            if (slots(k)%has_fallback(j)) call font_set_hinting(slots(k)%fallback(j), .true.)
-        end do
     end function font_slot
 
     subroutine pick(slot, cp, which)
@@ -688,10 +724,21 @@ contains
         !! own glyph for missing characters when no font has it).
         integer, intent(in) :: slot, cp
         integer, intent(out) :: which
-        integer :: j
+        integer :: j, idx
+        character(:), allocatable :: path
         which = 0
         if (font_has(slots(slot)%font, cp)) return
         do j = 1, size(FALLBACK_FAMILIES)
+            if (.not. slots(slot)%tried_fallback(j)) then
+                slots(slot)%tried_fallback(j) = .true.
+                call font_lookup(trim(FALLBACK_FAMILIES(j)), "", 0, path, index=idx)
+                if (len(path) > 0) then
+                    slots(slot)%has_fallback(j) = font_open_file(slots(slot)%fallback(j), path, &
+                        slots(slot)%px, idx)
+                    if (slots(slot)%has_fallback(j)) &
+                        call font_set_hinting(slots(slot)%fallback(j), .true.)
+                end if
+            end if
             if (.not. slots(slot)%has_fallback(j)) cycle
             if (font_has(slots(slot)%fallback(j), cp)) then
                 which = j
@@ -1052,9 +1099,7 @@ contains
             end if
         else
             call cpu_render(self%cpu, self%list)
-#if defined(_WIN32) || defined(__APPLE__)
             if (.not. self%offscreen) call win_present_pixels(self%win, self%cpu%rgba)
-#endif
         end if
         if (.not. self%offscreen) then
             self%drawn = .true.
