@@ -122,6 +122,7 @@ module fortui_gui
         integer :: nqueue = 0
         logical :: pointer_down = .false.
         logical :: redraw = .false.
+        real :: retry_delay = 0.0
     contains
         procedure :: name => gb_name
         procedure :: init => gb_init
@@ -339,16 +340,22 @@ contains
         type(input_state_t), intent(inout) :: input
         logical, intent(in) :: wait
         type(win_event_t) :: ev
+        real :: timeout
         if (.not. self%active) return
         call input_set_time(input, real(win_time(), kind(1.0d0)))
         if (.not. self%offscreen) then
             do while (win_next_event(self%win, ev))
                 call enqueue(self, ev)
             end do
-            if (wait .and. self%nqueue == 0 .and. .not. self%close_requested .and. &
-                .not. self%redraw) then
+            if (wait .and. self%nqueue == 0 .and. .not. self%close_requested) then
+                timeout = self%wake_in
+                if (self%redraw) then
+                    ! A lost surface must not turn idle redraws into a busy loop.
+                    timeout = self%retry_delay
+                    if (self%wake_in >= 0.0) timeout = min(timeout, self%wake_in)
+                end if
                 self%waits = self%waits + 1
-                call win_wait(self%win, self%wake_in)
+                call win_wait(self%win, timeout)
                 do while (win_next_event(self%win, ev))
                     call enqueue(self, ev)
                 end do
@@ -906,7 +913,7 @@ contains
         real :: bg(4)
         integer :: k
         self%presents = self%presents + 1
-        if (.not. self%active) return
+        if (.not. self%active .or. self%close_requested) return
         self%frame_no = modulo(self%frame_no + 1, 2**30)
         measuring = .true.
         call self%canvas%sync(store)
@@ -931,7 +938,12 @@ contains
             call record(self, frame, store, k)
         end do
         if (self%gpu) then
-            if (.not. gpu_render(self%dev, self%list)) self%redraw = .true.
+            if (.not. gpu_render(self%dev, self%list)) then
+                self%redraw = .true.
+                self%retry_delay = min(1.0, max(1.0 / 60.0, 2.0 * self%retry_delay))
+                return
+            end if
+            self%retry_delay = 0.0
         else
             call cpu_render(self%cpu, self%list)
 #if defined(_WIN32) || defined(__APPLE__)
