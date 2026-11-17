@@ -941,9 +941,9 @@ contains
             if (.not. gpu_render(self%dev, self%list)) then
                 self%redraw = .true.
                 self%retry_delay = min(1.0, max(1.0 / 60.0, 2.0 * self%retry_delay))
-                return
+            else
+                self%retry_delay = 0.0
             end if
-            self%retry_delay = 0.0
         else
             call cpu_render(self%cpu, self%list)
 #if defined(_WIN32) || defined(__APPLE__)

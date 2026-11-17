@@ -12,7 +12,7 @@ program test_gui
     use iso_c_binding
     use iso_fortran_env, only: int8, int32
     use fortui
-    use fortui_gui, only: gui_backend_t, gui_read_pixels, gui_inject
+    use fortui_gui, only: gui_backend_t, gui_read_pixels, gui_inject, gui_is_available
     use fortui_context, only: fortui_context_t, get_default_context
     use fortwin, only: win_event_t, WIN_EV_MOTION, WIN_EV_BUTTON_DOWN, WIN_EV_BUTTON_UP
     implicit none
@@ -27,6 +27,7 @@ program test_gui
     call test_cell_grid_edges()
     call test_window_background()
     call test_file_dialog_pixels()
+    call test_failed_window_render()
 
     if (failures > 0) then
         print '(i0,a)', failures, " gui checks failed"
@@ -44,6 +45,57 @@ contains
             print '(a)', "FAIL: " // what
         end if
     end subroutine check
+
+    subroutine test_failed_window_render()
+#if !defined(_WIN32) && !defined(__APPLE__)
+        use fortgfx_gpu, only: gpu_close
+        use fortwin, only: win_next_event, win_wait, win_time, win_wake
+        use fortui_input, only: input_state_t
+        use fortui_frame, only: ui_frame_t
+        use fortui_canvas, only: canvas_store_t
+        type(gui_backend_t) :: b
+        type(ui_frame_t) :: frame
+        type(canvas_store_t) :: store
+        type(win_event_t) :: ev
+        type(input_state_t) :: input
+        integer :: k
+        real(8) :: started
+        logical :: opened
+        if (.not. gui_is_available()) then
+            print '(a)', " skip window-show test: no X display"
+            return
+        end if
+        b%config%hidden = .true.
+        b%config%width = 80
+        b%config%height = 60
+        opened = b%init()
+        call check(opened, "window-show test opens")
+        if (.not. opened) return
+        call gpu_close(b%dev)
+        call b%set_window_visible(.true.)
+        call b%present(frame, store)
+        started = win_time()
+        do while (.not. b%win%mapped .and. win_time() - started < 1.0d0)
+            call win_wait(b%win, 0.05)
+            do while (win_next_event(b%win, ev))
+            end do
+        end do
+        call check(b%win%mapped, "a failed first frame still shows the requested window")
+        call b%poll(input, .false.)
+        started = win_time()
+        do k = 1, 10
+            call b%present(frame, store)
+            call b%poll(input, .true.)
+        end do
+        call check(win_time() - started > 1.0d0, "failed renders wait between idle retries")
+        call win_wake()
+        started = win_time()
+        call b%present(frame, store)
+        call b%poll(input, .true.)
+        call check(win_time() - started < 0.5d0, "input wakes a delayed redraw")
+        call b%shutdown()
+#endif
+    end subroutine test_failed_window_render
 
     subroutine test_file_dialog_pixels()
         use fortui_testing, only: ui_node_rect
