@@ -486,7 +486,15 @@ contains
             h = h - 2.0 * u
         end if
         d = 0.0
-        if (node%active .and. node%hovered .and. .not. node%disabled) then
+        if (node%checked .and. node%toggle) then
+            ! Latched toggle: sunken as Windows 95 draws a pressed tool button.
+            call rect(list, x, y, w, h, theme%light)
+            call rect(list, x, y, w, u, theme%shadow)
+            call rect(list, x, y, u, h, theme%shadow)
+            call rect(list, x, y + h - u, w, u, theme%hilight)
+            call rect(list, x + w - u, y, u, h, theme%hilight)
+            d = u
+        else if (node%active .and. node%hovered .and. .not. node%disabled) then
             ! Pressed: a flat grey line inside the black frame, label 1 px down-right.
             call rect(list, x, y, w, h, theme%face)
             call rect(list, x, y, w, u, theme%shadow)
@@ -694,6 +702,11 @@ contains
             if (node%active .and. node%hovered) fill = theme%light
             ink = theme%on_surface
         end select
+        if (node%toggle .and. node%checked .and. node%emphasis /= UI_EMPHASIS_PRIMARY) then
+            ! Selected toggle: the pressed fill and an accessible stroke.
+            fill = theme%light
+            stroke = theme%shadow
+        end if
         if (node%disabled) then
             fill = merge(0, theme%surface_high, node%emphasis == UI_EMPHASIS_QUIET)
             stroke = merge(0, theme%light, node%emphasis == UI_EMPHASIS_QUIET)

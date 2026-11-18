@@ -55,6 +55,10 @@
     inset -2px -2px #808080;
   padding: 1px 9px 0 11px;
 }
+.fui-root[data-theme="classic"] .fui-k2[aria-pressed="true"] {
+  background: #dfdfdf; padding: 1px 9px 0 11px;
+  box-shadow: inset 1px 1px #808080, inset -1px -1px #fff;
+}
 .fui-root[data-theme="classic"] .fui-k2:disabled { color: #808080; text-shadow: 1px 1px #fff; }
 .fui-root[data-theme="classic"] .fui-k5[aria-selected="true"] { margin-top: -2px; min-height: 25px; }
 .fui-root[data-theme="classic"] .fui-k8,
@@ -98,6 +102,9 @@
   background: var(--fui-bg1-hover); border-color: var(--fui-stroke1-hover);
 }
 .fui-root[data-theme^="fluent"] .fui-k2:active:not(:disabled) { background: var(--fui-bg1-pressed); }
+.fui-root[data-theme^="fluent"] .fui-k2[aria-pressed="true"] {
+  background: var(--fui-bg1-pressed); border-color: var(--fui-stroke-accessible);
+}
 .fui-root[data-theme^="fluent"] .fui-k2[data-emphasis="1"] {
   background: var(--fui-brand); color: #fff; border-color: transparent;
 }

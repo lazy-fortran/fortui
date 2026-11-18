@@ -1146,6 +1146,11 @@ contains
                 bg = colour(self, p%band)
                 if (node%emphasis == UI_EMPHASIS_PRIMARY) fg = fg + TB_BOLD
                 if (node%hovered .or. node%active) fg = fg + TB_BOLD
+                ! A latched toggle swaps the band's colours.
+                if (node%toggle .and. node%checked) then
+                    fg = colour(self, p%band) + TB_BOLD
+                    bg = colour(self, p%on_band)
+                end if
                 if (node%focused .or. (node%active .and. node%hovered)) then
                     fg = colour(self, p%on_cursor) + TB_BOLD
                     bg = colour(self, p%cursor)

@@ -164,6 +164,8 @@ contains
                 a = a//' style="'//style//'"'
                 select case (n%kind)
                 case (UI_BUTTON)
+                    if (n%toggle) a = ' aria-pressed="'//trim(merge('true ', 'false', n%checked))// &
+                        '"'//a
                     s = '<button type="button"'//a//'>'//text//'</button>'
                 case (UI_LINK)
                     s = '<a href="'//body//'"'//a//'>'//text//'</a>'

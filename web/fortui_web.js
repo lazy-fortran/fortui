@@ -197,6 +197,8 @@ addToLibrary({
       switch (kind) {
         case 2:
           if (el.textContent !== text) el.textContent = text;
+          if (flags & 512) el.setAttribute('aria-pressed', (flags & 32) ? 'true' : 'false');
+          else el.removeAttribute('aria-pressed');
           break;
         case 5:
           if (el.textContent !== text) el.textContent = text;

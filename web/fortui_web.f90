@@ -260,7 +260,7 @@ contains
 
     function node_record(n) result(r)
         !! Kind, id, x, y, width, height (logical units), flags (1 focusable,
-        !! 2 disabled, 8 focused, 32 checked, 64 ellipsis, 256 reveal), value, min,
+        !! 2 disabled, 8 focused, 32 checked, 64 ellipsis, 256 reveal, 512 toggle), value, min,
         !! max, style, text size, box, width mode, tone, text, body, runs, look,
         !! anchor, button emphasis.
         type(ui_node_t), intent(in) :: n
@@ -275,6 +275,7 @@ contains
         if (n%ellipsis) flags = ior(flags, 64)
         if (n%markdown) flags = ior(flags, 128)
         if (n%reveal) flags = ior(flags, 256)
+        if (n%toggle) flags = ior(flags, 512)
         r = ui_str(n%kind)//US//clean(trim(n%id))//US// &
             ui_str(nint(n%x))//US//ui_str(nint(n%y))//US//ui_str(nint(n%width))//US// &
             ui_str(nint(n%height))//US//ui_str(flags)//US//ui_str(n%value, 4)//US// &

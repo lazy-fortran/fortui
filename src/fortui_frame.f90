@@ -127,6 +127,8 @@ module fortui_frame
         real :: min_value = 0.0
         real :: max_value = 1.0
         logical :: checked = .false.
+        ! A button with a pressed state (button pressed=); checked holds it.
+        logical :: toggle = .false.
         integer :: style = UI_BODY
         integer :: tone = UI_TONE_NORMAL
         integer :: emphasis = UI_EMPHASIS_NORMAL

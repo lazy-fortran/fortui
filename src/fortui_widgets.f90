@@ -350,15 +350,17 @@ contains
     end function list_box
 
     logical function button(id, label, key, width, height, enabled, ellipsis, size, &
-            look, anchor, emphasis) result(clicked)
+            look, anchor, emphasis, pressed) result(clicked)
         !! Push button; true once when activated (pointer release or Enter/Space).
         !! `size` is the logical text size of the label; `look` and `anchor` as
         !! for `text`; `emphasis` UI_EMPHASIS_NORMAL (default), _PRIMARY or _QUIET.
+        !! `pressed` makes it a toggle button shown in that state (a selected
+        !! tool); the application changes the state when it is clicked.
         character(*), intent(in) :: id
         character(*), intent(in), optional :: label
         integer, intent(in), optional :: key, emphasis
         real, intent(in), optional :: width, height, size
-        logical, intent(in), optional :: enabled, ellipsis
+        logical, intent(in), optional :: enabled, ellipsis, pressed
         character(*), intent(in), optional :: look, anchor
 
         type(fortui_context_t), pointer :: ctx
@@ -384,6 +386,10 @@ contains
         node%height = ui_control_height()
         if (present(height)) node%height = max(0.0, height)
         if (present(ellipsis)) node%ellipsis = ellipsis
+        if (present(pressed)) then
+            node%toggle = .true.
+            node%checked = pressed
+        end if
         call set_enabled(node, enabled)
 
         call decorate_from_input(ctx, node)

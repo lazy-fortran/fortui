@@ -24,6 +24,8 @@ program test_html
     call row_begin(8.0, height=40.0)
     call text("label")
     clicked = button("go", "Go")
+    clicked = button("pen", "Pen", pressed=.true.)
+    clicked = button("eraser", "Eraser", pressed=.false.)
     call row_end()
     if (text_input("name", name, width=UI_FILL)) continue
     if (text_input("note", note, placeholder="Note", lines=4)) continue
@@ -51,6 +53,13 @@ program test_html
         'a field of several lines is a textarea with its escaped text')
     call check(index(html, 'value="Ada &quot;&lt;x&gt;&quot;"') > 0 .and. &
         index(html, 'align-self: stretch;') > 0, 'filling text field with its escaped value')
+    call check(index(html, '<button type="button" aria-pressed="true" class="fui fui-k2" '// &
+        'data-key="2:c/pen"') > 0, 'pressed toggle button')
+    call check(index(html, '<button type="button" aria-pressed="false" class="fui fui-k2" '// &
+        'data-key="2:c/eraser"') > 0, 'released toggle button')
+    call check(index(html, 'data-key="2:c/go" data-id="c/go"') > 0 .and. &
+        index(html, 'aria-pressed="false" class="fui fui-k2" data-key="2:c/go"') == 0, &
+        'a plain button has no pressed state')
     call check(index(html, 'role="tab" aria-selected="true" class="fui fui-k5" data-key="5:t#2"') &
         > 0, 'selected tab')
     call check(at('data-key="5:t#1"') < at('data-key="1:~3"'), 'text after the tabs comes last')
