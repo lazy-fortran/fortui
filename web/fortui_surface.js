@@ -11,10 +11,13 @@ export class PointerSurface {
     this.raw = 'onpointerrawupdate' in canvas;
     canvas.addEventListener('pointerdown', e => this.down(e), options);
     canvas.addEventListener(this.raw ? 'pointerrawupdate' : 'pointermove', e => this.move(e), options);
-    // Gesture positions are still delivered when raw updates are unavailable
-    // for touch on a host that exposes them for its pen.
+    // Raw updates own measurements. Pointer moves still carry predictions.
     if (this.raw) canvas.addEventListener('pointermove', e => {
       if (e.pointerType === 'touch') this.touch(e);
+      else if (e.pointerId === this.pointer?.id) {
+        e.preventDefault();
+        this.callbacks.samples?.([], this.predictions(e));
+      }
     }, options);
     canvas.addEventListener('pointerup', e => this.end(e, false), options);
     canvas.addEventListener('pointercancel', e => this.end(e, true), options);
@@ -64,10 +67,13 @@ export class PointerSurface {
       samples.push(sample);
       this.pointer.last = sample;
     }
-    const predicted = final ? [] : (e.getPredictedEvents?.() || []).map(p => ({
+    const predicted = !final && e.type === 'pointermove' ? this.predictions(e) : [];
+    if (samples.length || predicted.length) this.callbacks.samples?.(samples, predicted);
+  }
+  predictions(e) {
+    return (e.getPredictedEvents?.() || []).map(p => ({
       x: p.clientX, y: p.clientY, t: p.timeStamp / 1000 - this.pointer.origin, pressure: p.pressure,
     }));
-    if (samples.length) this.callbacks.samples?.(samples, predicted);
   }
   end(e, cancelled) {
     if (this.touches.delete(e.pointerId)) {

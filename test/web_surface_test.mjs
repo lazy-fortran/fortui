@@ -21,8 +21,13 @@ test('coalesced measured samples, predictions and exact release stay separate', 
   const c = new Canvas(), measured = [], predicted = [], ends = [];
   const s = new PointerSurface(c, { samples: (a, b) => { measured.push(...a); predicted.push(...b); }, end: x => ends.push(x) });
   c.dispatchEvent(event('pointerdown'));
+  const coalesced = () => [event('', { timeStamp: 1010, clientX: 20, pressure: 0.6 })];
   c.dispatchEvent(event('pointerrawupdate', { timeStamp: 1020, clientX: 30, pressure: 0.8,
-    getCoalescedEvents: () => [event('', { timeStamp: 1010, clientX: 20, pressure: 0.6 })],
+    getCoalescedEvents: coalesced }));
+  assert.deepEqual(measured.map(p => p.x), [10, 20, 30]);
+  assert.deepEqual(predicted, []);
+  c.dispatchEvent(event('pointermove', { timeStamp: 1020, clientX: 30, pressure: 0.8,
+    getCoalescedEvents: coalesced,
     getPredictedEvents: () => [event('', { timeStamp: 1030, clientX: 40, pressure: 0.9 })] }));
   c.dispatchEvent(event('pointerup', { timeStamp: 1025, clientX: 35, pressure: 0 }));
   c.dispatchEvent(event('lostpointercapture'));
@@ -32,6 +37,17 @@ test('coalesced measured samples, predictions and exact release stay separate', 
   assert.deepEqual(predicted.map(p => p.x), [40]);
   assert.deepEqual(ends, [false]);
   assert.equal(c.captured.size, 0);
+  s.dispose();
+});
+
+test('a browser without raw updates delivers measurements and predictions together', () => {
+  const c = new Canvas(), batches = [];
+  delete c.onpointerrawupdate;
+  const s = new PointerSurface(c, { samples: (a, b) => batches.push([a.map(p => p.x), b.map(p => p.x)]) });
+  c.dispatchEvent(event('pointerdown'));
+  c.dispatchEvent(event('pointermove', { timeStamp: 1020, clientX: 20,
+    getPredictedEvents: () => [event('', { timeStamp: 1030, clientX: 30 })] }));
+  assert.deepEqual(batches, [[[10], []], [[20], [30]]]);
   s.dispose();
 });
 
