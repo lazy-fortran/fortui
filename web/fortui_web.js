@@ -383,6 +383,13 @@ addToLibrary({
   },
 
   fortui_web_now: function () { return performance.now() / 1000; },
+  fortui_web_offer_file__deps: ['$FUI'],
+  fortui_web_offer_file: function (ptr) {
+    var path = UTF8ToString(ptr), data = FS.readFile(path);
+    var url = URL.createObjectURL(new Blob([data])), a = document.createElement('a');
+    a.href = url; a.download = path.split('/').pop(); document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+  },
 
   // One timer for the next due frame (ms), replacing the previous one; -1 cancels.
   fortui_web_wake_after__deps: ['$FUI'],

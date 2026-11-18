@@ -11,7 +11,7 @@ module fortui_files
         character(len=:), allocatable :: name
         logical :: directory = .false.
     end type
-    public :: file_list, file_read, file_join, file_parent, file_name, file_home
+    public :: file_list, file_read, file_write, file_join, file_parent, file_name, file_home
     public :: file_is_directory, file_matches, file_lower, file_is_readable, file_absolute
     interface
         type(c_ptr) function dir_open(path) bind(C, name="fortui_dir_open")
@@ -160,6 +160,25 @@ contains
         end if
         call read_close(handle)
     end subroutine
+    subroutine file_write(path, bytes, message)
+        !! Writes `bytes` to `path`, replacing the file; `message` is empty on
+        !! success. In the browser the file lands in memory: ui_offer_file
+        !! hands it to the visitor.
+        character(*), intent(in) :: path
+        integer(int8), intent(in) :: bytes(:)
+        character(:), allocatable, intent(out) :: message
+        integer :: unit, ios
+        message = ""
+        open(newunit=unit, file=path, access="stream", form="unformatted", &
+            status="replace", action="write", iostat=ios)
+        if (ios /= 0) then
+            message = "Cannot write this file. Check its location and permissions."
+            return
+        end if
+        write(unit, iostat=ios) bytes
+        if (ios /= 0) message = "Cannot write this file."
+        close(unit)
+    end subroutine file_write
     logical function file_is_readable(path)
         character(*), intent(in) :: path
         file_is_readable = readable(path // c_null_char) /= 0

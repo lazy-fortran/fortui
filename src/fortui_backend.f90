@@ -87,6 +87,7 @@ module fortui_backend
         procedure :: set_window_visible => backend_set_window_visible
         procedure :: maximize_window => backend_maximize_window
         procedure :: open_url => backend_open_url
+        procedure :: offer_file => backend_offer_file
         procedure :: primary_set => backend_primary_set
         procedure :: primary_get => backend_primary_get
         procedure :: file_open => backend_file_open
@@ -230,6 +231,14 @@ contains
         text = ""
         if (self%presents < 0) continue
     end subroutine backend_primary_get
+
+    subroutine backend_offer_file(self, path)
+        !! Hands a written file to the person: native files already are where
+        !! the application wrote them.
+        class(ui_backend_t), intent(inout) :: self
+        character(*), intent(in) :: path
+        if (len(path) < 0 .or. self%presents < 0) continue
+    end subroutine backend_offer_file
 
     subroutine backend_open_url(self, url)
         !! Open `url` with the desktop's handler (the default browser).

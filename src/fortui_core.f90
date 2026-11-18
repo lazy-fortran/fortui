@@ -31,7 +31,7 @@ module fortui_core
     public :: ui_request_frame, ui_set_continuous, ui_window_size, ui_scale
     public :: ui_time, ui_wake_after
     public :: ui_clipboard_set, ui_clipboard_text, ui_set_title, ui_waker, ui_set_window_margin
-    public :: ui_set_window_size, ui_set_window_visible, ui_maximize_window, ui_open_url
+    public :: ui_set_window_size, ui_set_window_visible, ui_maximize_window, ui_open_url, ui_offer_file
     public :: ui_set_window_background
     public :: ui_primary_set, ui_primary_text
     public :: ui_key_pressed, ui_text_width, ui_backend_capabilities, ui_backend_caps_t
@@ -544,6 +544,16 @@ contains
         if (.not. associated(ctx)) return
         if (ctx%initialized) call ctx%backend%primary_get(text)
     end function ui_primary_text
+
+    subroutine ui_offer_file(path)
+        !! Offers a file the application wrote (file_write) to the person: a
+        !! download in the browser, nothing more on the desktop.
+        character(*), intent(in) :: path
+        type(fortui_context_t), pointer :: ctx
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (ctx%initialized) call ctx%backend%offer_file(path)
+    end subroutine ui_offer_file
 
     subroutine ui_open_url(url)
         !! Open `url` with the desktop's handler (the default browser).

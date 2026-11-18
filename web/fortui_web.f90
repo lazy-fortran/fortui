@@ -8,7 +8,7 @@ module fortui_web
     !!
     !! The browser drives the frames: `ui_run` returns at once, and the host
     !! calls `fortui_web_step` when there is something to show.
-    use, intrinsic :: iso_c_binding, only: c_int, c_float, c_double, c_char
+    use, intrinsic :: iso_c_binding, only: c_int, c_float, c_double, c_char, c_null_char
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t
     use fortui_frame, only: ui_frame_t, ui_node_t
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
@@ -46,6 +46,7 @@ module fortui_web
         procedure :: install_text_metrics => web_metrics
         procedure :: capabilities => web_caps
         procedure :: hand_over => web_hand_over
+        procedure :: offer_file => web_offer_file
     end type web_backend_t
 
     interface
@@ -130,6 +131,20 @@ contains
         self%last = ""
         web_init = self%active
     end function web_init
+
+    subroutine web_offer_file(self, path)
+        !! Downloads the file from the in-memory file system.
+        class(web_backend_t), intent(inout) :: self
+        character(*), intent(in) :: path
+        interface
+            subroutine offer(p) bind(C, name="fortui_web_offer_file")
+                import c_char
+                character(kind=c_char), intent(in) :: p(*)
+            end subroutine offer
+        end interface
+        if (self%presents < 0) return
+        call offer(path // c_null_char)
+    end subroutine web_offer_file
 
     subroutine web_hand_over(self)
         !! Leaves main without ending the program: an ordinary return would run
