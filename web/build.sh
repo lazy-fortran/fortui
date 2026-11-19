@@ -48,7 +48,7 @@ done
 name=$(basename "$prog" .f90)
 "$lf" -c $flags "$prog" -o "$name.o"
 "$emcc" --target=wasm32-unknown-emscripten -O2 -sALLOW_MEMORY_GROWTH \
-    -sSTACK_SIZE=8mb -sEXPORTED_FUNCTIONS=_main,_fortui_web_step,_fortui_web_key $js ${FORTUI_WEB_LDFLAGS:-} \
+    -sSTACK_SIZE=8mb -sEXPORTED_FUNCTIONS=_main,_fortui_web_step,_fortui_web_key,_fortui_web_layer_ptr $js ${FORTUI_WEB_LDFLAGS:-} \
     -o "$out/$name.js" ./*.o "$runtime"
 html=$(dirname "$prog")/index.html
 if [ -f "$html" ]; then cp "$html" "$out/index.html"; fi

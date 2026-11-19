@@ -8,9 +8,11 @@ module fortui_web
     !!
     !! The browser drives the frames: `ui_run` returns at once, and the host
     !! calls `fortui_web_step` when there is something to show.
-    use, intrinsic :: iso_c_binding, only: c_int, c_float, c_double, c_char, c_null_char
+    use, intrinsic :: iso_c_binding, only: c_int, c_float, c_double, c_char, c_null_char, &
+        c_ptr, c_loc, c_null_ptr
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t
-    use fortui_frame, only: ui_frame_t, ui_node_t
+    use fortui_frame, only: ui_frame_t, ui_node_t, ui_layer_ref_t, UI_CANVAS, LAYER_IMAGE, &
+        LAYER_LINES, LAYER_POINTS
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
         input_set_time, input_host_event, input_widget_key, input_host_key, &
         input_claims, KEY_ESCAPE
@@ -22,7 +24,10 @@ module fortui_web
     implicit none
     private
 
-    public :: web_backend_t
+    public :: web_backend_t, fortui_web_layer_ptr
+
+    ! The store of the last frame, read by the host while it draws canvases.
+    type(canvas_store_t), pointer :: drawn => null()
 
     integer, parameter :: MAX_EVENTS = 256
     integer, parameter :: TEXT_CAP = 65536
@@ -247,6 +252,10 @@ contains
         do i = 1, frame%count
             call add(node_record(frame%nodes(i))//RS)
         end do
+        drawn => store
+        do i = 1, frame%count
+            if (frame%nodes(i)%kind == UI_CANVAS) call canvas_records(frame, i)
+        end do
         self%presents = self%presents + 1
         if (allocated(self%last)) then
             if (len(self%last) == used) then
@@ -257,6 +266,51 @@ contains
         self%last = buf(1:used)
 
     contains
+
+        subroutine canvas_records(frame, i)
+            !! 'V': node, view and fill; then per layer 'L': node, kind, store
+            !! slot, data versions, sizes and placement. The host reads the
+            !! arrays from memory with fortui_web_layer_ptr when a version changed.
+            type(ui_frame_t), intent(in) :: frame
+            integer, intent(in) :: i
+            integer :: j, vs
+            type(ui_layer_ref_t) :: ref
+            associate (n => frame%nodes(i))
+                call add('V'//US//ui_str(i)//US//ui_str(n%canvas_view%zoom, 6)//US// &
+                    ui_str(n%canvas_view%pan_x, 3)//US//ui_str(n%canvas_view%pan_y, 3)//US// &
+                    ui_str(n%fill)//RS)
+                do j = n%layer_first, n%layer_first + n%layer_count - 1
+                    ref = frame%layers(j)
+                    associate (l => store%layers(ref%slot))
+                        select case (ref%kind)
+                        case (LAYER_IMAGE)
+                            call add('L'//US//ui_str(i)//US//ui_str(ref%kind)//US//ui_str(ref%slot)// &
+                                US//ui_str(l%serial)//'.'//ui_str(ref%version)//US// &
+                                ui_str(l%image_width)//US//ui_str(l%image_height)//US// &
+                                ui_str(l%rect(1), 3)//US//ui_str(l%rect(2), 3)//US// &
+                                ui_str(l%rect(3), 3)//US//ui_str(l%rect(4), 3)//RS)
+                        case (LAYER_LINES, LAYER_POINTS)
+                            vs = ref%vertex_slot
+                            call add('L'//US//ui_str(i)//US//ui_str(ref%kind)//US//ui_str(ref%slot)// &
+                                US//ui_str(l%serial)//'.'//ui_str(ref%version)//'.'// &
+                                ui_str(ref%index_version)//'.'//ui_str(ref%vertex_version)//US// &
+                                ui_str(vs)//US//ui_str(vertices(vs))//US// &
+                                ui_str(arr_size(l%rgba))//US//ui_str(arr_size(l%indices))//US// &
+                                ui_str(l%line_width, 3)//US//ui_str(real_size(l%sizes))//US// &
+                                ui_str(merge(1, 0, l%world_size))//US//ui_str(l%min_pixels, 3)//RS)
+                        end select
+                    end associate
+                end do
+            end associate
+        end subroutine canvas_records
+
+        integer function vertices(slot)
+            !! Positions in a vertex layer (x, y pairs).
+            integer, intent(in) :: slot
+            vertices = 0
+            if (slot < 1 .or. slot > size(store%layers)) return
+            if (allocated(store%layers(slot)%xy)) vertices = size(store%layers(slot)%xy, 2)
+        end function vertices
 
         subroutine add(s)
             character(len=*), intent(in) :: s
@@ -272,6 +326,38 @@ contains
         end subroutine add
 
     end subroutine web_present
+
+    integer function arr_size(a)
+        integer, allocatable, intent(in) :: a(:)
+        arr_size = 0
+        if (allocated(a)) arr_size = size(a)
+    end function arr_size
+
+    integer function real_size(a)
+        real, allocatable, intent(in) :: a(:)
+        real_size = 0
+        if (allocated(a)) real_size = size(a)
+    end function real_size
+
+    type(c_ptr) function fortui_web_layer_ptr(slot, which) bind(C, name="fortui_web_layer_ptr")
+        !! Address of a layer array of the last frame: 1 positions (x, y
+        !! pairs), 2 colours, 3 point sizes, 4 segment vertex indices (0-based).
+        integer(c_int), value :: slot, which
+        fortui_web_layer_ptr = c_null_ptr
+        if (.not. associated(drawn)) return
+        if (slot < 1 .or. slot > size(drawn%layers)) return
+        select case (which)
+        case (1)
+            if (allocated(drawn%layers(slot)%xy)) fortui_web_layer_ptr = c_loc(drawn%layers(slot)%xy)
+        case (2)
+            if (allocated(drawn%layers(slot)%rgba)) fortui_web_layer_ptr = c_loc(drawn%layers(slot)%rgba)
+        case (3)
+            if (allocated(drawn%layers(slot)%sizes)) fortui_web_layer_ptr = c_loc(drawn%layers(slot)%sizes)
+        case (4)
+            if (allocated(drawn%layers(slot)%indices)) fortui_web_layer_ptr = &
+                c_loc(drawn%layers(slot)%indices)
+        end select
+    end function fortui_web_layer_ptr
 
     function node_record(n) result(r)
         !! Kind, id, x, y, width, height (logical units), flags (1 focusable,

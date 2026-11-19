@@ -2,6 +2,7 @@ module web_demo_app
     !! The demo's state and its frame. State lives in a module: the browser calls
     !! the frame after the main program has returned.
     use fortui
+    use iso_fortran_env, only: int32
     implicit none
     private
 
@@ -12,6 +13,7 @@ module web_demo_app
     integer :: value = 25, tab = 1, clicks = 0, ticks = 0, presses = 0
     double precision :: next_tick = 0d0
     character(len=:), allocatable :: name, notes, last_key
+    type(canvas_view_t) :: view
     character(len=16), parameter :: tab_labels(3) = [character(len=16) :: "Controls", &
         "Text", "About"]
 
@@ -34,6 +36,7 @@ contains
             if (ticks < 3) call ui_wake_after(real(next_tick - ui_time()))
         end if
         call text("Ticks " // ui_str(ticks), id="ticks")
+        call swatch()
         ! Shortcuts: "g o" shows the end of the listing, mod+k goes to the name.
         if (ui_shortcut("j")) call pressed("j")
         if (ui_shortcut("Escape")) call pressed("Escape")
@@ -108,6 +111,21 @@ contains
             to_end = .false.
         end select
     end subroutine compose
+
+    subroutine swatch()
+        !! A canvas with a fill, a two-pixel image stretched over a rectangle and
+        !! a line, in world units twice the logical size.
+        integer(int32) :: pixels(2, 1)
+        real :: xy(2, 2)
+        pixels(1, 1) = ui_rgba(255, 0, 0)
+        pixels(2, 1) = ui_rgba(0, 0, 255)
+        xy = reshape([20.0, 90.0, 220.0, 90.0], [2, 2])
+        view%zoom = 0.5
+        call canvas_begin("swatch", view, width=120.0, height=60.0, fill=ui_rgba(30, 30, 30))
+        call canvas_image("pixels", 1, pixels, 20.0, 20.0, 80.0, 40.0)
+        call canvas_lines("line", 1, xy, [ui_rgba(0, 255, 0)], reshape([1, 2], [2, 1]), width=4.0)
+        call canvas_end(view)
+    end subroutine swatch
 
     subroutine pressed(chord)
         character(*), intent(in) :: chord

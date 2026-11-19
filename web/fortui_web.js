@@ -153,6 +153,77 @@ addToLibrary({
     },
     tags: { 2: 'button', 3: 'input', 4: 'label', 5: 'button', 6: 'canvas', 8: 'input', 9: 'a',
       10: 'textarea', 11: 'select' },
+    // Canvas layers drawn with Canvas 2D: images are cached per store slot
+    // and data version, lines and points are read from the Fortran arrays.
+    colour: function (c) {
+      return 'rgba(' + (c & 255) + ',' + ((c >>> 8) & 255) + ',' + ((c >>> 16) & 255) + ',' + (((c >>> 24) & 255) / 255) + ')';
+    },
+    array: function (Type, slot, which, n) {
+      if (typeof _fortui_web_layer_ptr !== 'function' || n <= 0) return null;
+      var p = _fortui_web_layer_ptr(slot, which);
+      return p ? new Type(HEAPU8.buffer, p, n) : null;
+    },
+    drawCanvas: function (el, view, layers) {
+      // The bitmap has device pixels; the element keeps its logical size.
+      var dpr = window.devicePixelRatio || 1, w = el._lw || 1, h = el._lh || 1;
+      var ctx = el.getContext('2d'), zoom = +view[2], px = +view[3], py = +view[4], fill = +view[5];
+      if (el.width !== Math.round(w * dpr) || el.height !== Math.round(h * dpr)) {
+        el.width = Math.round(w * dpr); el.height = Math.round(h * dpr);
+      }
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, el.width, el.height);
+      if (fill) { ctx.fillStyle = FUI.colour(fill); ctx.fillRect(0, 0, el.width, el.height); }
+      ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, dpr * px, dpr * py);
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+      el._images = el._images || new Map();
+      var used = new Set();
+      for (var i = 0; i < layers.length; i++) {
+        var l = layers[i], kind = +l[2], slot = +l[3], version = l[4];
+        if (kind === 4) {
+          var iw = +l[5], ih = +l[6], key = slot, cached = el._images.get(key);
+          used.add(key);
+          if (!cached || cached.version !== version || cached.w !== iw || cached.h !== ih) {
+            var px8 = FUI.array(Uint8ClampedArray, slot, 2, iw * ih * 4);
+            if (!px8) continue;
+            var c = cached && cached.canvas && cached.w === iw && cached.h === ih ? cached.canvas : document.createElement('canvas');
+            c.width = iw; c.height = ih;
+            c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(px8), iw, ih), 0, 0);
+            cached = { version: version, w: iw, h: ih, canvas: c };
+            el._images.set(key, cached);
+          }
+          // Single pixels stretched to a rectangle stay flat (shading).
+          ctx.imageSmoothingEnabled = iw > 1 || ih > 1;
+          ctx.drawImage(cached.canvas, +l[7], +l[8], +l[9], +l[10]);
+          ctx.imageSmoothingEnabled = true;
+        } else {
+          var vslot = +l[5], nv = +l[6], nc = +l[7], ni = +l[8], width = +l[9], ns = +l[10];
+          var xy = FUI.array(Float32Array, vslot, 1, 2 * nv), rgba = FUI.array(Uint32Array, slot, 2, nc);
+          if (!xy) continue;
+          var colourOf = function (k) { return FUI.colour(rgba && rgba.length ? rgba[Math.min(k, rgba.length - 1)] : -1); };
+          if (kind === 2) {
+            var idx = FUI.array(Int32Array, slot, 4, ni);
+            if (!idx) continue;
+            ctx.lineWidth = width / zoom; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            var paths = new Map();
+            for (var s = 0; s + 1 < ni; s += 2) {
+              var a = idx[s], b = idx[s + 1], col = colourOf(a), path = paths.get(col);
+              if (!path) { path = new Path2D(); paths.set(col, path); }
+              path.moveTo(xy[2 * a], xy[2 * a + 1]); path.lineTo(xy[2 * b], xy[2 * b + 1]);
+            }
+            paths.forEach(function (path, col) { ctx.strokeStyle = col; ctx.stroke(path); });
+          } else if (kind === 1) {
+            var sizes = FUI.array(Float32Array, slot, 3, ns), world = l[11] === '1', minPx = +l[12];
+            for (var p = 0; p < nv; p++) {
+              var r = (sizes ? sizes[Math.min(p, sizes.length - 1)] : width) / 2;
+              if (!world) r = r / zoom;
+              r = Math.max(r, minPx / zoom / 2);
+              ctx.fillStyle = colourOf(p); ctx.beginPath(); ctx.arc(xy[2 * p], xy[2 * p + 1], r, 0, 2 * Math.PI); ctx.fill();
+            }
+          }
+        }
+      }
+      el._images.forEach(function (_, key) { if (!used.has(key)) el._images.delete(key); });
+    },
     create: function (kind, key) {
       var el = document.createElement(FUI.tags[kind] || 'div');
       if (kind === 3) { el.type = 'range'; el.step = 'any'; }
@@ -214,7 +285,8 @@ addToLibrary({
           break;
         case 6:
           el._x = +f[2]; el._y = +f[3];
-          el.width = +f[4]; el.height = +f[5];
+          el._lw = +f[4]; el._lh = +f[5];
+          el.style.width = el._lw + 'px';
           break;
         case 11:
           if (el._body !== body) {
@@ -401,11 +473,14 @@ addToLibrary({
   fortui_web_present__deps: ['$FUI'],
   fortui_web_present: function (ptr, n) {
     var records = UTF8ToString(ptr, n).split('\x1e');
-    var boxes = [null], nodes = [], anon = {};
+    var boxes = [null], nodes = [], anon = {}, views = [], layers = [], nodeEls = [];
     for (var i = 0; i < records.length; i++) {
       if (records[i] === '') continue;
       var f = records[i].split('\x1f');
-      if (f[0] === 'B') boxes.push(f); else nodes.push(f);
+      if (f[0] === 'B') boxes.push(f);
+      else if (f[0] === 'V') views.push(f);
+      else if (f[0] === 'L') layers.push(f);
+      else nodes.push(f);
     }
     var seen = new Set(), children = boxes.map(function () { return []; });
     var boxEl = [FUI.root];
@@ -424,6 +499,7 @@ addToLibrary({
       if (!nel) { nel = FUI.create(+f2[0], nkey); FUI.els.set(nkey, nel); }
       var parent = +f2[12], pkind = parent > 0 ? +boxes[parent][1] : 1;
       FUI.update(nel, f2, pkind === 2 || pkind === 3);
+      nodeEls[k + 1] = nel;
       seen.add(nkey);
       children[parent].push([2 * (k + 1), 0, nel]);
     }
@@ -439,6 +515,10 @@ addToLibrary({
     FUI.els.forEach(function (el, key) {
       if (!seen.has(key)) { el.remove(); FUI.els.delete(key); }
     });
+    for (var v = 0; v < views.length; v++) {
+      var cel = nodeEls[+views[v][1]];
+      if (cel && cel.getContext) FUI.drawCanvas(cel, views[v], layers.filter(function (l) { return l[1] === views[v][1]; }));
+    }
     var focus = FUI.toFocus, reveal = FUI.toReveal;
     FUI.toFocus = FUI.toReveal = null;
     // Also in a window without the focus: the element then has it when the

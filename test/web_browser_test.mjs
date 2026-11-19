@@ -116,6 +116,20 @@ try {
   await until(`document.querySelector('[data-id="ticks"]')?.textContent === 'Ticks 3'`, 'timer ticks');
   check(true, 'timers advance the page without input');
   check(await evaluate(`document.querySelector('[data-id="count"]').tagName === 'BUTTON'`), 'button element');
+  // Canvas layers drawn by the host: fill, a stretched image and a line,
+  // through the canvas view (zoom 0.5), at device resolution.
+  await until(`(() => { const c = document.querySelector('canvas[data-id="swatch"]');
+    return c && c.width > 0 && c.getContext('2d').getImageData(c.width * 20 / 120 | 0, c.height * 20 / 60 | 0, 1, 1).data[0] > 200; })()`, 'canvas layers');
+  const pixel = (x, y) => evaluate(`(() => { const c = document.querySelector('canvas[data-id="swatch"]');
+    return [...c.getContext('2d').getImageData(Math.floor(c.width * ${x} / 120), Math.floor(c.height * ${y} / 60), 1, 1).data]; })()`);
+  const near = (p, q) => p.slice(0, 3).every((v, i) => Math.abs(v - q[i]) <= 40);
+  check(near(await pixel(5, 5), [30, 30, 30]), 'canvas fill');
+  check(near(await pixel(20, 20), [255, 0, 0]) && near(await pixel(40, 20), [0, 0, 255]),
+    'image layer stretched into its world rectangle');
+  check(near(await pixel(60, 45), [0, 255, 0]), 'line layer at its world position');
+  check(await evaluate(`(() => { const c = document.querySelector('canvas[data-id="swatch"]');
+    return c.width === Math.round(120 * devicePixelRatio) && c.style.width === '120px'; })()`),
+    'canvas bitmap at device pixels, element at logical size');
   check(await evaluate(`getComputedStyle(document.querySelector('[data-id="count"]')).fontFamily === getComputedStyle(document.querySelector('.fui-root')).fontFamily`),
     'controls use the page font the metrics were measured in');
   check(await evaluate(`(() => { const row = document.getElementById('controls'), one = document.querySelector('[data-id="one"]');
