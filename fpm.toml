@@ -27,7 +27,7 @@ cpp.directories = ["src", "app", "test", "example"]
 fortzip = { git = "https://github.com/lazy-fortran/fortzip.git", rev = "4353df1767953a8d38ce68fec04c98098a13a5ff" }
 fortimg = { git = "https://github.com/lazy-fortran/fortimg.git", rev = "22716c3ed5424e1e463bde5e6bc0daf40d78cb2e" }
 fortfont = { git = "https://github.com/lazy-fortran/fortfont.git", rev = "7d53dd0dd5f88897dfa531b86287a01b934c2ed7" }
-fortwin = { git = "https://github.com/lazy-fortran/fortwin.git", rev = "5915828a2dd8162591b109713acf2bec274b851f" }
+fortwin = { git = "https://github.com/lazy-fortran/fortwin.git", rev = "19b8af543536b396813e08430063c19efb3261c3" }
 fortgfx = { git = "https://github.com/lazy-fortran/fortgfx.git", rev = "21cdc328979113e234a71a66837a93611f1072ab" }
 
 [features]
