@@ -363,7 +363,7 @@ contains
         !! Kind, id, x, y, width, height (logical units), flags (1 focusable,
         !! 2 disabled, 8 focused, 32 checked, 64 ellipsis, 256 reveal, 512 toggle), value, min,
         !! max, style, text size, box, width mode, tone, text, body, runs, look,
-        !! anchor, button emphasis.
+        !! anchor, button emphasis, file types, tooltip.
         type(ui_node_t), intent(in) :: n
         character(len=:), allocatable :: r
         integer :: flags
@@ -387,6 +387,8 @@ contains
         r = r//US//runs(n)//US//clean(trim(n%look))//US//clean(trim(n%anchor))//US// &
             ui_str(n%emphasis) // US
         if (allocated(n%file_accept)) r = r // "1" // clean(n%file_accept)
+        r = r//US
+        if (allocated(n%tooltip)) r = r//clean(n%tooltip)
     end function node_record
 
     function runs(n) result(s)

@@ -26,6 +26,7 @@ program test_html
     clicked = button("go", "Go")
     clicked = button("pen", "Pen", pressed=.true.)
     clicked = button("eraser", "Eraser", pressed=.false.)
+    clicked = button("undo", "↶", tooltip="Undo <last>")
     call row_end()
     if (text_input("name", name, width=UI_FILL)) continue
     if (text_input("note", note, placeholder="Note", lines=4)) continue
@@ -57,6 +58,9 @@ program test_html
         'data-key="2:c/pen"') > 0, 'pressed toggle button')
     call check(index(html, '<button type="button" aria-pressed="false" class="fui fui-k2" '// &
         'data-key="2:c/eraser"') > 0, 'released toggle button')
+    call check(index(html, '<button type="button" title="Undo &lt;last&gt;" '// &
+        'aria-label="Undo &lt;last&gt;" class="fui fui-k2" data-key="2:c/undo"') > 0, &
+        'a symbol button carries its escaped tooltip as title and accessible name')
     call check(index(html, 'data-key="2:c/go" data-id="c/go"') > 0 .and. &
         index(html, 'aria-pressed="false" class="fui fui-k2" data-key="2:c/go"') == 0, &
         'a plain button has no pressed state')

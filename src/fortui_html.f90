@@ -166,6 +166,8 @@ contains
                 case (UI_BUTTON)
                     if (n%toggle) a = ' aria-pressed="'//trim(merge('true ', 'false', n%checked))// &
                         '"'//a
+                    if (allocated(n%tooltip)) a = ' title="'//html_escape(n%tooltip)// &
+                        '" aria-label="'//html_escape(n%tooltip)//'"'//a
                     s = '<button type="button"'//a//'>'//text//'</button>'
                 case (UI_LINK)
                     s = '<a href="'//body//'"'//a//'>'//text//'</a>'

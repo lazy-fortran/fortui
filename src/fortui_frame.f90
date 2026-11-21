@@ -145,6 +145,8 @@ module fortui_frame
         real :: text_size = TEXT_DEFAULT_SIZE
         logical :: ellipsis = .false.
         character(len=:), allocatable :: file_accept
+        ! Name of a control shown as a symbol: its tooltip and accessible name.
+        character(len=:), allocatable :: tooltip
         character(len=:), allocatable :: body
         type(text_line_t), allocatable :: lines(:)
         integer :: line_count = 0

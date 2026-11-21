@@ -270,6 +270,8 @@ addToLibrary({
           if (el.textContent !== text) el.textContent = text;
           if (flags & 512) el.setAttribute('aria-pressed', (flags & 32) ? 'true' : 'false');
           else el.removeAttribute('aria-pressed');
+          if (f[22]) { if (el.title !== f[22]) { el.title = f[22]; el.setAttribute('aria-label', f[22]); } }
+          else if (el.title) { el.removeAttribute('title'); el.removeAttribute('aria-label'); }
           break;
         case 5:
           if (el.textContent !== text) el.textContent = text;

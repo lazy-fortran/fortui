@@ -350,18 +350,20 @@ contains
     end function list_box
 
     logical function button(id, label, key, width, height, enabled, ellipsis, size, &
-            look, anchor, emphasis, pressed) result(clicked)
+            look, anchor, emphasis, pressed, tooltip) result(clicked)
         !! Push button; true once when activated (pointer release or Enter/Space).
         !! `size` is the logical text size of the label; `look` and `anchor` as
         !! for `text`; `emphasis` UI_EMPHASIS_NORMAL (default), _PRIMARY or _QUIET.
         !! `pressed` makes it a toggle button shown in that state (a selected
         !! tool); the application changes the state when it is clicked.
+        !! `tooltip` names a button whose label is a symbol: hosts show it on
+        !! hover and give it to assistive technology as the button's name.
         character(*), intent(in) :: id
         character(*), intent(in), optional :: label
         integer, intent(in), optional :: key, emphasis
         real, intent(in), optional :: width, height, size
         logical, intent(in), optional :: enabled, ellipsis, pressed
-        character(*), intent(in), optional :: look, anchor
+        character(*), intent(in), optional :: look, anchor, tooltip
 
         type(fortui_context_t), pointer :: ctx
         type(ui_node_t) :: node
@@ -371,6 +373,7 @@ contains
         if (.not. composing(ctx)) return
 
         node%kind = UI_BUTTON
+        if (present(tooltip)) node%tooltip = tooltip
         if (present(emphasis)) node%emphasis = emphasis
         node%id = scoped_id(id, key)
         if (.not. claim(ctx, trim(node%id), "button")) return
