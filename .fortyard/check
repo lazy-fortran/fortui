@@ -16,4 +16,14 @@ fi
 export LD_LIBRARY_PATH="$root/env/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export FORTUI_IPPEVEPRINTER="$root/env/bin/ippeveprinter"
 export FORTUI_PRINT_REFERENCE=require
-fo test "$@"
+# The cases the landing affects (its first parent is the main it lands on);
+# all of them for a first commit or a fo without --since.
+since=
+if git rev-parse -q --verify HEAD^ >/dev/null &&
+    fo test --help 2>/dev/null | grep -q -- --since; then
+    since="--since HEAD^"
+fi
+# Named cases run as asked.
+if [ $# -gt 0 ]; then since=; fi
+# shellcheck disable=SC2086
+fo test $since "$@"
