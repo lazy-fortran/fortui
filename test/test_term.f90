@@ -2,7 +2,8 @@ program test_term
     !! The terminal emulator against programs on a pseudo-terminal: text and
     !! colours, the device attributes reply (sixel advertised), a sixel image
     !! and the cursor below it, a kitty image with its reply, images scrolling
-    !! into the scrollback, and keys reaching the program.
+    !! into the scrollback, keys reaching the program, and the shown cursor
+    !! during synchronized output.
     use iso_fortran_env, only: int32, int64
     use fortui_term, only: term_t, term_open, term_close, term_pump, term_key, &
         term_available
@@ -26,6 +27,7 @@ program test_term
     call test_kitty_bottom()
     call test_scroll()
     call test_keys()
+    call test_sync_cursor()
     if (failures > 0) error stop "terminal emulator tests failed"
     print *, "fortui terminal emulator tests passed"
 
@@ -213,5 +215,38 @@ contains
         call check(row_text(1) == "got:hi", "typed keys reach the program: " // row_text(1))
         call term_close(t)
     end subroutine test_keys
+
+    subroutine test_sync_cursor()
+        ! Between ?2026h and ?2026l the last complete frame stays, cursor
+        ! included (tmux moves it through other panes while it redraws).
+        character(len=512) :: cmd(3)
+        logical :: ok, changed
+        integer(int64) :: t0, now, rate
+        cmd(1) = "/bin/sh"
+        cmd(2) = "-c"
+        cmd(3) = "printf '\033[3;5Hab'; sleep 0.3; printf '\033[?2026h\033[20;30Hxy'; sleep 2"
+        call term_open(t, 24, 80, 8, 16, cmd, ok=ok)
+        call system_clock(t0, rate)
+        do
+            changed = term_pump(t)
+            if (t%vt%sync .and. t%vt%cr == 19) exit
+            call system_clock(now)
+            if (real(now - t0) / real(rate) > 5.0) exit
+        end do
+        changed = term_pump(t)
+        call check(t%vt%sync, "synchronized output has begun")
+        call check(t%cursor_row == 2 .and. t%cursor_col == 6, "cursor of the last frame: " // &
+            itoa(t%cursor_row) // "," // itoa(t%cursor_col))
+        call check(len(row_text(19)) == 0, "text of the last frame")
+        call term_close(t)
+    end subroutine test_sync_cursor
+
+    function itoa(i) result(s)
+        integer, intent(in) :: i
+        character(len=:), allocatable :: s
+        character(len=12) :: b
+        write (b, '(i0)') i
+        s = trim(b)
+    end function itoa
 
 end program test_term

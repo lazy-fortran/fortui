@@ -586,8 +586,6 @@ contains
             ! Images belong to the screen they were shown on.
             if (t%vt%alt .neqv. was_alt) t%nplaces = 0
             t%altscreen = t%vt%alt
-            t%cursor_row = t%vt%cr
-            t%cursor_col = t%vt%cc
             select case (ev)
             case (VT_EV_OSC); call osc(t, t%vt%str(1:t%vt%nstr))
             case (VT_EV_DCS); call dcs(t, t%vt%str(1:t%vt%nstr))
@@ -704,8 +702,6 @@ contains
             call vt_feed(t%vt, m, pos, ev)
         end do
         call follow_scroll(t)
-        t%cursor_row = t%vt%cr
-        t%cursor_col = t%vt%cc
     end subroutine owed_motion
 
     subroutine write_all(fd, bytes)
@@ -739,7 +735,7 @@ contains
         slot = store_image(t, 0, rgba)
         rows = (size(rgba, 2) + t%cell_px_h - 1) / t%cell_px_h
         cols = (size(rgba, 1) + t%cell_px_w - 1) / t%cell_px_w
-        call place(t, slot, t%cursor_row, t%cursor_col, rows, cols, 0)
+        call place(t, slot, t%vt%cr, t%vt%cc, rows, cols, 0)
         t%motion = repeat(achar(10), (6 * ((size(rgba, 2) - 1) / 6)) / t%cell_px_h)
     end subroutine show_sixel
 
@@ -896,11 +892,11 @@ contains
                     real(max(1, im%width)) / real(t%cell_px_h)))
             end if
         end associate
-        call place(t, slot, t%cursor_row, t%cursor_col, rows, cols, key_int(keys, "z", 0))
+        call place(t, slot, t%vt%cr, t%vt%cc, rows, cols, key_int(keys, "z", 0))
         if (key_int(keys, "C", 0) /= 1) then
             ! Cursor down (never scrolls) to the image's last row, then past its
             ! last column.
-            t%motion = achar(27) // "[" // itoa(t%cursor_col + cols + 1) // "G"
+            t%motion = achar(27) // "[" // itoa(t%vt%cc + cols + 1) // "G"
             if (rows > 1) t%motion = achar(27) // "[" // itoa(rows - 1) // "B" // t%motion
         end if
     end subroutine kitty_put
