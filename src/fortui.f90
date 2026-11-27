@@ -13,7 +13,8 @@ module fortui
         ui_maximize_window, ui_set_window_background, ui_open_url, ui_offer_file, ui_primary_set, &
         ui_primary_text, ui_text_width, ui_backend_capabilities, ui_backend_caps_t, ui_backend_description, &
         ui_run, ui_run_step, ui_frame_proc, ui_set_theme, ui_theme_name, ui_locale, ui_url_param, &
-        ui_width_class, UI_COMPACT, UI_MEDIUM, UI_EXPANDED, UI_LARGE
+        ui_width_class, UI_COMPACT, UI_MEDIUM, UI_EXPANDED, UI_LARGE, ui_set_url_param, ui_location, &
+        ui_store_get, ui_store_set, ui_store_use
     use fortui_net, only: net_request_t, net_stream_t, net_fetch, net_poll, net_cancel, &
         net_stream_open, net_stream_next, net_stream_close, net_set_base, NET_IDLE, NET_PENDING, &
         NET_DONE, NET_FAILED, NET_UNSUPPORTED, NET_CANCELLED, NET_OPEN
@@ -24,10 +25,12 @@ module fortui
         canvas_lines, canvas_label, canvas_image, canvas_cells, canvas_keys, ui_cell_metrics, &
         ui_set_cell_font, ui_focus, &
         ui_reveal
-    use fortui_controls, only: icon, badge, chip, segmented, dropdown, menu, toast, &
+    use fortui_controls, only: icon, badge, chip, segmented, dropdown, menu, avatar, ui_user_colour, toast, &
         modal_begin, modal_end, scroll_begin, scroll_end, virtual_list_begin, virtual_list_end, &
         grid_state_t, data_grid
     use fortui_icons, only: icon_names
+    use fortui_commands, only: command_history_t, command_record, command_undo, command_redo, &
+        command_undo_label, command_redo_label, command_shortcuts, command_clear
     use fortui_mesh, only: canvas_camera_t, camera_orbit, camera_project, mesh_grid, mesh_tube
     use fortui_file_dialog, only: file_dialog_t, file_dialog_open, file_dialog_show, &
         file_open_button, file_dialog_poll, file_dialog_cancel, FILE_IDLE, FILE_PENDING, FILE_ACCEPTED, FILE_CANCELLED
@@ -54,6 +57,7 @@ module fortui
     public :: FILE_IDLE, FILE_PENDING, FILE_ACCEPTED, FILE_CANCELLED
     public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
     public :: ui_locale, ui_url_param, ui_width_class, UI_COMPACT, UI_MEDIUM, UI_EXPANDED, UI_LARGE
+    public :: ui_set_url_param, ui_location, ui_store_get, ui_store_set, ui_store_use
     public :: POINTER_MOUSE, POINTER_PEN, POINTER_TOUCH
     public :: net_request_t, net_stream_t, net_fetch, net_poll, net_cancel, net_stream_open, &
         net_stream_next, net_stream_close, net_set_base, NET_IDLE, NET_PENDING, NET_DONE, &
@@ -69,7 +73,9 @@ module fortui
     public :: ui_key_pressed, ui_text_width, ui_str
     public :: ui_shortcut, ui_focus, ui_reveal
     public :: column_begin, column_end, row_begin, row_end
-    public :: icon, badge, chip, segmented, dropdown, menu, toast, modal_begin, modal_end
+    public :: icon, badge, chip, segmented, dropdown, menu, avatar, ui_user_colour, toast, modal_begin, modal_end
+    public :: command_history_t, command_record, command_undo, command_redo, command_undo_label, &
+        command_redo_label, command_shortcuts, command_clear
     public :: scroll_begin, scroll_end, virtual_list_begin, virtual_list_end
     public :: grid_state_t, data_grid, icon_names
     public :: split_begin, split_next, split_end

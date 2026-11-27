@@ -189,6 +189,8 @@ addToLibrary({
         if (el) FUI.host(H.submit, el);
       });
       window.addEventListener('resize', FUI.resize);
+      // Back and Forward change the address: a frame reads it again.
+      window.addEventListener('popstate', function () { FUI.request(); });
       // The system's light or dark preference: a following theme switches at once.
       window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () { FUI.push([6]); });
     },
@@ -414,6 +416,11 @@ addToLibrary({
           break;
         case 12:
           FUI.labelled(el, f[23] || '', text);
+          // A person: their colour behind their initials, their name on hover.
+          var bg = +f[24] ? FUI.colour(+f[24]) : '';
+          if (s.background !== bg) s.background = bg;
+          if (f[22]) { if (el.title !== f[22]) { el.title = f[22]; el.setAttribute('aria-label', f[22]); } }
+          else if (el.title) { el.removeAttribute('title'); el.removeAttribute('aria-label'); }
           if (el.tagName === 'BUTTON') el.setAttribute('aria-pressed', (flags & 32) ? 'true' : 'false');
           break;
         case 13:
@@ -698,6 +705,33 @@ addToLibrary({
     var v = new URLSearchParams(location.search).get(UTF8ToString(name, n)) || '';
     stringToUTF8(v, buf, cap);
     return Math.min(lengthBytesUTF8(v), cap - 1);
+  },
+  fortui_web_set_url_param__deps: ['$UTF8ToString'],
+  fortui_web_set_url_param: function (name, n, value, nv, push) {
+    var u = new URL(location.href), k = UTF8ToString(name, n), v = UTF8ToString(value, nv);
+    if (v) u.searchParams.set(k, v); else u.searchParams.delete(k);
+    if (u.href === location.href) return;
+    if (push) history.pushState(null, '', u); else history.replaceState(null, '', u);
+  },
+  fortui_web_location__deps: ['$stringToUTF8', '$lengthBytesUTF8'],
+  fortui_web_location: function (buf, cap) {
+    stringToUTF8(location.href, buf, cap);
+    return Math.min(lengthBytesUTF8(location.href), cap - 1);
+  },
+  // Values kept between visits: localStorage, under "fortui:" + key.
+  fortui_web_store_get__deps: ['$UTF8ToString', '$stringToUTF8', '$lengthBytesUTF8'],
+  fortui_web_store_get: function (key, n, buf, cap) {
+    var v = '';
+    try { v = localStorage.getItem('fortui:' + UTF8ToString(key, n)) || ''; } catch (e) { v = ''; }
+    if (cap > 0) stringToUTF8(v, buf, cap);
+    return lengthBytesUTF8(v);
+  },
+  fortui_web_store_set__deps: ['$UTF8ToString'],
+  fortui_web_store_set: function (key, n, value, nv) {
+    try {
+      var k = 'fortui:' + UTF8ToString(key, n), v = UTF8ToString(value, nv);
+      if (v) localStorage.setItem(k, v); else localStorage.removeItem(k);
+    } catch (e) { }
   },
   fortui_web_offer_file__deps: ['$FUI'],
   fortui_web_offer_file: function (ptr) {

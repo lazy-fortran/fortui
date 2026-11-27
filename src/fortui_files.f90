@@ -13,6 +13,7 @@ module fortui_files
     end type
     public :: file_list, file_read, file_write, file_join, file_parent, file_name, file_home
     public :: file_is_directory, file_matches, file_lower, file_is_readable, file_absolute
+    public :: file_make_dirs
     interface
         type(c_ptr) function dir_open(path) bind(C, name="fortui_dir_open")
             import c_ptr, c_char
@@ -49,6 +50,10 @@ module fortui_files
             import c_ptr
             type(c_ptr), value :: handle
         end subroutine
+        integer(c_int) function make_dirs(path) bind(C, name="fortui_make_dirs")
+            import :: c_int, c_char
+            character(kind=c_char), intent(in) :: path(*)
+        end function make_dirs
         integer(c_int) function readable(path) bind(C, name="fortui_file_readable")
             import c_char, c_int
             character(c_char), intent(in) :: path(*)
@@ -179,6 +184,12 @@ contains
         if (ios /= 0) message = "Cannot write this file."
         close(unit)
     end subroutine file_write
+    logical function file_make_dirs(path)
+        !! Create directory `path` with its missing parents; whether it exists.
+        character(*), intent(in) :: path
+        file_make_dirs = make_dirs(path // c_null_char) /= 0
+    end function file_make_dirs
+
     logical function file_is_readable(path)
         character(*), intent(in) :: path
         file_is_readable = readable(path // c_null_char) /= 0

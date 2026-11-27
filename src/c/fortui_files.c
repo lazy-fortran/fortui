@@ -135,3 +135,28 @@ int fortui_file_absolute(const char *path, char *out, int capacity) {
     free(full); return ok;
 #endif
 }
+
+/* Create a directory and its missing parents; 1 when it exists afterwards. */
+#ifdef _WIN32
+#include <direct.h>
+static int make_one(const char *path) {
+    wchar_t *w = wide(path); if (!w) return 0;
+    _wmkdir(w); free(w); return fortui_file_directory(path);
+}
+#else
+#include <sys/stat.h>
+static int make_one(const char *path) { mkdir(path, 0700); return fortui_file_directory(path); }
+#endif
+int fortui_make_dirs(const char *path) {
+    size_t n = strlen(path);
+    char *p = malloc(n + 1);
+    if (!p) return 0;
+    memcpy(p, path, n + 1);
+    for (size_t i = 1; i < n; i++) {
+        if (p[i] != '/' && p[i] != '\\') continue;
+        char c = p[i]; p[i] = 0; make_one(p); p[i] = c;
+    }
+    int ok = make_one(p);
+    free(p);
+    return ok;
+}

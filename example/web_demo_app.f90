@@ -29,6 +29,8 @@ module web_demo_app
     ! Widgets: a view, a filter chip, a choice, the last command, a chat that
     ! grows, a long list and a table.
     integer :: view_mode = 1, colour = 2, command = 0, chat_lines = 3, turn = 40
+    logical :: colour_loaded = .false.
+    type(command_history_t) :: history
     logical :: only_open = .false., asking = .false.
     type(grid_state_t) :: grid
 
@@ -140,14 +142,47 @@ contains
             "-", "Delete"]
         character(len=12), parameter :: heads(3) = [character(len=12) :: "Coil", "Current", "Gap"]
         character(len=12) :: cells(3, 40)
-        integer :: k, first, last, c
+        integer :: k, first, last, c, old_view, old_colour
+        character(len=:), allocatable :: step
+        ! The view follows the address (shareable, Back and Forward); the colour
+        ! is kept between visits; changes of both can be undone.
+        old_view = view_mode
+        do k = 1, 3
+            if (ui_url_param("view") == lower_name(views(k))) view_mode = k
+        end do
+        if (.not. colour_loaded) then
+            colour_loaded = .true.
+            step = ui_store_get("colour")
+            if (len(step) == 1) then
+                k = index("123", step)
+                if (k > 0) colour = k
+            end if
+        end if
+        old_colour = colour
         call row_begin(8.0, wrap=.true.)
         call icon("cube", tooltip="Model")
-        if (segmented("view", views, view_mode, icons=[character(len=12) :: "menu", "cube", "branch"])) continue
-        if (dropdown("colour", colours, colour)) continue
+        if (segmented("view", views, view_mode, icons=[character(len=12) :: "menu", "cube", "branch"])) then
+            call command_record(history, "View " // trim(views(view_mode)), "view " // ui_str(view_mode), &
+                "view " // ui_str(old_view))
+            call ui_set_url_param("view", lower_name(views(view_mode)), push=.true.)
+        end if
+        if (dropdown("colour", colours, colour)) then
+            call command_record(history, "Colour", "colour " // ui_str(colour), "colour " // ui_str(old_colour))
+            call ui_store_set("colour", ui_str(colour))
+        end if
         c = menu("more", "More", commands)
         if (c > 0) command = c
-        if (button("undo", "", icon="undo", tooltip="Undo")) call toast("Nothing to undo")
+        if (button("undo", "", icon="undo", tooltip="Undo " // command_undo_label(history), &
+            enabled=len(command_undo_label(history)) > 0)) then
+            if (command_undo(history, step)) call apply_step(step)
+        end if
+        if (button("redo", "", icon="redo", tooltip="Redo " // command_redo_label(history), &
+            enabled=len(command_redo_label(history)) > 0)) then
+            if (command_redo(history, step)) call apply_step(step)
+        end if
+        if (command_shortcuts(history, step)) call apply_step(step)
+        call avatar("Chris Albert")
+        call avatar("王小明", tooltip="王小明 @ China, on cand-a")
         call row_end()
         call row_begin(8.0, wrap=.true.)
         if (chip("open", "Open only", selected=only_open, icon="filter")) only_open = .not. only_open
@@ -192,6 +227,32 @@ contains
         if (data_grid("coils", heads, cells, grid, 200.0)) continue
         call surfaces()
     end subroutine widgets
+
+    subroutine apply_step(step)
+        !! "view N" or "colour N" from the undo history.
+        character(*), intent(in) :: step
+        character(len=5), parameter :: names(3) = ["List ", "Board", "Graph"]
+        integer :: k
+        k = index("123", step(len(step):len(step)))
+        if (k == 0) return
+        if (step(1:4) == "view") then
+            view_mode = k
+            call ui_set_url_param("view", lower_name(names(k)))
+        else
+            colour = k
+            call ui_store_set("colour", ui_str(k))
+        end if
+    end subroutine apply_step
+
+    function lower_name(s) result(t)
+        character(*), intent(in) :: s
+        character(len=:), allocatable :: t
+        integer :: k
+        t = trim(s)
+        do k = 1, len(t)
+            if (t(k:k) >= "A" .and. t(k:k) <= "Z") t(k:k) = achar(iachar(t(k:k)) + 32)
+        end do
+    end function lower_name
 
     subroutine surfaces()
         !! Filled surfaces with depth: a red square in front of a blue one

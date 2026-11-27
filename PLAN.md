@@ -12,7 +12,7 @@ headless tests, termbox2 TUI, and optional raylib GUI. The documentation redesig
 adds contracts and a delivery sequence; it does not implement native/DOM/mobile,
 commands, transaction scheduling, text services, or incremental invalidation.
 
-Next implementation task: B7 below. M1 stays open and is taken up by B7.
+Next implementation task: the open items of B1 to B7 (native TLS, XInput2 pen and touch, depth-tested lines, the dark-theme browser check) and M1.
 
 ## B: best-of-breed through a demanding application (Chris, 2026-11-27)
 
@@ -87,8 +87,18 @@ ours and move with the change.
       nearer face in front), `web_browser_test.mjs` (Chromium WebGL2 pixels).
       Open: terminals draw no meshes; lines are not depth-tested against
       meshes (draw 3D lines as tubes).
-- [ ] B7 Commands with undo and redo (M1), presence of other users, deep links
-      and local storage.
+- [x] B7 Collaboration primitives: undo and redo (`fortui_commands`: the
+      application records forward and backward text, quick changes with one
+      merge key join into one step, labels, a kept limit, Ctrl/Cmd+Z,
+      Shift+Z and Y); people as avatars in a stable colour of their own
+      (`avatar`, `ui_user_colour`); the address as shareable state
+      (`ui_set_url_param` with `push` for Back, `ui_location`; browsers
+      change the page's address, other hosts keep the parameters); values
+      kept between runs (`ui_store_get/set`: local storage in browsers, a
+      file elsewhere, memory in headless tests). Evidence: `test_collab`,
+      `web_browser_test.mjs` (address, Back, local storage, undo, avatars).
+      Who is present is the application's (its server); stellim shows it
+      with these primitives. M1's dispatcher and transaction items stay open.
 
 ## Consumer slice: canvas resources, text, idle (branch `canvas-resources`)
 

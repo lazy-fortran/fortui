@@ -1159,7 +1159,12 @@ contains
         weight = style_weight(node%style)
         if (node%toggle) weight = style_weight(ROLE_LABEL)
         ink = tone_colour(node%tone)
-        if (.not. node%toggle) then
+        if (node%fill /= 0) then
+            ! A person: white initials on their colour, in a circle.
+            fill = node%fill
+            stroke = 0
+            ink = int(z'FFFFFFFF', int32)
+        else if (.not. node%toggle) then
             fill = with_alpha(ink, 36)
             if (node%tone == UI_TONE_NORMAL) fill = theme%surface_high
             stroke = 0

@@ -38,6 +38,7 @@ module fortui_core
     public :: ui_shortcut, ui_set_theme, ui_theme_name
     public :: ui_backend_description, ui_run, ui_run_step, ui_frame_proc
     public :: ui_locale, ui_url_param, ui_width_class, ui_appearance_changed
+    public :: ui_set_url_param, ui_location, ui_store_get, ui_store_set, ui_store_use
     !> Window width classes (as in Material 3): phones, tablets and folded
     !! windows, laptops, wide desktops.
     integer, parameter, public :: UI_COMPACT = 1, UI_MEDIUM = 2, UI_EXPANDED = 3, UI_LARGE = 4
@@ -757,6 +758,66 @@ contains
         if (.not. associated(ctx)) return
         if (ctx%initialized) value = ctx%backend%url_param(name)
     end function ui_url_param
+
+    subroutine ui_set_url_param(name, value, push)
+        !! Put a parameter into the address, so it can be shared and reopened
+        !! ("" removes it). With `push`, Back returns to the address before;
+        !! an application that keeps its view in the address reads it with
+        !! ui_url_param in every frame and so follows Back and Forward too.
+        character(*), intent(in) :: name, value
+        logical, intent(in), optional :: push
+        type(fortui_context_t), pointer :: ctx
+        logical :: step
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (.not. ctx%initialized) return
+        step = .false.
+        if (present(push)) step = push
+        if (ctx%backend%url_param(name) == value) return
+        call ctx%backend%set_url_param(name, value, step)
+    end subroutine ui_set_url_param
+
+    function ui_location() result(where)
+        !! The address of what is shown, to share: the page's address in a
+        !! browser, "?name=value&..." elsewhere.
+        character(len=:), allocatable :: where
+        type(fortui_context_t), pointer :: ctx
+        where = ""
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (ctx%initialized) where = ctx%backend%location()
+    end function ui_location
+
+    function ui_store_get(key) result(value)
+        !! A value kept between runs (local storage in a browser, a file
+        !! elsewhere, see fortui_store); "" when there is none.
+        character(*), intent(in) :: key
+        character(len=:), allocatable :: value
+        type(fortui_context_t), pointer :: ctx
+        value = ""
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (ctx%initialized) value = ctx%backend%store_get(key)
+    end function ui_store_get
+
+    subroutine ui_store_set(key, value)
+        !! Keep `value` under `key` between runs ("" removes it).
+        character(*), intent(in) :: key, value
+        type(fortui_context_t), pointer :: ctx
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (ctx%initialized) call ctx%backend%store_set(key, value)
+    end subroutine ui_store_set
+
+    subroutine ui_store_use(path)
+        !! Keep the values of ui_store_set in file `path` on hosts that keep
+        !! them in files ("" for memory only); browsers keep local storage.
+        character(*), intent(in) :: path
+        type(fortui_context_t), pointer :: ctx
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (ctx%initialized) call ctx%backend%store%use_file(path)
+    end subroutine ui_store_use
 
     function ui_backend_description() result(text)
         !! How the active backend realizes the UI (e.g. terminal graphics and

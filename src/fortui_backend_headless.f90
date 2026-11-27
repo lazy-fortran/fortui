@@ -37,6 +37,8 @@ contains
     logical function headless_init(self)
         class(headless_backend_t), intent(inout) :: self
         self%running = self%config%width > 0 .and. self%config%height > 0
+        ! Tests keep stored values in memory unless they choose a file.
+        self%keeps_store = .false.
         headless_init = self%running
     end function headless_init
 
