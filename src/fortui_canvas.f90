@@ -8,12 +8,13 @@ module fortui_canvas
     !! versions they realized, so data is uploaded only after a real change.
     use iso_fortran_env, only: int32
     use fortui_frame, only: canvas_view_t, ui_frame_t, ui_layer_ref_t, LAYER_POINTS, &
-        LAYER_LINES, LAYER_VERTICES, LAYER_IMAGE, LAYER_CELLS
+        LAYER_LINES, LAYER_VERTICES, LAYER_IMAGE, LAYER_CELLS, LAYER_MESH
     use fortui_error, only: report_error
     implicit none
     private
 
-    public :: canvas_view_t, LAYER_POINTS, LAYER_LINES, LAYER_VERTICES, LAYER_IMAGE, LAYER_CELLS
+    public :: canvas_view_t, LAYER_POINTS, LAYER_LINES, LAYER_VERTICES, LAYER_IMAGE, LAYER_CELLS, &
+        LAYER_MESH
 
     type, public :: canvas_events_t
         !! Pointer semantics for one canvas in one frame. World coordinates use the
@@ -107,6 +108,12 @@ module fortui_canvas
         ! The last column's and row's backgrounds reach the canvas edges.
         logical :: extend_edges = .false.
         integer(int32), allocatable :: cp(:), fg(:), bg(:), attr(:)
+        ! Mesh layers: vertices xyz(3, :), colours in rgba, triangles in
+        ! indices (three 0-based vertex numbers each), and the camera: world to
+        ! clip matrix (column-major) and light direction. A new camera bumps
+        ! index_version, new geometry version.
+        real, allocatable :: xyz(:, :), normals(:, :)
+        real :: camera(16) = 0.0, light(3) = 0.0
     end type canvas_layer_t
 
     type, public :: canvas_store_t
@@ -121,6 +128,7 @@ module fortui_canvas
         procedure :: submit_lines => store_submit_lines
         procedure :: submit_image => store_submit_image
         procedure :: submit_cells => store_submit_cells
+        procedure :: submit_mesh => store_submit_mesh
         procedure :: ref => store_ref
         procedure :: active_layers => store_active_layers
     end type canvas_store_t
@@ -504,6 +512,72 @@ contains
             l%has_data = .true.
         end associate
     end function store_submit_image
+
+    integer function store_submit_mesh(self, key, generation, xyz, rgba, tris, camera, light, &
+            frame_no, flat) result(slot)
+        !! Mesh layer: vertices xyz(3, n), colours rgba(n), triangles tris(3, m)
+        !! of 0-based vertex numbers. Geometry is copied when `generation` or a
+        !! size changes; the camera may change every frame without a copy.
+        !! Vertex normals (the area-weighted mean of their faces) shade smooth
+        !! surfaces; with `flat` every face is shaded by its own normal.
+        class(canvas_store_t), intent(inout) :: self
+        character(*), intent(in) :: key
+        integer, intent(in) :: generation, frame_no
+        real, intent(in) :: xyz(:, :), camera(16), light(3)
+        integer(int32), intent(in) :: rgba(:), tris(:, :)
+        logical, intent(in) :: flat
+        integer :: n, m, t, a, b, c
+        real :: f(3)
+
+        slot = self%acquire(key, LAYER_MESH, frame_no)
+        if (slot == 0) return
+        n = size(xyz, 2)
+        m = size(tris, 2)
+        if (size(rgba) < n) then
+            call report_error("fortui_canvas", "canvas_mesh", "layer '" // key // &
+                "': fewer colours than vertices")
+            return
+        end if
+        associate(l => self%layers(slot))
+            if (any(l%camera /= camera) .or. any(l%light /= light)) l%index_version = l%index_version + 1
+            l%camera = camera
+            l%light = light
+            if (l%has_data .and. l%generation == generation .and. l%vertex_count == n .and. &
+                l%index_count == 3 * m) return
+            l%xyz = xyz
+            l%rgba = rgba(1:n)
+            l%indices = reshape(tris, [3 * m])
+            ! Zero normals ask hosts for the face normal.
+            if (allocated(l%normals)) deallocate (l%normals)
+            allocate (l%normals(3, n))
+            l%normals = 0.0
+            if (.not. flat) then
+                do t = 1, m
+                    a = tris(1, t) + 1
+                    b = tris(2, t) + 1
+                    c = tris(3, t) + 1
+                    if (min(a, b, c) < 1 .or. max(a, b, c) > n) cycle
+                    f = cross3(xyz(:, b) - xyz(:, a), xyz(:, c) - xyz(:, a))
+                    ! A face turned the other way than its neighbours still adds.
+                    if (dot_product(f, l%normals(:, a)) < 0.0) f = -f
+                    l%normals(:, a) = l%normals(:, a) + f
+                    l%normals(:, b) = l%normals(:, b) + f
+                    l%normals(:, c) = l%normals(:, c) + f
+                end do
+            end if
+            l%vertex_count = n
+            l%index_count = 3 * m
+            l%generation = generation
+            l%version = l%version + 1
+            l%has_data = .true.
+        end associate
+    end function store_submit_mesh
+
+    pure function cross3(a, b) result(c)
+        real, intent(in) :: a(3), b(3)
+        real :: c(3)
+        c = [a(2) * b(3) - a(3) * b(2), a(3) * b(1) - a(1) * b(3), a(1) * b(2) - a(2) * b(1)]
+    end function cross3
 
     integer function store_submit_cells(self, key, generation, cols, rows, cp, fg, bg, attr, &
             rect, cell_size, frame_no, extend_edges) result(slot)

@@ -36,6 +36,8 @@ module fortui_frame
     integer, parameter, public :: LAYER_IMAGE = 4
     ! A grid of character cells (terminal screens, text-mode views).
     integer, parameter, public :: LAYER_CELLS = 5
+    ! Triangles in 3D with depth, seen through a camera (fortui_mesh).
+    integer, parameter, public :: LAYER_MESH = 6
     ! Cell attributes (canvas_cells): CELL_WIDE marks the first cell of a glyph
     ! two cells wide, CELL_CONT its second cell, which draws nothing.
     integer, parameter, public :: CELL_BOLD = 1, CELL_ITALIC = 2, CELL_UNDERLINE = 4, &

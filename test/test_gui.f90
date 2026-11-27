@@ -24,6 +24,7 @@ program test_gui
     call test_fluent_corner()
     call test_quick_click()
     call test_image_first_frame()
+    call test_mesh_depth()
     call test_cell_grid_edges()
     call test_window_background()
     call test_file_dialog_pixels()
@@ -306,6 +307,38 @@ contains
         call check(rgb_is(px, 16 + 5, 16 + 5, int(z'0000FF')), "canvas fill around it")
         call ui_shutdown()
     end subroutine test_image_first_frame
+
+    subroutine test_mesh_depth()
+        !! A red square in front of a blue one, the blue one composed last: red
+        !! shows in the middle, the canvas fill where neither is.
+        type(gui_backend_t) :: b
+        integer(int8), allocatable :: px(:, :, :)
+        integer :: w, h, stat, r, bl
+        real :: xyz(3, 8)
+        integer(int32) :: colours(8), tris(3, 4)
+        type(canvas_view_t) :: view
+        b%offscreen = .true.
+        call ui_init(b, 100, 100, "test", stat=stat, theme_name="fluent-light")
+        if (stat /= 0) return
+        call ui_set_theme("fluent-light")
+        xyz = reshape([1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0, 1.0, -1.0, 1.0, &
+            -1.0, -2.0, -2.0, -1.0, 2.0, -2.0, -1.0, 2.0, 2.0, -1.0, -2.0, 2.0], [3, 8])
+        colours(1:4) = ui_rgba(255, 0, 0)
+        colours(5:8) = ui_rgba(0, 0, 255)
+        tris = reshape([4, 5, 6, 4, 6, 7, 0, 1, 2, 0, 2, 3], [3, 4])
+        call ui_frame_begin()
+        call canvas_begin("c", view, width=60.0, height=60.0, fill=ui_rgba(0, 255, 0))
+        call canvas_mesh("m", 1, xyz, colours, tris, camera_orbit(0.0, 0.0, 9.0, 1.0))
+        call canvas_end(view)
+        call ui_present()
+        call read_frame(px, w, h)
+        if (w /= 100) return
+        r = iand(int(px(1, 16 + 30 + 1, 16 + 30 + 1)), 255)
+        bl = iand(int(px(3, 16 + 30 + 1, 16 + 30 + 1)), 255)
+        call check(r > 150 .and. bl < 50, "the nearer mesh face shows in front")
+        call check(rgb_is(px, 16 + 2, 16 + 2, int(z'00FF00')), "the canvas fill around the mesh")
+        call ui_shutdown()
+    end subroutine test_mesh_depth
 
     subroutine test_cell_grid_edges()
         !! Two green rows of two cells in a blue canvas much larger than them.

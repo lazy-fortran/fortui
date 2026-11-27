@@ -17,9 +17,10 @@ module fortui_gui
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t
     use fortui_net_transport, only: net_transport_t
     use fortui_net_posix, only: posix_transport
-    use fortui_frame, only: ui_frame_t, ui_layer_ref_t, LAYER_POINTS, LAYER_IMAGE, LAYER_CELLS, &
+    use fortui_frame, only: ui_frame_t, ui_layer_ref_t, LAYER_POINTS, LAYER_IMAGE, LAYER_CELLS, LAYER_MESH, &
         CELL_UNDERLINE, CELL_STRIKE, CELL_CONT, CELL_WIDE, CELL_CURSOR, CELL_BAR
     use fortui_canvas, only: canvas_layer_t, canvas_store_t
+    use fortui_mesh, only: canvas_camera_t, mesh_raster
     use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
         input_type_text, input_set_time, input_key_press, KEY_NONE, &
         KEY_ENTER, KEY_ESCAPE, KEY_TAB, KEY_BACKSPACE, KEY_DELETE, KEY_HOME, KEY_END, &
@@ -1281,6 +1282,10 @@ contains
                         call record_cells(self, store%layers(ref%slot), ox, oy, z)
                         cycle
                     end if
+                    if (ref%kind == LAYER_MESH) then
+                        call record_mesh(self, store, ref, x, y, w, h)
+                        cycle
+                    end if
                     call prepare_layer(self, store, ref)
                     if (ref%kind == LAYER_IMAGE) then
                         associate (l => store%layers(ref%slot))
@@ -1311,6 +1316,51 @@ contains
         end associate
         self%clip = saved
     end subroutine record_canvas
+
+    subroutine record_mesh(self, store, ref, x, y, w, h)
+        !! A mesh layer rasterized with depth into a texture of the canvas's
+        !! pixel size, again only when its geometry, camera or size changed.
+        type(gui_backend_t), intent(inout) :: self
+        type(canvas_store_t), intent(in), target :: store
+        type(ui_layer_ref_t), intent(in) :: ref
+        real, intent(in) :: x, y, w, h
+        integer :: pw, ph
+        integer(int32), allocatable :: pixels(:)
+        real, allocatable :: depth(:)
+        integer(int8), allocatable :: rgba(:, :, :)
+        type(canvas_camera_t) :: cam
+        pw = max(1, nint(w))
+        ph = max(1, nint(h))
+        associate (g => self%layers(ref%slot), l => store%layers(ref%slot))
+            if (g%serial /= ref%serial .or. g%version /= ref%version .or. &
+                g%index_version /= ref%index_version .or. g%width /= pw .or. g%height /= ph) then
+                if (g%serial /= ref%serial) call free_layer(self, ref%slot)
+                if (g%texture /= 0 .and. (g%width /= pw .or. g%height /= ph)) then
+                    call texture_release(self, g%texture)
+                    g%texture = 0
+                end if
+                g%serial = ref%serial
+                g%version = ref%version
+                g%index_version = ref%index_version
+                g%width = pw
+                g%height = ph
+                allocate (pixels(pw * ph), depth(pw * ph))
+                pixels = 0
+                depth = 1.0
+                cam%m = reshape(l%camera, [4, 4])
+                cam%light = l%light
+                if (allocated(l%xyz) .and. allocated(l%indices)) call mesh_raster(l%xyz, l%rgba, &
+                    reshape(l%indices(1:l%index_count), [3, l%index_count / 3]), cam, pw, ph, pixels, &
+                    depth, l%normals)
+                if (g%texture == 0) g%texture = texture_create(self, pw, ph)
+                rgba = reshape(transfer(pixels, 0_int8, 4 * pw * ph), [4, pw, ph])
+                call texture_update(self, g%texture, 0, 0, rgba)
+            end if
+            if (g%texture /= 0) call gfx_add_quad(self%list, self%clip, g%texture, .true., &
+                reshape([x, y, x + w, y, x + w, y + h, x, y + h], [2, 4]), &
+                reshape([0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0], [2, 4]), [1.0, 1.0, 1.0, 1.0])
+        end associate
+    end subroutine record_mesh
 
     subroutine prepare_layer(self, store, ref)
         !! Rebuild the instances (or image) of a layer whose data changed.

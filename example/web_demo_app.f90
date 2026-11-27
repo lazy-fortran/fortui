@@ -28,7 +28,7 @@ module web_demo_app
         "Text", "About", "Widgets"]
     ! Widgets: a view, a filter chip, a choice, the last command, a chat that
     ! grows, a long list and a table.
-    integer :: view_mode = 1, colour = 2, command = 0, chat_lines = 3
+    integer :: view_mode = 1, colour = 2, command = 0, chat_lines = 3, turn = 40
     logical :: only_open = .false., asking = .false.
     type(grid_state_t) :: grid
 
@@ -190,7 +190,48 @@ contains
             cells(3, k) = ui_str(mod(k * 13, 17))
         end do
         if (data_grid("coils", heads, cells, grid, 200.0)) continue
+        call surfaces()
     end subroutine widgets
+
+    subroutine surfaces()
+        !! Filled surfaces with depth: a red square in front of a blue one
+        !! (composed after it), and a shaded torus that the slider turns.
+        real :: xyz(3, 8), t, p
+        integer(int32) :: colours(8), tris(3, 4)
+        real, allocatable :: torus(:, :)
+        integer(int32), allocatable :: tcol(:), ttri(:, :)
+        type(canvas_view_t) :: v
+        type(canvas_events_t) :: ev
+        integer :: i, j, nu, nv
+        call text("Surfaces", style=UI_HEADING)
+        call row_begin(12.0)
+        xyz = reshape([1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0, 1.0, 1.0, -1.0, 1.0, &
+            -1.0, -2.0, -2.0, -1.0, 2.0, -2.0, -1.0, 2.0, 2.0, -1.0, -2.0, 2.0], [3, 8])
+        colours(1:4) = ui_rgba(255, 0, 0)
+        colours(5:8) = ui_rgba(0, 0, 255)
+        tris = reshape([4, 5, 6, 4, 6, 7, 0, 1, 2, 0, 2, 3], [3, 4])
+        call canvas_begin("depth", v, ev, width=80.0, height=80.0, fill=ui_rgba(0, 255, 0))
+        call canvas_mesh("squares", 1, xyz, colours, tris, camera_orbit(0.0, 0.0, 9.0, 1.0))
+        call canvas_end()
+        nu = 48
+        nv = 24
+        allocate (torus(3, nu * nv), tcol(nu * nv))
+        do j = 1, nv
+            do i = 1, nu
+                t = 6.2831853 * real(i - 1) / real(nu)
+                p = 6.2831853 * real(j - 1) / real(nv)
+                torus(:, (j - 1) * nu + i) = [(1.0 + 0.4 * cos(p)) * cos(t), (1.0 + 0.4 * cos(p)) * sin(t), &
+                    0.4 * sin(p)]
+                tcol((j - 1) * nu + i) = ui_rgba(230, 140 + nint(60 * cos(p)), 60)
+            end do
+        end do
+        ttri = mesh_grid(nu, nv, .true., .true.)
+        call canvas_begin("torus", v, ev, width=240.0, height=160.0, fill=ui_rgba(20, 24, 32))
+        call canvas_mesh("torus", 1, torus, tcol, ttri, camera_orbit(0.02 * turn, 0.6, 4.0, 1.5))
+        call canvas_end()
+        call row_end()
+        if (slider("turn", 0, 314, turn, width=240.0)) continue
+    end subroutine surfaces
 
     subroutine network()
         !! Messages of /api/events, the answer of POST /api/echo, the user's

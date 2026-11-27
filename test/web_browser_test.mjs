@@ -184,6 +184,14 @@ try {
   await click('[data-id="coils/head#1"]');
   await until(`document.querySelector('[data-id="coils/head#1"] svg') !== null`, 'sorted heading');
   check(true, 'a grid heading sorts and shows the direction');
+  // Filled surfaces on the GPU: the nearer red square covers the blue one
+  // composed after it; the canvas fill shows around them.
+  await until(`!!document.querySelector('canvas[data-id="depth"]')`, 'depth canvas');
+  await sleep(100);
+  const depthPx = await evaluate(`(() => { const c = document.querySelector('canvas[data-id="depth"]');
+    const g = c.getContext('2d'); const m = g.getImageData(c.width / 2, c.height / 2, 1, 1).data;
+    const e = g.getImageData(2, 2, 1, 1).data; return [m[0], m[2], e[1]]; })()`);
+  check(depthPx[0] > 150 && depthPx[1] < 50 && depthPx[2] > 200, 'a mesh draws with depth on the GPU: ' + depthPx);
   await click('[data-id="tabs#1"]');
   await until(`!!document.querySelector('[data-id="count"]')`, 'back to the first tab');
   // Pointer input: a pen with pressure, then two fingers spreading apart.
