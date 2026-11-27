@@ -22,6 +22,13 @@ module fortui_frame
     ! A text field of several lines: Enter starts a new line instead of submitting.
     integer, parameter, public :: UI_TEXT_AREA = 10
     integer, parameter, public :: UI_LIST_BOX = 11
+    ! A short label in a rounded shape: chips (filters, tags) and badges (counts).
+    integer, parameter, public :: UI_CHIP = 12
+    ! A symbol drawn from strokes in a 24 x 24 box (fortui_icons).
+    integer, parameter, public :: UI_ICON = 13
+    ! A choice of one option shown closed: the platform's own picker where
+    ! there is one (browsers, phones), a drop-down list elsewhere.
+    integer, parameter, public :: UI_SELECT = 14
 
     integer, parameter, public :: LAYER_POINTS = 1
     integer, parameter, public :: LAYER_LINES = 2
@@ -160,6 +167,13 @@ module fortui_frame
         integer :: layer_count = 0
         integer :: label_first = 0
         integer :: label_count = 0
+        ! What of the node may show (x, y, w, h; w < 0: all), e.g. inside a
+        ! scroll container, and its layer (LAYER_* of fortui_layout).
+        real :: clip(4) = [0.0, 0.0, -1.0, -1.0]
+        integer :: layer = 0
+        ! Strokes of a symbol (fortui_icons path text) on icons and buttons,
+        ! and the character terminals show for it.
+        character(len=:), allocatable :: icon, glyph
     end type ui_node_t
 
     type, public :: ui_frame_t

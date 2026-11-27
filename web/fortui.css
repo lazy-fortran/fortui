@@ -197,3 +197,61 @@ html:has(.fui-root[data-theme="fluent-dark"]) { background: #1f1f1f; color-schem
 .fui-k11 option { padding: 4px 8px; }
 
 .fui-box[role="dialog"] { width: min(880px, 100%); align-self: center; padding: 16px; box-sizing: border-box; border: 1px solid GrayText; border-radius: 8px; box-shadow: 0 8px 32px #0003; }
+/* A modal dialog of the application floats over the dimmed page. */
+.fui-box[role="dialog"][aria-label]:not([aria-label="Open file"]) {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 30;
+  max-height: calc(100vh - 32px); overflow: auto; background: var(--fui-bg1, Canvas);
+  box-shadow: 0 0 0 100vmax #0006, 0 8px 32px #0005; gap: 12px;
+}
+
+/* Symbols: strokes in the text colour. */
+.fui-icon { width: 1.25em; height: 1.25em; flex: none; fill: none; stroke: currentColor;
+  stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
+.fui-k13 { display: inline-flex; flex: none; }
+.fui-k13 .fui-icon { width: 100%; height: 100%; }
+.fui-k2:has(.fui-icon), .fui-k12 { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.fui-root .fui-k2:has(.fui-icon):not(:has(span)) { min-width: 0; padding: 0; aspect-ratio: 1; }
+/* Chips and badges: short labels in a pill. */
+.fui-k12 { border-radius: 999px; padding: 0 0.85em; min-height: 1.6em; white-space: nowrap; font: inherit;
+  background: color-mix(in srgb, currentColor 12%, transparent); border: 0; }
+button.fui-k12 { min-height: 28px; padding: 0 12px; background: transparent; color: inherit;
+  border: 1px solid var(--fui-stroke1, GrayText); cursor: pointer; font-weight: 600; }
+button.fui-k12:hover { background: var(--fui-bg1-hover, #8881); }
+button.fui-k12[aria-pressed="true"] { background: color-mix(in srgb, var(--fui-brand, Highlight) 18%, transparent);
+  border-color: var(--fui-brand, Highlight); }
+.fui-k12[data-style="2"] { font-size: 12px; }
+/* A drop-down: the platform's own picker. */
+.fui-k14 { font: inherit; padding: 0 8px; border-radius: 4px; border: 1px solid var(--fui-stroke1, GrayText);
+  border-bottom-color: var(--fui-stroke-accessible, GrayText); background: var(--fui-bg1, Field); color: inherit; }
+/* Segmented choices: joined buttons. */
+.fui-box[data-look="fui-segmented"] > .fui-k2 { border-radius: 0; min-width: 0; margin-left: -1px; }
+.fui-box[data-look="fui-segmented"] > .fui-k2:first-child { border-radius: 4px 0 0 4px; margin-left: 0; }
+.fui-box[data-look="fui-segmented"] > .fui-k2:last-child { border-radius: 0 4px 4px 0; }
+/* Scroll containers keep the page still and scroll themselves. */
+.fui-scroll { overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; scrollbar-width: thin;
+  align-self: stretch; flex: none; }
+.fui-scroll > * { flex: none; }
+/* Space of the rows a virtual list does not compose, before and after them. */
+.fui-scroll::before, .fui-scroll::after { content: ""; display: block; flex: none; }
+.fui-scroll::before { height: var(--fui-before, 0); }
+.fui-scroll::after { height: var(--fui-after, 0); }
+/* Popups float below what opened them; notifications at the bottom of the window. */
+.fui-box[data-look="fui-anchor"] { position: relative; align-self: auto; }
+.fui-popup { position: absolute; top: calc(100% + 2px); left: 0; z-index: 20; min-width: 100%;
+  padding: 4px; background: var(--fui-bg1, Canvas); border: 1px solid var(--fui-stroke1, GrayText);
+  border-radius: 6px; box-shadow: 0 8px 24px #0003; }
+.fui-root .fui-popup > .fui-k2 { justify-content: flex-start; text-align: left; min-width: 0; }
+.fui-toasts { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 40;
+  width: min(440px, calc(100vw - 32px)); gap: 8px; }
+.fui-box[data-look="fui-toast"] { align-items: center; padding: 6px 6px 6px 12px; border-radius: 8px;
+  background: var(--fui-fg1, CanvasText); color: var(--fui-bg1, Canvas); box-shadow: 0 8px 24px #0004; }
+.fui-root .fui-box[data-look="fui-toast"] > .fui-k2 { color: inherit; background: transparent; border-color: transparent; }
+/* The data grid: headings and cells start at the same edge; the selected row is tinted. */
+.fui-box[data-look="fui-grid-head"] { border-bottom: 1px solid var(--fui-stroke1, GrayText); }
+.fui-root .fui-k2[data-look="fui-grid-head"], .fui-root .fui-k2[data-look="fui-grid-cell"] { justify-content: flex-start;
+  text-align: left; min-width: 0; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; }
+.fui-root .fui-k2[data-look="fui-grid-cell"] { font-weight: 400; }
+.fui-k1[data-look="fui-grid-cell"] { padding: 0 8px; align-self: center; }
+.fui-box[data-look="fui-grid-row"], .fui-box[data-look="fui-grid-row-selected"] { align-items: center;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 8%, transparent); }
+.fui-box[data-look="fui-grid-row-selected"] { background: color-mix(in srgb, var(--fui-brand, Highlight) 14%, transparent); }

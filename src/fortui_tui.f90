@@ -18,6 +18,7 @@ module fortui_tui
     use iso_fortran_env, only: int32, int64
     use fortui_frame, only: ui_frame_t, ui_node_t, UI_TEXT, UI_BUTTON, UI_LINK, UI_SLIDER, &
         UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, UI_LIST_BOX, UI_CAPTION, &
+        UI_CHIP, UI_ICON, UI_SELECT, &
         UI_HEADING, UI_TITLE, ui_scroll_padding, UI_EMPHASIS_PRIMARY, UI_TONE_NORMAL, &
         UI_TONE_POSITIVE, UI_TONE_NEGATIVE, UI_TONE_MUTED, UI_TONE_ACCENT, UI_TONE_LINK, &
         UI_TONE_ATTENTION, UI_TONE_STRONG, UI_TONE_KEYWORD, UI_TONE_HUNK, LAYER_CELLS, &
@@ -799,7 +800,7 @@ contains
         class(tui_backend_t), intent(inout) :: self
         type(ui_frame_t), intent(in) :: frame
         type(canvas_store_t), intent(in), target :: store
-        integer :: i
+        integer :: i, layer
 
         call self%canvas%realize_frame(store, frame)
         self%presents = self%presents + 1
@@ -808,12 +809,22 @@ contains
         self%rows = int(tb_height())
         if (allocated(self%canvases)) self%canvases(:)%seen = .false.
         if (tb_clear() /= TB_OK) call draw_failure(self)
-        do i = 1, frame%count
-            if (frame%nodes(i)%kind == UI_CANVAS) then
-                call draw_canvas(self, frame, store, frame%nodes(i))
-            else
-                call draw_node(self, frame%nodes(i))
-            end if
+        ! The page, then what floats above it, then a modal dialog; nothing of
+        ! a node a scroll container does not show wholly.
+        do layer = 0, 2
+            do i = 1, frame%count
+                if (frame%nodes(i)%layer /= layer) cycle
+                associate(c => frame%nodes(i)%clip, n => frame%nodes(i))
+                    if (c(3) >= 0.0) then
+                        if (n%y < c(2) - 0.5 .or. n%y + n%height > c(2) + c(4) + 0.5) cycle
+                    end if
+                end associate
+                if (frame%nodes(i)%kind == UI_CANVAS) then
+                    call draw_canvas(self, frame, store, frame%nodes(i))
+                else
+                    call draw_node(self, frame%nodes(i))
+                end if
+            end do
         end do
         call draw_key_line(self, frame)
         if (tb_present() /= TB_OK) call draw_failure(self)
@@ -1165,6 +1176,13 @@ contains
                 end if
                 call fill(self, x, y, w, 1, bg)
                 label = trim(node%text)
+                if (allocated(node%glyph)) then
+                    if (len(label) == 0) then
+                        label = node%glyph
+                    else
+                        label = node%glyph // ' ' // label
+                    end if
+                end if
                 lw = min(w - 2, utf8_length(label))
                 call draw_string(self, x + max(1, (w - lw) / 2), y, label, fg, bg, max(0, w - 2), &
                     .true.)
@@ -1234,6 +1252,30 @@ contains
                 call draw_scroll_text(self, node, x, y, w, h)
             case (UI_TEXT_INPUT, UI_TEXT_AREA)
                 call draw_field(self, node, x, y, w, h)
+            case (UI_ICON)
+                if (allocated(node%glyph)) call draw_string(self, x, y, node%glyph, &
+                    tone_attr(self, node%tone), colour(self, p%panel), w, .false.)
+            case (UI_CHIP, UI_SELECT)
+                ! "(label)" for chips and badges, "[label ▾]" for a drop-down.
+                fg = tone_attr(self, node%tone)
+                bg = colour(self, p%panel)
+                if (node%kind == UI_SELECT .or. (node%toggle .and. node%checked)) then
+                    fg = colour(self, p%on_band)
+                    bg = colour(self, p%band)
+                end if
+                if (node%focused) then
+                    fg = colour(self, p%on_cursor) + TB_BOLD
+                    bg = colour(self, p%cursor)
+                end if
+                call fill(self, x, y, w, 1, bg)
+                if (node%kind == UI_SELECT) then
+                    label = '[' // trim(node%text)
+                    call draw_string(self, x, y, label, fg, bg, max(0, w - 2), .true.)
+                    call draw_string(self, x + w - 2, y, '▾]', fg, bg, 2, .false.)
+                else
+                    label = '(' // trim(node%text) // ')'
+                    call draw_string(self, x, y, label, fg, bg, w, .true.)
+                end if
             end select
         end associate
     end subroutine draw_node

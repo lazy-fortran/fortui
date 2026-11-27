@@ -12,7 +12,7 @@ headless tests, termbox2 TUI, and optional raylib GUI. The documentation redesig
 adds contracts and a delivery sequence; it does not implement native/DOM/mobile,
 commands, transaction scheduling, text services, or incremental invalidation.
 
-Next implementation task: B4 below (B5 done first). M1 stays open and is taken up by B7.
+Next implementation task: B6 below. M1 stays open and is taken up by B7.
 
 ## B: best-of-breed through a demanding application (Chris, 2026-11-27)
 
@@ -52,9 +52,19 @@ ours and move with the change.
       `web_browser_test.mjs` (Chromium: pen pressure, two-finger pinch). Open:
       pen and touch on the Linux desktop need XInput2 in fortwin; the desktop
       reports the mouse only.
-- [ ] B4 Widgets: data grid with sorting and filtering, menu and drop-down,
-      segmented control, chips and badges, toasts, dialogs, icons, scroll
-      containers and virtual lists that can stick to their end (chat).
+- [x] B4 Widgets (`fortui_controls`, `fortui_icons`): symbols drawn from
+      strokes (SVG in the browser, thick lines on painted hosts, a character
+      in terminals) on icons, buttons and chips; chips and badges; segmented
+      choices; drop-down lists (the platform picker in browsers, a popup
+      list elsewhere); menus; notifications; modal dialogs; scroll
+      containers that clip, take the wheel and can keep their end in view;
+      virtual lists that compose only the rows in view; a data grid with
+      sorting (numbers as numbers), filtering and selection. Nodes carry a
+      clip and a layer: popups and notifications float, a modal dialog takes
+      the pointer alone, clipped nodes take no clicks. Evidence:
+      `test_controls` (headless), `web_browser_test.mjs` (Chromium: every
+      control above), offscreen renders of the desktop backend in classic,
+      fluent and fluent-dark.
 - [x] B5 Themes in the library: light and dark following the system on every
       host; applications ship no styling of their own. The browser switches
       at once on the system's change event and keeps composing in hidden

@@ -33,7 +33,7 @@ module fortui_input
     ! Semantic events from hosts whose controls handle input themselves (the
     ! browser): the element they concern is known, so no pointer routing is needed.
     integer, parameter, public :: HOST_ACTIVATE = 1, HOST_FOCUS = 2, HOST_BLUR = 3, &
-        HOST_VALUE = 4, HOST_SUBMIT = 5
+        HOST_VALUE = 4, HOST_SUBMIT = 5, HOST_DISMISS = 6
     integer, parameter, public :: MAX_HOST_EVENTS = 16
 
     type, public :: host_event_t
@@ -185,6 +185,7 @@ module fortui_input
     public :: input_hovered, input_key_arrived
     public :: input_type_text, input_set_time, input_wheel_for, input_has_events
     public :: input_host_event, input_apply_host, input_host_value, input_host_submitted
+    public :: input_host_dismissed
     public :: input_key_press, input_widget_key, input_sort_presses, input_shortcut, input_commit_chords
     public :: input_host_key, input_claims, chord_parse, input_presses_wait
 
@@ -946,24 +947,43 @@ contains
     end subroutine register_click
 
     integer function hit_test(frame, x, y, interactive_only) result(index)
+        !! The node at (x, y): the topmost layer first, the last composed first;
+        !! while a modal dialog is open only its nodes; never where a scroll
+        !! container clips a node.
         type(ui_frame_t), intent(in) :: frame
         real, intent(in) :: x, y
         logical, intent(in) :: interactive_only
-        integer :: i
+        integer :: i, layer, top, lowest
 
         index = 0
-        do i = frame%count, 1, -1
-            if (interactive_only .and. .not. frame%nodes(i)%focusable) cycle
-            if (len_trim(frame%nodes(i)%id) == 0) cycle
-            if (frame%nodes(i)%disabled) cycle
-            if (x >= frame%nodes(i)%x .and. &
-                x < frame%nodes(i)%x + frame%nodes(i)%width .and. &
-                y >= frame%nodes(i)%y .and. &
-                y < frame%nodes(i)%y + frame%nodes(i)%height) then
+        if (frame%count == 0) return
+        top = maxval(frame%nodes(1:frame%count)%layer)
+        lowest = 0
+        if (top >= 2) lowest = top
+        do layer = top, lowest, -1
+            do i = frame%count, 1, -1
+                if (frame%nodes(i)%layer /= layer) cycle
+                if (interactive_only .and. .not. frame%nodes(i)%focusable) cycle
+                if (len_trim(frame%nodes(i)%id) == 0) cycle
+                if (frame%nodes(i)%disabled) cycle
+                if (.not. inside(frame%nodes(i)%x, frame%nodes(i)%y, frame%nodes(i)%width, &
+                    frame%nodes(i)%height)) cycle
+                if (frame%nodes(i)%clip(3) >= 0.0) then
+                    if (.not. inside(frame%nodes(i)%clip(1), frame%nodes(i)%clip(2), &
+                        frame%nodes(i)%clip(3), frame%nodes(i)%clip(4))) cycle
+                end if
                 index = i
                 return
-            end if
+            end do
         end do
+
+    contains
+
+        logical function inside(rx, ry, rw, rh)
+            real, intent(in) :: rx, ry, rw, rh
+            inside = x >= rx .and. x < rx + rw .and. y >= ry .and. y < ry + rh
+        end function inside
+
     end function hit_test
 
     logical function input_activated(input, id)
@@ -1051,6 +1071,19 @@ contains
             end if
         end do
     end function input_host_value
+
+    logical function input_host_dismissed(input, id) result(found)
+        !! Whether the host dismissed the popup of `id` (a press outside it).
+        type(input_state_t), intent(in) :: input
+        character(*), intent(in) :: id
+        integer :: i
+
+        found = .false.
+        do i = 1, input%host_count
+            if (input%host(i)%kind == HOST_DISMISS .and. trim(input%host(i)%id) == trim(id)) &
+                found = .true.
+        end do
+    end function input_host_dismissed
 
     logical function input_host_submitted(input, id) result(found)
         type(input_state_t), intent(in) :: input

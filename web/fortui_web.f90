@@ -23,6 +23,8 @@ module fortui_web
     use fortui_core, only: ui_run_step, ui_appearance_changed
     use fortui_net_transport, only: net_transport_t
     use fortui_web_net, only: web_transport_t
+    use fortui_layout, only: layout_box_t
+    use fortui_icons, only: icon_svg
     implicit none
     private
 
@@ -299,7 +301,10 @@ contains
                 rec = 'B'//US//ui_str(b%kind)//US//ui_str(b%parent)//US//ui_str(b%after)// &
                     US//ui_str(nint(b%gap))//US//ui_str(nint(b%cross))//US// &
                     ui_str(nint(b%width))//US//clean(trim(b%id))//US//clean(trim(b%look))// &
-                    US//clean(trim(b%anchor))//US//trim(merge('1', '0', b%wrap))//RS
+                    US//clean(trim(b%anchor))//US//trim(merge('1', '0', b%wrap))//US// &
+                    ui_str(nint(b%viewport))//US//ui_str(nint(b%pad_before))//US// &
+                    ui_str(nint(b%pad_after))//US//ui_str(merge(1, 0, b%stick) + &
+                    merge(2, 0, b%reports))//US//label_of(b)//RS
             end associate
             call add(rec)
         end do
@@ -417,7 +422,7 @@ contains
         !! Kind, id, x, y, width, height (logical units), flags (1 focusable,
         !! 2 disabled, 8 focused, 32 checked, 64 ellipsis, 256 reveal, 512 toggle), value, min,
         !! max, style, text size, box, width mode, tone, text, body, runs, look,
-        !! anchor, button emphasis, file types, tooltip.
+        !! anchor, button emphasis, file types, tooltip, symbol (SVG path data).
         type(ui_node_t), intent(in) :: n
         character(len=:), allocatable :: r
         integer :: flags
@@ -443,7 +448,16 @@ contains
         if (allocated(n%file_accept)) r = r // "1" // clean(n%file_accept)
         r = r//US
         if (allocated(n%tooltip)) r = r//clean(n%tooltip)
+        r = r//US
+        if (allocated(n%icon)) r = r//icon_svg(n%icon)
     end function node_record
+
+    function label_of(b) result(s)
+        type(layout_box_t), intent(in) :: b
+        character(len=:), allocatable :: s
+        s = ''
+        if (allocated(b%label)) s = clean(b%label)
+    end function label_of
 
     function runs(n) result(s)
         !! "end:tone,end:tone" of rich text, or empty.

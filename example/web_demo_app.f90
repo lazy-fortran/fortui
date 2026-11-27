@@ -24,8 +24,13 @@ module web_demo_app
     integer :: felt_kind = -1, felt_pressure = 0, felt_samples = 0
     real :: zoom_total = 1.0
     character(len=:), allocatable :: fetched
-    character(len=16), parameter :: tab_labels(3) = [character(len=16) :: "Controls", &
-        "Text", "About"]
+    character(len=16), parameter :: tab_labels(4) = [character(len=16) :: "Controls", &
+        "Text", "About", "Widgets"]
+    ! Widgets: a view, a filter chip, a choice, the last command, a chat that
+    ! grows, a long list and a table.
+    integer :: view_mode = 1, colour = 2, command = 0, chat_lines = 3
+    logical :: only_open = .false., asking = .false.
+    type(grid_state_t) :: grid
 
 contains
 
@@ -91,6 +96,8 @@ contains
             if (picker%status == FILE_ACCEPTED) call text(picker%name // ": " // &
                 ui_str(size(picker%bytes)) // " bytes", id="file-result")
             if (button("appearance", "Follow desktop theme")) call ui_set_theme("fluent")
+        case (4)
+            call widgets()
         case (2)
             if (text_input("name", name, placeholder="Your name", submitted=submitted, &
                 width=320.0)) continue
@@ -122,6 +129,68 @@ contains
             to_end = .false.
         end select
     end subroutine compose
+
+    subroutine widgets()
+        !! Symbols, chips, badges, segmented choices, a drop-down, a menu,
+        !! notifications, a modal dialog, a chat that keeps its end in view, a
+        !! virtual list of ten thousand rows and a data grid.
+        character(len=12), parameter :: views(3) = [character(len=12) :: "List", "Board", "Graph"]
+        character(len=12), parameter :: colours(3) = [character(len=12) :: "Red", "Green", "Blue"]
+        character(len=12), parameter :: commands(4) = [character(len=12) :: "Rename", "Duplicate", &
+            "-", "Delete"]
+        character(len=12), parameter :: heads(3) = [character(len=12) :: "Coil", "Current", "Gap"]
+        character(len=12) :: cells(3, 40)
+        integer :: k, first, last, c
+        call row_begin(8.0, wrap=.true.)
+        call icon("cube", tooltip="Model")
+        if (segmented("view", views, view_mode, icons=[character(len=12) :: "menu", "cube", "branch"])) continue
+        if (dropdown("colour", colours, colour)) continue
+        c = menu("more", "More", commands)
+        if (c > 0) command = c
+        if (button("undo", "", icon="undo", tooltip="Undo")) call toast("Nothing to undo")
+        call row_end()
+        call row_begin(8.0, wrap=.true.)
+        if (chip("open", "Open only", selected=only_open, icon="filter")) only_open = .not. only_open
+        call badge("3 open", UI_TONE_ATTENTION)
+        call badge("G4 passed", UI_TONE_POSITIVE)
+        call text("View " // trim(views(view_mode)) // ", " // trim(colours(max(1, colour))) // &
+            ", command " // ui_str(command), id="widget-state")
+        if (button("save", "Save", icon="check", emphasis=UI_EMPHASIS_PRIMARY)) &
+            call toast("Saved", UI_TONE_POSITIVE)
+        if (button("ask", "Discard...")) asking = .true.
+        call row_end()
+        if (asking) then
+            call modal_begin("confirm", "Discard the branch?", 360.0, 180.0)
+            call text("Its changes are lost.")
+            call row_begin(8.0)
+            if (button("discard", "Discard", emphasis=UI_EMPHASIS_PRIMARY)) asking = .false.
+            if (button("keep", "Keep")) asking = .false.
+            call row_end()
+            call modal_end()
+            if (ui_key_pressed(KEY_ESCAPE)) asking = .false.
+        end if
+        call text("Chat", style=UI_HEADING)
+        call scroll_begin("chat", 120.0, stick=.true.)
+        do k = 1, chat_lines
+            call text("Message " // ui_str(k), id="msg" // ui_str(k))
+        end do
+        call scroll_end()
+        if (button("post", "Post")) chat_lines = chat_lines + 1
+        call text("Ten thousand rows", style=UI_HEADING)
+        call virtual_list_begin("many", 10000, 28.0, 140.0, first, last)
+        do k = first, last
+            call row_begin(8.0, height=28.0)
+            call text("Row " // ui_str(k), id="row" // ui_str(k))
+            call row_end()
+        end do
+        call virtual_list_end()
+        do k = 1, 40
+            cells(1, k) = "coil" // ui_str(k)
+            cells(2, k) = ui_str(mod(k * 37, 101)) // ".5"
+            cells(3, k) = ui_str(mod(k * 13, 17))
+        end do
+        if (data_grid("coils", heads, cells, grid, 200.0)) continue
+    end subroutine widgets
 
     subroutine network()
         !! Messages of /api/events, the answer of POST /api/echo, the user's

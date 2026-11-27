@@ -27,7 +27,19 @@ module fortui_context
         integer :: cache_count = 0
         real :: cache_height = 0.0
         integer :: wraps = 0
+        ! Popups: open or not, and where they were last shown (x, y, w, h).
+        logical :: open = .false.
+        real :: bounds(4) = 0.0
+        ! Scroll containers: content height last frame, and whether the view
+        ! was at its end.
+        real :: content = 0.0
+        logical :: at_end = .true.
     end type widget_state_t
+
+    abstract interface
+        subroutine compose_proc()
+        end subroutine compose_proc
+    end interface
 
     type, public :: fortui_context_t
         logical :: initialized = .false.
@@ -94,6 +106,9 @@ module fortui_context
         logical :: inject_resize = .false.
         integer :: inject_width = 0
         integer :: inject_height = 0
+        ! Composes what floats above the page (notifications) at the end of
+        ! every frame, once a module that needs it installed it.
+        procedure(compose_proc), pointer, nopass :: overlays => null()
     contains
         procedure :: state => context_state
         procedure :: collect_states => context_collect_states

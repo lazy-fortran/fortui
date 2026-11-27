@@ -168,6 +168,22 @@ addToLibrary({
         var steps = e.deltaY / (e.deltaMode === 1 ? 3 : 100);
         FUI.push([3, Math.round(-steps), -steps, 0]);
       }, { passive: false });
+      // Scroll containers: whether the view is at the end, and the offset
+      // for those that compose only what is in view.
+      root.addEventListener('scroll', function (e) {
+        var el = e.target;
+        if (!el.classList || !el.classList.contains('fui-scroll')) return;
+        el._atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
+        if (el._reports && el.dataset.box) FUI.push([5, H.value, el.dataset.box + '\x1f' + Math.round(el.scrollTop)]);
+      }, true);
+      // A press outside an open popup (and outside what opened it) closes it.
+      document.addEventListener('pointerdown', function (e) {
+        FUI.popups.forEach(function (p) {
+          var owner = p.parentElement;
+          if (p.contains(e.target) || (owner && owner !== root && owner.contains(e.target))) return;
+          if (p.dataset.box) FUI.push([5, 6, p.dataset.box]);
+        });
+      }, true);
       root.addEventListener('dblclick', function (e) {
         var el = e.target.closest('select[data-id]');
         if (el) FUI.host(H.submit, el);
@@ -177,7 +193,31 @@ addToLibrary({
       window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () { FUI.push([6]); });
     },
     tags: { 2: 'button', 3: 'input', 4: 'label', 5: 'button', 6: 'canvas', 8: 'input', 9: 'a',
-      10: 'textarea', 11: 'select' },
+      10: 'textarea', 11: 'select', 12: 'span', 13: 'span', 14: 'select' },
+    // A symbol: SVG path data from fortui_icons in a 24 x 24 box, stroked in
+    // the text colour.
+    svg: function (d, size) {
+      var ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('aria-hidden', 'true');
+      svg.setAttribute('class', 'fui-icon');
+      if (size) { svg.setAttribute('width', size); svg.setAttribute('height', size); }
+      var path = document.createElementNS(ns, 'path');
+      path.setAttribute('d', d);
+      svg.appendChild(path);
+      return svg;
+    },
+    // Symbol and label as an element's content, rebuilt only when they change.
+    labelled: function (el, d, text) {
+      if (el._d === d && el._label === text) return;
+      el._d = d; el._label = text;
+      if (!d) { el.textContent = text; return; }
+      var parts = [FUI.svg(d)];
+      if (text) { var span = document.createElement('span'); span.textContent = text; parts.push(span); }
+      el.replaceChildren.apply(el, parts);
+    },
+    // Popups open in this frame: a press outside one dismisses it.
+    popups: [],
     // Canvas layers drawn with Canvas 2D: images are cached per store slot
     // and data version, lines and points are read from the Fortran arrays.
     colour: function (c) {
@@ -249,8 +289,11 @@ addToLibrary({
       }
       el._images.forEach(function (_, key) { if (!used.has(key)) el._images.delete(key); });
     },
-    create: function (kind, key) {
-      var el = document.createElement(FUI.tags[kind] || 'div');
+    create: function (kind, key, flags) {
+      // A chip one can select is a button; a badge is text.
+      var tag = kind === 12 && (flags & 1) ? 'button' : FUI.tags[kind] || 'div';
+      var el = document.createElement(tag);
+      if (tag === 'button') el.type = 'button';
       if (kind === 3) { el.type = 'range'; el.step = 'any'; }
       if (kind === 8) el.type = 'text';
       if (kind === 11) { el.size = 12; el.setAttribute('aria-label', 'Files and folders'); }
@@ -292,7 +335,7 @@ addToLibrary({
       else el.removeAttribute('data-file-accept');
       switch (kind) {
         case 2:
-          if (el.textContent !== text) el.textContent = text;
+          FUI.labelled(el, f[23] || '', text);
           if (flags & 512) el.setAttribute('aria-pressed', (flags & 32) ? 'true' : 'false');
           else el.removeAttribute('aria-pressed');
           if (f[22]) { if (el.title !== f[22]) { el.title = f[22]; el.setAttribute('aria-label', f[22]); } }
@@ -301,6 +344,28 @@ addToLibrary({
         case 5:
           if (el.textContent !== text) el.textContent = text;
           el.setAttribute('aria-selected', (flags & 32) ? 'true' : 'false');
+          break;
+        case 12:
+          FUI.labelled(el, f[23] || '', text);
+          if (el.tagName === 'BUTTON') el.setAttribute('aria-pressed', (flags & 32) ? 'true' : 'false');
+          break;
+        case 13:
+          if (el._d !== f[23]) { el._d = f[23]; el.replaceChildren(FUI.svg(f[23] || '', f[4])); }
+          s.width = s.height = f[4] + 'px';
+          if (f[22]) { el.setAttribute('role', 'img'); el.setAttribute('aria-label', f[22]); el.title = f[22]; }
+          else { el.removeAttribute('role'); el.removeAttribute('aria-label'); el.removeAttribute('title'); }
+          break;
+        case 14:
+          if (el._body !== body) {
+            el._body = body;
+            el.replaceChildren(...body.split('\n').filter(Boolean).map(function (name, i) {
+              var option = document.createElement('option');
+              option.value = String(i + 1); option.textContent = name; return option;
+            }));
+          }
+          var chosen = String(Math.round(+f[7]));
+          if (el.value !== chosen) el.value = chosen === '0' ? '' : chosen;
+          s.height = f[5] + 'px';
           break;
         case 3:
           el.min = f[8]; el.max = f[9];
@@ -413,8 +478,28 @@ addToLibrary({
       s.minHeight = +b[5] > 0 ? b[5] + 'px' : '';
       if (kind === 4 && +b[6] >= 0) { s.width = b[6] + 'px'; s.flex = '0 0 auto'; }
       if ((b[7] || '') !== (el.dataset.box || '')) { if (b[7]) el.dataset.box = b[7]; else delete el.dataset.box; }
-      if (kind === 5) { el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', 'Open file'); }
-      else { el.removeAttribute('role'); el.removeAttribute('aria-modal'); el.removeAttribute('aria-label'); }
+      if (kind === 5) {
+        el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true');
+        el.setAttribute('aria-label', b[15] || 'Open file');
+        s.width = +b[6] > 0 ? 'min(' + b[6] + 'px, calc(100vw - 32px))' : '';
+      } else { el.removeAttribute('role'); el.removeAttribute('aria-modal'); el.removeAttribute('aria-label'); }
+      // Scroll containers: the viewport, the space of rows not composed, and
+      // whether the view follows the end or the runtime wants the offset.
+      el.classList.toggle('fui-scroll', kind === 6);
+      el.classList.toggle('fui-popup', kind === 7);
+      el.classList.toggle('fui-toasts', kind === 8);
+      if (kind === 6) {
+        s.height = b[11] + 'px';
+        s.setProperty('--fui-before', (+b[12] || 0) + 'px');
+        s.setProperty('--fui-after', (+b[13] || 0) + 'px');
+        el._stick = (+b[14] & 1) !== 0;
+        el._reports = (+b[14] & 2) !== 0;
+        if (el._atEnd === undefined) el._atEnd = true;
+      }
+      if (kind === 7) { el.setAttribute('role', 'menu'); FUI.popups.push(el); }
+      else if (el.getAttribute('role') === 'menu') el.removeAttribute('role');
+      if (kind === 8) el.setAttribute('role', 'status');
+      else if (el.getAttribute('role') === 'status') el.removeAttribute('role');
       FUI.mark(el, b[8] || '', b[9] || '');
     },
   },
@@ -570,6 +655,7 @@ addToLibrary({
     }
     var seen = new Set(), children = boxes.map(function () { return []; });
     var boxEl = [FUI.root];
+    FUI.popups = [];
     for (var b = 1; b < boxes.length; b++) {
       var key = 'b' + b, el = FUI.els.get(key);
       if (!el) { el = document.createElement('div'); el.dataset.key = key; FUI.els.set(key, el); }
@@ -582,7 +668,7 @@ addToLibrary({
       var f2 = nodes[k], nkey = f2[0] + ':' + f2[1];
       if (f2[1] === '') { anon[f2[0]] = (anon[f2[0]] || 0) + 1; nkey += '~' + anon[f2[0]]; }
       var nel = FUI.els.get(nkey);
-      if (!nel) { nel = FUI.create(+f2[0], nkey); FUI.els.set(nkey, nel); }
+      if (!nel) { nel = FUI.create(+f2[0], nkey, +f2[6]); FUI.els.set(nkey, nel); }
       var parent = +f2[12], pkind = parent > 0 ? +boxes[parent][1] : 1;
       FUI.update(nel, f2, pkind === 2 || pkind === 3);
       nodeEls[k + 1] = nel;
@@ -601,6 +687,11 @@ addToLibrary({
     FUI.els.forEach(function (el, key) {
       if (!seen.has(key)) { el.remove(); FUI.els.delete(key); }
     });
+    // A view at the end of a sticking scroll container stays there.
+    for (var sb = 1; sb < boxEl.length; sb++) {
+      var se = boxEl[sb];
+      if (se._stick && se._atEnd && se.classList.contains('fui-scroll')) se.scrollTop = se.scrollHeight;
+    }
     for (var v = 0; v < views.length; v++) {
       var cel = nodeEls[+views[v][1]];
       if (cel && cel.getContext) FUI.drawCanvas(cel, views[v], layers.filter(function (l) { return l[1] === views[v][1]; }));
