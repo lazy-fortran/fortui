@@ -218,6 +218,62 @@ addToLibrary({
     },
     // Popups open in this frame: a press outside one dismisses it.
     popups: [],
+    // Meshes: one WebGL2 context for all canvases; buffers per store slot,
+    // uploaded again only when the geometry version changes.
+    gl: null, meshes: new Map(),
+    mesh: function (l, w, h) {
+      if (FUI.gl === false) return null;
+      if (!FUI.gl) {
+        var c = document.createElement('canvas');
+        var g = c.getContext('webgl2', { antialias: true, premultipliedAlpha: false, preserveDrawingBuffer: true });
+        if (!g) { FUI.gl = false; return null; }
+        // Shading as fortui_mesh does it: the vertex normal where there is
+        // one, else the face's, lit from either side.
+        var vs = '#version 300 es\nin vec3 p; in vec4 c; in vec3 nv; uniform mat4 m; out vec3 wp; out vec4 vc; out vec3 vn;' +
+          'void main() { wp = p; vc = c; vn = nv; gl_Position = m * vec4(p, 1.0); }';
+        var fs = '#version 300 es\nprecision highp float; in vec3 wp; in vec4 vc; in vec3 vn; uniform vec3 light; out vec4 o;' +
+          'void main() { vec3 n = length(vn) > 0.0 ? vn : cross(dFdx(wp), dFdy(wp)); float f = 0.3;' +
+          ' if (length(n) > 0.0) f = 0.3 + 0.7 * abs(dot(normalize(n), normalize(light)));' +
+          ' o = vec4(vc.rgb * f, vc.a); }';
+        var prog = g.createProgram();
+        [[g.VERTEX_SHADER, vs], [g.FRAGMENT_SHADER, fs]].forEach(function (k) {
+          var sh = g.createShader(k[0]); g.shaderSource(sh, k[1]); g.compileShader(sh); g.attachShader(prog, sh);
+        });
+        g.linkProgram(prog);
+        FUI.gl = { canvas: c, g: g, prog: prog, m: g.getUniformLocation(prog, 'm'),
+          light: g.getUniformLocation(prog, 'light'), p: g.getAttribLocation(prog, 'p'), c: g.getAttribLocation(prog, 'c'),
+          nv: g.getAttribLocation(prog, 'nv') };
+      }
+      var G = FUI.gl, g = G.g, slot = +l[3], n = +l[5], k = +l[6];
+      if (G.canvas.width !== w || G.canvas.height !== h) { G.canvas.width = w; G.canvas.height = h; }
+      var mesh = FUI.meshes.get(slot);
+      if (!mesh) { mesh = { vao: g.createVertexArray(), p: g.createBuffer(), c: g.createBuffer(), n: g.createBuffer(), i: g.createBuffer() }; FUI.meshes.set(slot, mesh); }
+      if (mesh.version !== l[4]) {
+        var xyz = FUI.array(Float32Array, slot, 5, 3 * n), rgba = FUI.array(Uint8Array, slot, 2, 4 * n);
+        var idx = FUI.array(Uint32Array, slot, 4, k), nrm = FUI.array(Float32Array, slot, 6, 3 * n);
+        if (!xyz || !rgba || !idx || !nrm) return null;
+        g.bindVertexArray(mesh.vao);
+        g.bindBuffer(g.ARRAY_BUFFER, mesh.p); g.bufferData(g.ARRAY_BUFFER, xyz, g.STATIC_DRAW);
+        g.enableVertexAttribArray(G.p); g.vertexAttribPointer(G.p, 3, g.FLOAT, false, 0, 0);
+        g.bindBuffer(g.ARRAY_BUFFER, mesh.c); g.bufferData(g.ARRAY_BUFFER, rgba, g.STATIC_DRAW);
+        g.enableVertexAttribArray(G.c); g.vertexAttribPointer(G.c, 4, g.UNSIGNED_BYTE, true, 0, 0);
+        g.bindBuffer(g.ARRAY_BUFFER, mesh.n); g.bufferData(g.ARRAY_BUFFER, nrm, g.STATIC_DRAW);
+        g.enableVertexAttribArray(G.nv); g.vertexAttribPointer(G.nv, 3, g.FLOAT, false, 0, 0);
+        g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, mesh.i); g.bufferData(g.ELEMENT_ARRAY_BUFFER, idx, g.STATIC_DRAW);
+        g.bindVertexArray(null);
+        mesh.version = l[4]; mesh.count = k;
+      }
+      g.viewport(0, 0, w, h);
+      g.clearColor(0, 0, 0, 0); g.clearDepth(1); g.clear(g.COLOR_BUFFER_BIT | g.DEPTH_BUFFER_BIT);
+      g.enable(g.DEPTH_TEST); g.depthFunc(g.LESS);
+      g.useProgram(G.prog);
+      g.uniformMatrix4fv(G.m, false, l.slice(10, 26).map(Number));
+      g.uniform3f(G.light, +l[7], +l[8], +l[9]);
+      g.bindVertexArray(mesh.vao);
+      g.drawElements(g.TRIANGLES, mesh.count, g.UNSIGNED_INT, 0);
+      g.bindVertexArray(null);
+      return G;
+    },
     // Canvas layers drawn with Canvas 2D: images are cached per store slot
     // and data version, lines and points are read from the Fortran arrays.
     colour: function (c) {
@@ -244,6 +300,17 @@ addToLibrary({
       var used = new Set();
       for (var i = 0; i < layers.length; i++) {
         var l = layers[i], kind = +l[2], slot = +l[3], version = l[4];
+        if (kind === 6) {
+          // A mesh: drawn with depth on the GPU, then into the canvas in its
+          // place among the layers.
+          var gl = FUI.mesh(l, el.width, el.height);
+          if (gl) {
+            ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.drawImage(gl.canvas, 0, 0, el.width, el.height, 0, 0, el.width, el.height);
+            ctx.restore();
+          }
+          continue;
+        }
         if (kind === 4) {
           var iw = +l[5], ih = +l[6], key = slot, cached = el._images.get(key);
           used.add(key);

@@ -20,7 +20,7 @@ module fortui
     use fortui_layout, only: column_begin, column_end, row_begin, row_end, split_begin, &
         split_next, split_end
     use fortui_widgets, only: text, button, link, slider, checkbox, tabs, list_box, scroll_text, &
-        text_input, canvas_begin, canvas_end, canvas_vertices, canvas_points, &
+        text_input, canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_mesh, &
         canvas_lines, canvas_label, canvas_image, canvas_cells, canvas_keys, ui_cell_metrics, &
         ui_set_cell_font, ui_focus, &
         ui_reveal
@@ -28,6 +28,7 @@ module fortui
         modal_begin, modal_end, scroll_begin, scroll_end, virtual_list_begin, virtual_list_end, &
         grid_state_t, data_grid
     use fortui_icons, only: icon_names
+    use fortui_mesh, only: canvas_camera_t, camera_orbit, camera_project, mesh_grid, mesh_tube
     use fortui_file_dialog, only: file_dialog_t, file_dialog_open, file_dialog_show, &
         file_open_button, file_dialog_poll, file_dialog_cancel, FILE_IDLE, FILE_PENDING, FILE_ACCEPTED, FILE_CANCELLED
     use fortui_canvas, only: canvas_view_t, canvas_events_t, ui_rgba, canvas_to_world, &
@@ -73,7 +74,8 @@ module fortui
     public :: grid_state_t, data_grid, icon_names
     public :: split_begin, split_next, split_end
     public :: text, button, link, slider, checkbox, tabs, list_box, scroll_text, text_input
-    public :: canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_lines
+    public :: canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_lines, canvas_mesh
+    public :: canvas_camera_t, camera_orbit, camera_project, mesh_grid, mesh_tube
     public :: canvas_label, canvas_image, canvas_view_t, canvas_events_t, ui_rgba
     public :: canvas_to_world, canvas_to_local, canvas_zoom_at
     public :: UI_BODY, UI_CAPTION, UI_HEADING, UI_TITLE, UI_FILL, UI_CODE

@@ -12,7 +12,7 @@ headless tests, termbox2 TUI, and optional raylib GUI. The documentation redesig
 adds contracts and a delivery sequence; it does not implement native/DOM/mobile,
 commands, transaction scheduling, text services, or incremental invalidation.
 
-Next implementation task: B6 below. M1 stays open and is taken up by B7.
+Next implementation task: B7 below. M1 stays open and is taken up by B7.
 
 ## B: best-of-breed through a demanding application (Chris, 2026-11-27)
 
@@ -75,8 +75,18 @@ ours and move with the change.
       fails its automatic dark theme step after the file picker steps, while
       the same sequence passes when driven through Playwright; the click
       there does not activate the button.
-- [ ] B6 GPU canvas in the browser and filled 3D surfaces with depth on desktop
-      and browser.
+- [x] B6 Filled 3D surfaces with depth (`canvas_mesh`, `fortui_mesh`):
+      triangles with vertex colours seen through a camera (`camera_orbit`,
+      `camera_project` for picking), smooth shading from vertex normals or
+      flat by face, builders for grid surfaces and tubes. Browsers draw them
+      with WebGL2 and place the result among the canvas's 2D layers; the
+      desktop backend rasterizes them in Fortran with a depth buffer into a
+      texture, again only when geometry, camera or size changed. Evidence:
+      `test_mesh` (projection, depth independent of order, shading, builders,
+      a camera move copies no geometry), `test_gui` (offscreen pixels: the
+      nearer face in front), `web_browser_test.mjs` (Chromium WebGL2 pixels).
+      Open: terminals draw no meshes; lines are not depth-tested against
+      meshes (draw 3D lines as tubes).
 - [ ] B7 Commands with undo and redo (M1), presence of other users, deep links
       and local storage.
 

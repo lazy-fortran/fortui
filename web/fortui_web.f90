@@ -12,7 +12,7 @@ module fortui_web
         c_ptr, c_loc, c_null_ptr
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t
     use fortui_frame, only: ui_frame_t, ui_node_t, ui_layer_ref_t, UI_CANVAS, LAYER_IMAGE, &
-        LAYER_LINES, LAYER_POINTS
+        LAYER_LINES, LAYER_POINTS, LAYER_MESH
     use fortui_input, only: input_state_t, input_update_pointer, input_pointer_event, input_scroll, &
         input_set_time, input_host_event, input_widget_key, input_host_key, &
         input_claims, KEY_ESCAPE
@@ -348,6 +348,13 @@ contains
                                 ui_str(l%image_width)//US//ui_str(l%image_height)//US// &
                                 ui_str(l%rect(1), 3)//US//ui_str(l%rect(2), 3)//US// &
                                 ui_str(l%rect(3), 3)//US//ui_str(l%rect(4), 3)//RS)
+                        case (LAYER_MESH)
+                            ! Node, kind, slot, version, vertices, index count,
+                            ! light, then the camera matrix (column-major).
+                            call add('L'//US//ui_str(i)//US//ui_str(ref%kind)//US//ui_str(ref%slot)// &
+                                US//ui_str(l%serial)//'.'//ui_str(ref%version)//US// &
+                                ui_str(ref%vertex_count)//US//ui_str(ref%index_count)//US// &
+                                floats(l%light)//US//floats(l%camera)//RS)
                         case (LAYER_LINES, LAYER_POINTS)
                             vs = ref%vertex_slot
                             call add('L'//US//ui_str(i)//US//ui_str(ref%kind)//US//ui_str(ref%slot)// &
@@ -386,6 +393,18 @@ contains
 
     end subroutine web_present
 
+    function floats(v) result(s)
+        !! Numbers separated as fields.
+        real, intent(in) :: v(:)
+        character(len=:), allocatable :: s
+        integer :: k
+        s = ''
+        do k = 1, size(v)
+            if (k > 1) s = s//US
+            s = s//ui_str(v(k), 7)
+        end do
+    end function floats
+
     integer function arr_size(a)
         integer, allocatable, intent(in) :: a(:)
         arr_size = 0
@@ -400,7 +419,8 @@ contains
 
     type(c_ptr) function fortui_web_layer_ptr(slot, which) bind(C, name="fortui_web_layer_ptr")
         !! Address of a layer array of the last frame: 1 positions (x, y
-        !! pairs), 2 colours, 3 point sizes, 4 segment vertex indices (0-based).
+        !! pairs), 2 colours, 3 point sizes, 4 segment or triangle vertex indices
+        !! (0-based), 5 mesh vertices (x, y, z triples), 6 their normals.
         integer(c_int), value :: slot, which
         fortui_web_layer_ptr = c_null_ptr
         if (.not. associated(drawn)) return
@@ -415,6 +435,11 @@ contains
         case (4)
             if (allocated(drawn%layers(slot)%indices)) fortui_web_layer_ptr = &
                 c_loc(drawn%layers(slot)%indices)
+        case (5)
+            if (allocated(drawn%layers(slot)%xyz)) fortui_web_layer_ptr = c_loc(drawn%layers(slot)%xyz)
+        case (6)
+            if (allocated(drawn%layers(slot)%normals)) fortui_web_layer_ptr = &
+                c_loc(drawn%layers(slot)%normals)
         end select
     end function fortui_web_layer_ptr
 

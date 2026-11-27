@@ -30,6 +30,7 @@ module fortui_widgets
     use fortui_error, only: report_error
     use fortui_theme, only: cell_font_family
     use fortui_icons, only: icon_path, icon_glyph
+    use fortui_mesh, only: canvas_camera_t
     implicit none
     private
 
@@ -55,7 +56,7 @@ module fortui_widgets
     end interface canvas_lines
 
     public :: text, button, link, slider, checkbox, tabs, list_box
-    public :: canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_lines
+    public :: canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_lines, canvas_mesh
     public :: canvas_label, canvas_image, canvas_cells, canvas_keys, ui_cell_metrics, ui_set_cell_font, scroll_text, text_input, ui_focus, ui_reveal
 
     ! Space on each side of a tab's label.
@@ -1053,6 +1054,33 @@ contains
             [x, y, width, height], ctx%frame_count)
         if (slot > 0) call add_layer_ref(ctx, slot)
     end subroutine canvas_image
+
+    subroutine canvas_mesh(key, generation, xyz, rgba, tris, camera, flat)
+        !! Retained filled surface: triangles tris(3, :) (0-based numbers of
+        !! vertices xyz(3, :) with colours rgba(:)), seen through `camera`
+        !! (fortui_mesh) over the whole canvas, nearer triangles in front. The
+        !! geometry is copied only when `generation` or a size changes; moving
+        !! the camera copies nothing. Browsers draw it on the GPU. Surfaces are
+        !! shaded smooth; `flat` shades every face by its own normal (edges of
+        !! solids).
+        character(*), intent(in) :: key
+        integer, intent(in) :: generation
+        real, intent(in) :: xyz(:, :)
+        integer(int32), intent(in) :: rgba(:), tris(:, :)
+        type(canvas_camera_t), intent(in) :: camera
+        logical, intent(in), optional :: flat
+        type(fortui_context_t), pointer :: ctx
+        integer :: slot
+        logical :: faces
+
+        ctx => get_default_context()
+        if (.not. canvas_ready(ctx, "canvas_mesh")) return
+        faces = .false.
+        if (present(flat)) faces = flat
+        slot = ctx%canvas%submit_mesh(layer_key(ctx, key), generation, xyz, rgba, tris, &
+            reshape(camera%m, [16]), camera%light, ctx%frame_count, faces)
+        if (slot > 0) call add_layer_ref(ctx, slot)
+    end subroutine canvas_mesh
 
     subroutine canvas_keys(presses, n)
         !! This frame's key presses for the open canvas when it has the focus and
