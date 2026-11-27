@@ -230,26 +230,49 @@ contains
         integer(int32), allocatable, intent(inout) :: tris(:, :)
         integer, intent(out) :: first
         integer :: n, k, j, base
-        real :: tng(3), nrm(3), bin(3), ang
-        real, allocatable :: ring(:, :)
+        real :: nrm(3), bin(3), ang, twist, c
+        real, allocatable :: ring(:, :), tng(:, :), frame(:, :)
         integer(int32), allocatable :: grid(:, :)
         n = size(path, 2)
         if (.not. allocated(xyz)) allocate (xyz(3, 0))
         if (.not. allocated(tris)) allocate (tris(3, 0))
         first = size(xyz, 2)
         if (n < 2) return
-        allocate (ring(3, sides * n))
+        allocate (ring(3, sides * n), tng(3, n), frame(3, n))
         do k = 1, n
             if (closed) then
-                tng = path(:, mod(k, n) + 1) - path(:, mod(k - 2 + n, n) + 1)
+                tng(:, k) = path(:, mod(k, n) + 1) - path(:, mod(k - 2 + n, n) + 1)
             else
-                tng = path(:, min(n, k + 1)) - path(:, max(1, k - 1))
+                tng(:, k) = path(:, min(n, k + 1)) - path(:, max(1, k - 1))
             end if
-            tng = tng / max(1.0e-12, norm2(tng))
-            nrm = cross(tng, [0.0, 0.0, 1.0])
-            if (norm2(nrm) < 1.0e-6) nrm = cross(tng, [1.0, 0.0, 0.0])
-            nrm = nrm / norm2(nrm)
-            bin = cross(tng, nrm)
+            tng(:, k) = tng(:, k) / max(1.0e-12, norm2(tng(:, k)))
+        end do
+        ! A frame fixed to a world axis flips where the path runs along that
+        ! axis, which pinches the tube to a line there. Carrying the frame along
+        ! the path (parallel transport) keeps it from turning about the path.
+        nrm = cross(tng(:, 1), [0.0, 0.0, 1.0])
+        if (norm2(nrm) < 1.0e-3) nrm = cross(tng(:, 1), [1.0, 0.0, 0.0])
+        frame(:, 1) = nrm / norm2(nrm)
+        do k = 2, n
+            nrm = frame(:, k - 1) - dot_product(frame(:, k - 1), tng(:, k)) * tng(:, k)
+            if (norm2(nrm) < 1.0e-6) nrm = cross(tng(:, k), cross(frame(:, k - 1), tng(:, k)))
+            if (norm2(nrm) < 1.0e-6) nrm = cross(tng(:, k), [1.0, 0.0, 0.0])
+            frame(:, k) = nrm / norm2(nrm)
+        end do
+        ! A closed path returns with the frame turned by its total torsion; that
+        ! angle is undone in equal parts so the last ring meets the first.
+        if (closed) then
+            nrm = frame(:, n) - dot_product(frame(:, n), tng(:, 1)) * tng(:, 1)
+            twist = atan2(dot_product(cross(nrm, frame(:, 1)), tng(:, 1)), dot_product(nrm, frame(:, 1)))
+            do k = 2, n
+                ang = twist * real(k - 1) / real(n)
+                c = cos(ang)
+                frame(:, k) = c * frame(:, k) + sin(ang) * cross(tng(:, k), frame(:, k))
+            end do
+        end if
+        do k = 1, n
+            nrm = frame(:, k)
+            bin = cross(tng(:, k), nrm)
             do j = 1, sides
                 ang = 2.0 * PI * real(j - 1) / real(sides)
                 ring(:, (k - 1) * sides + j) = path(:, k) + radius * (cos(ang) * nrm + sin(ang) * bin)
