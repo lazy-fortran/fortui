@@ -471,6 +471,12 @@ addToLibrary({
     },
     box: function (el, b) {
       var kind = +b[1], s = el.style;
+      // Containers are keyed by their place in the frame: one that now holds
+      // a container of another kind starts from no inline style.
+      if (el._kind !== kind) {
+        el.removeAttribute('style'); el._kind = kind;
+        el._atEnd = undefined; el._stick = el._reports = false;
+      }
       el.className = 'fui-box ' + (kind === 2 || kind === 3 ? 'fui-row' : 'fui-col') +
         (+b[5] > 0 ? ' fui-centred' : '') + (b[10] === '1' ? ' fui-wrap' : '');
       var gap = b[4] + 'px';
