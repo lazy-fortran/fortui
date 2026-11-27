@@ -12,10 +12,38 @@ headless tests, termbox2 TUI, and optional raylib GUI. The documentation redesig
 adds contracts and a delivery sequence; it does not implement native/DOM/mobile,
 commands, transaction scheduling, text services, or incremental invalidation.
 
-Next implementation task: M1, a bounded headless transaction/command slice. Implement
-one activation token, serialized dispatch, one composition invocation, and the
-inline-refresh case. Preserve current controls and tests. Avoid building all action,
-service, or platform abstractions at once. Record the exact evidence commit when done.
+Next implementation task: B1 below, the network service, which removes the first
+workaround of the stellim prototype. M1 stays open and is taken up by B7.
+
+## B: best-of-breed through a demanding application (Chris, 2026-11-27)
+
+Goal: the best user interface library there is, in Fortran, judged by what a
+modern collaborative engineering application needs on Linux desktop and in the
+browser. The acceptance application is stellim (a private multi-user design
+model: 3D view, live edits, chat, review). Each item lands with headless tests,
+a desktop check and a browser check, and replaces a workaround in stellim.
+Redesigning existing APIs is allowed where an item needs it; all downstreams are
+ours and move with the change.
+
+- [ ] B1 Network service: HTTP requests and server-sent event streams as owned
+      asynchronous requests on every host (browser `fetch`/`EventSource`,
+      native sockets), plus locale, URL query and wall clock as platform
+      information, so applications need no JavaScript of their own.
+- [ ] B2 Focus and keys: `ui_focus` reaches a control from anywhere in the
+      frame; keys typed before a requested focus lands reach the field.
+      Layout defaults: rows align to the top, wrapping rows, breakpoints from the
+      window size, scroll containers, tab bars that do not cut labels.
+- [ ] B3 Pointer input: pointer kind (mouse, pen, touch), pressure, tilt,
+      several touches with pinch and two-finger pan on canvases.
+- [ ] B4 Widgets: data grid with sorting and filtering, menu and drop-down,
+      segmented control, chips and badges, toasts, dialogs, icons, virtual lists
+      that can stick to their end (chat).
+- [ ] B5 Themes in the library: light and dark following the system on every
+      host; applications ship no styling of their own.
+- [ ] B6 GPU canvas in the browser and filled 3D surfaces with depth on desktop
+      and browser.
+- [ ] B7 Commands with undo and redo (M1), presence of other users, deep links
+      and local storage.
 
 ## Consumer slice: canvas resources, text, idle (branch `canvas-resources`)
 
