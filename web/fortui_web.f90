@@ -59,6 +59,10 @@ module fortui_web
         procedure :: network => web_network
         procedure :: locale => web_locale
         procedure :: url_param => web_url_param
+        procedure :: set_url_param => web_set_url_param
+        procedure :: location => web_location
+        procedure :: store_get => web_store_get
+        procedure :: store_set => web_store_set
     end type web_backend_t
 
     interface
@@ -94,6 +98,28 @@ module fortui_web
             integer(c_int), value :: cap
         end function js_locale
 
+        subroutine js_set_url_param(name, n, value, nv, push) bind(C, name="fortui_web_set_url_param")
+            import :: c_int, c_char
+            character(kind=c_char), intent(in) :: name(*), value(*)
+            integer(c_int), value :: n, nv, push
+        end subroutine js_set_url_param
+        integer(c_int) function js_location(buf, cap) bind(C, name="fortui_web_location")
+            import :: c_int, c_char
+            character(kind=c_char), intent(out) :: buf(*)
+            integer(c_int), value :: cap
+        end function js_location
+        integer(c_int) function js_store_get(key, n, buf, cap) bind(C, name="fortui_web_store_get")
+            !! The value's length in bytes; up to cap - 1 of them copied into buf.
+            import :: c_int, c_char
+            character(kind=c_char), intent(in) :: key(*)
+            character(kind=c_char), intent(out) :: buf(*)
+            integer(c_int), value :: n, cap
+        end function js_store_get
+        subroutine js_store_set(key, n, value, nv) bind(C, name="fortui_web_store_set")
+            import :: c_int, c_char
+            character(kind=c_char), intent(in) :: key(*), value(*)
+            integer(c_int), value :: n, nv
+        end subroutine js_store_set
         integer(c_int) function js_url_param(name, n, buf, cap) bind(C, name="fortui_web_url_param")
             import :: c_int, c_char
             character(kind=c_char), intent(in) :: name(*)
@@ -164,7 +190,7 @@ contains
 
     function web_url_param(self, name) result(value)
         !! A parameter of the page's query string.
-        class(web_backend_t), intent(in) :: self
+        class(web_backend_t), intent(inout) :: self
         character(*), intent(in) :: name
         character(len=:), allocatable :: value
         character(len=1024) :: buf
@@ -174,6 +200,51 @@ contains
         n = int(js_url_param(name, int(len(name), c_int), buf, int(len(buf), c_int)))
         value = buf(1:n)
     end function web_url_param
+
+    subroutine web_set_url_param(self, name, value, push)
+        !! The page's address with the parameter changed (history.replaceState,
+        !! or pushState for a step Back returns from).
+        class(web_backend_t), intent(inout) :: self
+        character(*), intent(in) :: name, value
+        logical, intent(in) :: push
+        if (.not. self%active) return
+        call js_set_url_param(name, int(len(name), c_int), value, int(len(value), c_int), &
+            int(merge(1, 0, push), c_int))
+    end subroutine web_set_url_param
+
+    function web_location(self) result(where)
+        class(web_backend_t), intent(inout) :: self
+        character(len=:), allocatable :: where
+        character(len=4096) :: buf
+        integer :: n
+        where = ""
+        if (.not. self%active) return
+        n = int(js_location(buf, int(len(buf), c_int)))
+        where = buf(1:n)
+    end function web_location
+
+    function web_store_get(self, key) result(value)
+        !! localStorage, under the key prefixed with "fortui:".
+        class(web_backend_t), intent(inout) :: self
+        character(*), intent(in) :: key
+        character(len=:), allocatable :: value
+        character(len=1) :: probe
+        integer :: n
+        value = ""
+        if (.not. self%active) return
+        n = int(js_store_get(key, int(len(key), c_int), probe, 0_c_int))
+        if (n <= 0) return
+        allocate (character(len=n + 1) :: value)
+        n = int(js_store_get(key, int(len(key), c_int), value, int(n + 1, c_int)))
+        value = value(1:n)
+    end function web_store_get
+
+    subroutine web_store_set(self, key, value)
+        class(web_backend_t), intent(inout) :: self
+        character(*), intent(in) :: key, value
+        if (.not. self%active) return
+        call js_store_set(key, int(len(key), c_int), value, int(len(value), c_int))
+    end subroutine web_store_set
 
     function web_name(self) result(name)
         class(web_backend_t), intent(in) :: self
@@ -447,7 +518,8 @@ contains
         !! Kind, id, x, y, width, height (logical units), flags (1 focusable,
         !! 2 disabled, 8 focused, 32 checked, 64 ellipsis, 256 reveal, 512 toggle), value, min,
         !! max, style, text size, box, width mode, tone, text, body, runs, look,
-        !! anchor, button emphasis, file types, tooltip, symbol (SVG path data).
+        !! anchor, button emphasis, file types, tooltip, symbol (SVG path data),
+        !! fill colour (people's avatars).
         type(ui_node_t), intent(in) :: n
         character(len=:), allocatable :: r
         integer :: flags
@@ -475,6 +547,7 @@ contains
         if (allocated(n%tooltip)) r = r//clean(n%tooltip)
         r = r//US
         if (allocated(n%icon)) r = r//icon_svg(n%icon)
+        r = r//US//ui_str(n%fill)
     end function node_record
 
     function label_of(b) result(s)

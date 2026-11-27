@@ -220,6 +220,8 @@ button.fui-k12:hover { background: var(--fui-bg1-hover, #8881); }
 button.fui-k12[aria-pressed="true"] { background: color-mix(in srgb, var(--fui-brand, Highlight) 18%, transparent);
   border-color: var(--fui-brand, Highlight); }
 .fui-k12[data-style="2"] { font-size: 12px; }
+.fui-k12[data-look="fui-avatar"] { padding: 0; width: 26px; height: 26px; min-height: 0; border-radius: 50%;
+  justify-content: center; color: #fff; font-weight: 600; letter-spacing: 0.02em; }
 /* A drop-down: the platform's own picker. */
 .fui-k14 { font: inherit; padding: 0 8px; border-radius: 4px; border: 1px solid var(--fui-stroke1, GrayText);
   border-bottom-color: var(--fui-stroke-accessible, GrayText); background: var(--fui-bg1, Field); color: inherit; }

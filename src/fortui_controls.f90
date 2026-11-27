@@ -26,10 +26,12 @@ module fortui_controls
     use fortui_icons, only: icon_path, icon_glyph
     use fortui_text, only: text_width, text_line_height, ui_str
     use fortui_core, only: ui_wake_after, ui_time, ui_window_size
+    use fortui_canvas, only: ui_rgba
+    use iso_fortran_env, only: int32
     implicit none
     private
 
-    public :: icon, badge, chip, segmented, dropdown, menu
+    public :: icon, badge, chip, segmented, dropdown, menu, avatar, ui_user_colour
     public :: toast, modal_begin, modal_end
     public :: scroll_begin, scroll_end, virtual_list_begin, virtual_list_end
     public :: grid_state_t, data_grid
@@ -162,6 +164,107 @@ contains
         if (clicked) ctx%followup = .true.
         call place_and_emit(ctx, node)
     end function chip
+
+    subroutine avatar(name, colour, tooltip, size)
+        !! A person as their initials in a circle of their colour (default:
+        !! ui_user_colour(name)); `tooltip` says who and what they do.
+        character(*), intent(in) :: name
+        integer(int32), intent(in), optional :: colour
+        character(*), intent(in), optional :: tooltip
+        real, intent(in), optional :: size
+        type(fortui_context_t), pointer :: ctx
+        type(ui_node_t) :: node
+        ctx => get_default_context()
+        if (.not. composing(ctx)) return
+        node%kind = UI_CHIP
+        node%text = initials(name)
+        node%look = 'fui-avatar'
+        node%style = UI_CAPTION
+        node%text_size = style_size(UI_CAPTION)
+        node%fill = ui_user_colour(name)
+        if (present(colour)) node%fill = colour
+        node%tooltip = name
+        if (present(tooltip)) node%tooltip = tooltip
+        node%height = 26.0
+        if (present(size)) node%height = size
+        node%width = node%height
+        call place_and_emit(ctx, node)
+    end subroutine avatar
+
+    function initials(name) result(s)
+        !! Up to two letters: the first of each of the first two words, or the
+        !! first two of a single word; a name in another script: its first
+        !! character.
+        character(*), intent(in) :: name
+        character(len=:), allocatable :: s, firsts, word
+        integer :: k, words
+        logical :: start
+        s = ''
+        firsts = ''
+        word = ''
+        words = 0
+        start = .true.
+        do k = 1, len_trim(name)
+            if (iachar(name(k:k)) >= 128 .and. words == 0) then
+                s = name(k:min(len_trim(name), k + utf8_len(name(k:k)) - 1))
+                return
+            end if
+            if (index(' ._-@', name(k:k)) > 0) then
+                start = .true.
+                cycle
+            end if
+            if (start) then
+                words = words + 1
+                if (words <= 2) firsts = firsts // upper(name(k:k))
+                start = .false.
+            end if
+            if (words == 1) word = word // name(k:k)
+        end do
+        if (words >= 2) then
+            s = firsts
+        else if (len(word) >= 2) then
+            s = upper(word(1:1)) // word(2:2)
+        else
+            s = firsts
+        end if
+    end function initials
+
+    pure integer function utf8_len(c)
+        character, intent(in) :: c
+        integer :: b
+        b = iachar(c)
+        utf8_len = 1
+        if (b >= 240) then
+            utf8_len = 4
+        else if (b >= 224) then
+            utf8_len = 3
+        else if (b >= 192) then
+            utf8_len = 2
+        end if
+    end function utf8_len
+
+    pure function upper(c) result(u)
+        character, intent(in) :: c
+        character :: u
+        u = c
+        if (c >= 'a' .and. c <= 'z') u = achar(iachar(c) - 32)
+    end function upper
+
+    integer(int32) function ui_user_colour(name) result(c)
+        !! A colour of its own for each person, the same everywhere: one of ten
+        !! hues that keep white initials readable.
+        character(*), intent(in) :: name
+        integer :: k, h
+        integer, parameter :: rgb(3, 10) = reshape([196, 49, 75, 202, 80, 16, 152, 111, 11, &
+            16, 124, 16, 0, 120, 120, 0, 99, 177, 79, 82, 178, 135, 100, 184, 194, 57, 179, &
+            92, 92, 92], [3, 10])
+        h = 7
+        do k = 1, len_trim(name)
+            h = modulo(h * 31 + iachar(name(k:k)), 1000003)
+        end do
+        k = modulo(h, 10) + 1
+        c = ui_rgba(rgb(1, k), rgb(2, k), rgb(3, k))
+    end function ui_user_colour
 
     ! --- choices ---------------------------------------------------------------------
 

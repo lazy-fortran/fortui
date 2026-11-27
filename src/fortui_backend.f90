@@ -18,6 +18,7 @@ module fortui_backend
     use fortui_input, only: input_state_t
     use fortui_canvas, only: canvas_store_t, canvas_realizer_t
     use fortui_net_transport, only: net_transport_t
+    use fortui_store, only: store_t, store_default_path
     implicit none
     private
 
@@ -68,6 +69,13 @@ module fortui_backend
         !! Seconds until a frame is due when the next poll may wait; negative: wait
         !! for input only. Set by the runtime before each present.
         real :: wake_in = -1.0
+        !! Values kept between runs (ui_store_get/set) and the parameters of the
+        !! address on hosts without one (ui_set_url_param). `keeps_store`:
+        !! write them to a file (store_default_path); headless hosts keep them
+        !! in memory only.
+        type(store_t) :: store
+        type(store_t) :: params
+        logical :: keeps_store = .true.
     contains
         procedure(backend_name_i), deferred :: name
         procedure(backend_init_i), deferred :: init
@@ -97,6 +105,10 @@ module fortui_backend
         procedure :: network => backend_network
         procedure :: locale => backend_locale
         procedure :: url_param => backend_url_param
+        procedure :: set_url_param => backend_set_url_param
+        procedure :: location => backend_location
+        procedure :: store_get => backend_store_get
+        procedure :: store_set => backend_store_set
     end type ui_backend_t
 
     abstract interface
@@ -211,13 +223,65 @@ contains
 
     function backend_url_param(self, name) result(value)
         !! A parameter of the address the application was opened with (the
-        !! page's query in a browser); "" where there is none.
-        class(ui_backend_t), intent(in) :: self
+        !! page's query in a browser); elsewhere the last value set.
+        class(ui_backend_t), intent(inout) :: self
         character(*), intent(in) :: name
         character(len=:), allocatable :: value
-        value = ""
-        if (len(name) < 0 .or. self%presents < 0) continue
+        value = self%params%get(name)
     end function backend_url_param
+
+    subroutine backend_set_url_param(self, name, value, push)
+        !! Change a parameter of the address ("" removes it); `push` makes it a
+        !! step that Back returns from, where there is history.
+        class(ui_backend_t), intent(inout) :: self
+        character(*), intent(in) :: name, value
+        logical, intent(in) :: push
+        if (.not. self%params%loaded) call self%params%use_file('')
+        call self%params%set(name, value)
+        if (push) continue
+    end subroutine backend_set_url_param
+
+    function backend_location(self) result(where)
+        !! The address of what is shown: "?name=value&..." where there is no page.
+        class(ui_backend_t), intent(inout) :: self
+        character(len=:), allocatable :: where
+        integer :: k
+        where = ''
+        do k = 1, self%params%count
+            if (len(self%params%values(k)%s) == 0) cycle
+            if (len(where) == 0) then
+                where = '?'
+            else
+                where = where // '&'
+            end if
+            where = where // trim(self%params%keys(k)) // '=' // self%params%values(k)%s
+        end do
+    end function backend_location
+
+    function backend_store_get(self, key) result(value)
+        class(ui_backend_t), intent(inout) :: self
+        character(*), intent(in) :: key
+        character(len=:), allocatable :: value
+        call open_store(self)
+        value = self%store%get(key)
+    end function backend_store_get
+
+    subroutine backend_store_set(self, key, value)
+        class(ui_backend_t), intent(inout) :: self
+        character(*), intent(in) :: key, value
+        call open_store(self)
+        call self%store%set(key, value)
+    end subroutine backend_store_set
+
+    subroutine open_store(self)
+        class(ui_backend_t), intent(inout) :: self
+        if (self%store%loaded) return
+        if (self%keeps_store) then
+            call self%store%use_file(store_default_path(trim(self%config%title)))
+        else
+            call self%store%use_file('')
+        end if
+    end subroutine open_store
 
     subroutine backend_hand_over(self)
         !! Called by ui_run when the host drives the frames, after the application

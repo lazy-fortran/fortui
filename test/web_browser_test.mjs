@@ -184,6 +184,23 @@ try {
   await click('[data-id="coils/head#1"]');
   await until(`document.querySelector('[data-id="coils/head#1"] svg') !== null`, 'sorted heading');
   check(true, 'a grid heading sorts and shows the direction');
+  // Address, history, kept values and undo: the view is in the address,
+  // Back returns to the one before, the colour is kept for the next visit,
+  // Undo steps back through every change.
+  await click('[data-id="view/option#3"]');
+  await until(`location.search.includes('view=graph')`, 'view in the address');
+  check(true, 'a view change puts the view into the address');
+  await send('Runtime.evaluate', { expression: 'history.back()' });
+  await until(`document.querySelector('[data-id="widget-state"]').textContent.includes('Board')`, 'Back');
+  check(!(await evaluate('location.search')).includes('graph'), 'Back returns to the view before');
+  check(await evaluate(`localStorage.getItem('fortui:colour') === '3'`), 'the chosen colour is kept in local storage');
+  // Undo steps back through both views, then the colour.
+  for (let i = 0; i < 3; i++) { await click('[data-id="undo"]'); await sleep(60); }
+  await until(`document.querySelector('[data-id="widget-state"]').textContent.includes('Green')`, 'undo');
+  check((await state()).includes('List') && await evaluate(`localStorage.getItem('fortui:colour') === '2'`),
+    'Undo steps back through the views and then the colour');
+  check(await evaluate(`document.querySelectorAll('[data-look="fui-avatar"]').length === 2 &&
+    document.querySelector('[data-look="fui-avatar"]').textContent === 'CA'`), 'people show as initials in their colour');
   // Filled surfaces on the GPU: the nearer red square covers the blue one
   // composed after it; the canvas fill shows around them.
   await until(`!!document.querySelector('canvas[data-id="depth"]')`, 'depth canvas');

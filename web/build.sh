@@ -31,9 +31,9 @@ cd "$out/obj"
 # Dependency order; the terminal and raylib backends and the backend registry
 # are native only.
 for m in fortui_error fortui_theme fortui_text fortui_icons fortui_mesh fortui_layout fortui_frame fortui_canvas \
-    fortui_raster fortui_input fortui_files fortui_net_transport fortui_backend \
+    fortui_raster fortui_input fortui_files fortui_store fortui_net_transport fortui_backend \
     fortui_backend_headless fortui_context fortui_core fortui_net fortui_widgets \
-    fortui_controls fortui_file_dialog fortui_testing fortui; do
+    fortui_controls fortui_commands fortui_file_dialog fortui_testing fortui; do
     "$lf" -c $flags "$top/src/$m.f90" -o "$m.o"
 done
 "$emcc" -c "$top/src/c/fortui_files.c" -o fortui_files_c.o
