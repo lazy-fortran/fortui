@@ -297,7 +297,7 @@ contains
                 rec = 'B'//US//ui_str(b%kind)//US//ui_str(b%parent)//US//ui_str(b%after)// &
                     US//ui_str(nint(b%gap))//US//ui_str(nint(b%cross))//US// &
                     ui_str(nint(b%width))//US//clean(trim(b%id))//US//clean(trim(b%look))// &
-                    US//clean(trim(b%anchor))//RS
+                    US//clean(trim(b%anchor))//US//trim(merge('1', '0', b%wrap))//RS
             end associate
             call add(rec)
         end do

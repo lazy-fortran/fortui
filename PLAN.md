@@ -12,7 +12,7 @@ headless tests, termbox2 TUI, and optional raylib GUI. The documentation redesig
 adds contracts and a delivery sequence; it does not implement native/DOM/mobile,
 commands, transaction scheduling, text services, or incremental invalidation.
 
-Next implementation task: B2 below. M1 stays open and is taken up by B7.
+Next implementation task: B3 below. M1 stays open and is taken up by B7.
 
 ## B: best-of-breed through a demanding application (Chris, 2026-11-27)
 
@@ -35,15 +35,21 @@ ours and move with the change.
       (Chromium: event stream, POST, page parameter, language). Open: name
       lookup waits; native TLS; the browser test stops earlier at the automatic
       dark theme check, which fails on main as well (B5).
-- [ ] B2 Focus and keys: `ui_focus` reaches a control from anywhere in the
-      frame; keys typed before a requested focus lands reach the field.
-      Layout defaults: rows align to the top, wrapping rows, breakpoints from the
-      window size, scroll containers, tab bars that do not cut labels.
+- [x] B2 Focus and keys: `ui_focus` and `ui_reveal` reach a control from
+      anywhere in the frame (its own id or the end of its scoped id, if
+      unique); in the browser, characters typed right after a shortcut that
+      moves the focus into a field are typed there. Layout: rows align to the
+      top on every host (centred only with `height`), `row_begin(wrap=.true.)`
+      continues on further lines, `ui_width_class()` gives the window width
+      class (compact, medium, expanded, large), tab bars keep their labels
+      whole and scroll in the browser. Evidence: `test_layout_focus`
+      (headless), `test_html`, `web_browser_test.mjs` (type-ahead, row
+      alignment). Scroll containers moved to B4 together with virtual lists.
 - [ ] B3 Pointer input: pointer kind (mouse, pen, touch), pressure, tilt,
       several touches with pinch and two-finger pan on canvases.
 - [ ] B4 Widgets: data grid with sorting and filtering, menu and drop-down,
-      segmented control, chips and badges, toasts, dialogs, icons, virtual lists
-      that can stick to their end (chat).
+      segmented control, chips and badges, toasts, dialogs, icons, scroll
+      containers and virtual lists that can stick to their end (chat).
 - [ ] B5 Themes in the library: light and dark following the system on every
       host; applications ship no styling of their own.
 - [ ] B6 GPU canvas in the browser and filled 3D surfaces with depth on desktop

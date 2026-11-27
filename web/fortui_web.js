@@ -16,6 +16,8 @@ addToLibrary({
     started: false,
     fileSequence: 0,
     filePicker: null,
+    // Characters typed after a taken press, until the next frame (type-ahead).
+    ahead: null,
     HOST: { activate: 1, focus: 2, blur: 3, value: 4, submit: 5 },
     // Named keys as the runtime numbers them (KEY_* in fortui_input).
     KEYS: { Enter: 1, Escape: 2, Tab: 3, Backspace: 4, Delete: 5, Home: 6, End: 7, ArrowLeft: 8,
@@ -124,9 +126,18 @@ addToLibrary({
         }
         var k = FUI.key(e);
         if (!k) return;
+        // Type-ahead: after a press the application took, characters typed
+        // outside fields before its next frame are remembered (and handled as
+        // usual). If that frame moves the focus into a text field, they are
+        // typed there, so typing right after a shortcut loses nothing.
+        var field = t && (t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && /^(text|search|url|tel|email|password)$/.test(t.type)));
+        if (FUI.ahead && !field && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) FUI.ahead.push(e.key);
         var claim = Module._fortui_web_key(k[0], k[1], k[2]);
         if (claim & 2) e.preventDefault();
-        if (claim & 1) FUI.push([2, k[0], k[1], k[2]]);
+        if (claim & 1) {
+          FUI.push([2, k[0], k[1], k[2]]);
+          if (!field && !FUI.ahead) FUI.ahead = [];
+        }
       });
       // Canvases are drawn by the application: they get pointer coordinates
       // in the runtime's own layout units.
@@ -381,7 +392,8 @@ addToLibrary({
     },
     box: function (el, b) {
       var kind = +b[1], s = el.style;
-      el.className = 'fui-box ' + (kind === 2 || kind === 3 ? 'fui-row' : 'fui-col');
+      el.className = 'fui-box ' + (kind === 2 || kind === 3 ? 'fui-row' : 'fui-col') +
+        (+b[5] > 0 ? ' fui-centred' : '') + (b[10] === '1' ? ' fui-wrap' : '');
       var gap = b[4] + 'px';
       if (s.gap !== gap) s.gap = gap;
       s.minHeight = +b[5] > 0 ? b[5] + 'px' : '';
@@ -584,6 +596,16 @@ addToLibrary({
     // Also in a window without the focus: the element then has it when the
     // window gets it.
     if (focus && document.activeElement !== focus && focus.focus) focus.focus({ preventScroll: true });
+    var ahead = FUI.ahead;
+    FUI.ahead = null;
+    if (ahead && ahead.length && focus && (focus.tagName === 'TEXTAREA' ||
+        (focus.tagName === 'INPUT' && /^(text|search|url|tel|email|password)$/.test(focus.type)))) {
+      // After this frame's step has returned to the browser.
+      Promise.resolve().then(function () {
+        focus.setRangeText(ahead.join(''), focus.selectionStart, focus.selectionEnd, 'end');
+        focus.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    }
     // ui_reveal: the least scrolling that shows the element, at once.
     if (reveal) reveal.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
   },

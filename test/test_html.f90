@@ -45,8 +45,8 @@ program test_html
     call check(at('data-key="1:~1"') < at('data-key="b1"'), 'the title comes before the column')
     call check(at('data-key="b1"') < at('data-key="b2"') .and. &
         at('data-key="b2"') < at('data-key="1:~2"'), 'the row is inside the column')
-    call check(index(html, 'class="fui-box fui-row" style="gap: 8px; min-height: 40px;"') > 0, &
-        'row with its gap and height')
+    call check(index(html, 'class="fui-box fui-row fui-centred" style="gap: 8px; min-height: 40px;"') > 0, &
+        'row with its gap and height centres its items')
     call check(index(html, '<button type="button" class="fui fui-k2" data-key="2:c/go" '// &
         'data-id="c/go"') > 0, 'button with key and id')
     call check(index(html, '<textarea rows="4" placeholder="Note"') > 0 .and. &

@@ -40,6 +40,10 @@ module fortui_context
         ! Identities asked for by ui_focus and ui_reveal, applied at present.
         character(len=96) :: focus_request = ""
         character(len=96) :: reveal_request = ""
+        ! The same identities as the application named them, for controls
+        ! composed in another container than the request.
+        character(len=96) :: focus_name = ""
+        character(len=96) :: reveal_name = ""
         integer :: frame_count = 0
         class(ui_backend_t), allocatable :: backend
         ! The host's network transport (fortui_net); none: requests are unsupported.
