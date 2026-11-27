@@ -92,6 +92,40 @@ program test_mesh
     call check(k == 0 .and. size(tube, 2) == 18 .and. size(tube_tris, 2) == 2 * 6 * 2, &
         'a tube of 3 points and 6 sides')
     call check(all(abs(norm2(tube(2:3, :), dim=1) - 0.1) < 1e-5), 'its rings lie at its radius')
+    ! A closed loop standing upright, like a coil: its path runs along z at two
+    ! points, where a frame tied to the z axis turned by half a turn and the
+    ! tube pinched. Every ring must keep its radius in its own plane and every
+    ! face must keep about the width of one side.
+    block
+        real, parameter :: PI = 3.14159265
+        real :: loop(3, 24), ring_c(3)
+        real, allocatable :: t2(:, :)
+        integer(int32), allocatable :: tt2(:, :)
+        integer :: i, j, first2, twisted
+        logical :: round
+        do i = 1, 24
+            loop(:, i) = [cos(2 * PI * (i - 1) / 24.0), 0.0, sin(2 * PI * (i - 1) / 24.0)]
+        end do
+        call mesh_tube(loop, 0.1, 8, .true., t2, tt2, first2)
+        round = .true.
+        do i = 1, 24
+            ring_c = loop(:, i)
+            round = round .and. all(abs(norm2(t2(:, (i - 1) * 8 + 1:i * 8) - spread(ring_c, 2, 8), dim=1) &
+                - 0.1) < 1e-4)
+        end do
+        call check(round, 'an upright closed loop keeps every ring at its radius')
+        ! Side j of one ring and of the next point the same way, also from the
+        ! last ring to the first: no flip, and no twist left at the seam.
+        twisted = 0
+        do i = 1, 24
+            do j = 1, 8
+                if (dot_product(t2(:, (i - 1) * 8 + j) - loop(:, i), t2(:, mod(i, 24) * 8 + j) - &
+                    loop(:, mod(i, 24) + 1)) < 0.9 * 0.1**2) twisted = twisted + 1
+            end do
+        end do
+        call check(twisted == 0 .and. size(tt2, 2) == 2 * 8 * 24, &
+            'and its sides run on from ring to ring without a flip or a twist at the seam')
+    end block
 
     ! The retained layer: geometry copies on a new generation only.
     call ui_init(headless_backend_t(), 200, 200, 'mesh', stat=stat)
