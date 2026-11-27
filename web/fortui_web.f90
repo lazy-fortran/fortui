@@ -56,6 +56,7 @@ module fortui_web
         procedure :: capabilities => web_caps
         procedure :: hand_over => web_hand_over
         procedure :: offer_file => web_offer_file
+        procedure :: clipboard_set => web_clipboard_set
         procedure :: network => web_network
         procedure :: locale => web_locale
         procedure :: url_param => web_url_param
@@ -201,6 +202,22 @@ contains
         value = buf(1:n)
     end function web_url_param
 
+    subroutine web_clipboard_set(self, text)
+        !! The browser's clipboard (asynchronous; the page must have been used
+        !! a moment ago, as after a click).
+        class(web_backend_t), intent(inout) :: self
+        character(*), intent(in) :: text
+        interface
+            subroutine js_copy(t, n) bind(C, name="fortui_web_clipboard_set")
+                import :: c_char, c_int
+                character(kind=c_char), intent(in) :: t(*)
+                integer(c_int), value :: n
+            end subroutine js_copy
+        end interface
+        if (.not. self%active) return
+        call js_copy(text, int(len(text), c_int))
+    end subroutine web_clipboard_set
+
     subroutine web_set_url_param(self, name, value, push)
         !! The page's address with the parameter changed (history.replaceState,
         !! or pushState for a step Back returns from).
@@ -228,15 +245,13 @@ contains
         class(web_backend_t), intent(inout) :: self
         character(*), intent(in) :: key
         character(len=:), allocatable :: value
-        character(len=1) :: probe
+        character(len=65536) :: buf
         integer :: n
         value = ""
         if (.not. self%active) return
-        n = int(js_store_get(key, int(len(key), c_int), probe, 0_c_int))
-        if (n <= 0) return
-        allocate (character(len=n + 1) :: value)
-        n = int(js_store_get(key, int(len(key), c_int), value, int(n + 1, c_int)))
-        value = value(1:n)
+        ! Values longer than the buffer are cut; keep drafts and settings short.
+        n = int(js_store_get(key, int(len(key), c_int), buf, int(len(buf), c_int)))
+        value = buf(1:max(0, min(n, len(buf) - 1)))
     end function web_store_get
 
     subroutine web_store_set(self, key, value)
@@ -436,6 +451,13 @@ contains
                                 ui_str(l%line_width, 3)//US//ui_str(real_size(l%sizes))//US// &
                                 ui_str(merge(1, 0, l%world_size))//US//ui_str(l%min_pixels, 3)//RS)
                         end select
+                    end associate
+                end do
+                ! 'T': labels, centred below their world point at a fixed size.
+                do j = n%label_first, n%label_first + n%label_count - 1
+                    associate (lab => frame%labels(j))
+                        call add('T'//US//ui_str(i)//US//ui_str(lab%x, 2)//US//ui_str(lab%y, 2)//US// &
+                            ui_str(lab%size, 1)//US//ui_str(lab%rgba)//US//clean(lab%text)//RS)
                     end associate
                 end do
             end associate

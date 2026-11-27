@@ -286,7 +286,7 @@ addToLibrary({
       var p = _fortui_web_layer_ptr(slot, which);
       return p ? new Type(HEAPU8.buffer, p, n) : null;
     },
-    drawCanvas: function (el, view, layers) {
+    drawCanvas: function (el, view, layers, texts) {
       // The bitmap has device pixels; the element keeps its logical size.
       var dpr = window.devicePixelRatio || 1, w = el._lw || 1, h = el._lh || 1;
       var ctx = el.getContext('2d'), zoom = +view[2], px = +view[3], py = +view[4], fill = +view[5];
@@ -357,6 +357,16 @@ addToLibrary({
         }
       }
       el._images.forEach(function (_, key) { if (!used.has(key)) el._images.delete(key); });
+      // Labels at a fixed size, centred below their world point.
+      if (texts && texts.length) {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        texts.forEach(function (t) {
+          ctx.font = (+t[4] || 13) + 'px ' + getComputedStyle(el).fontFamily;
+          ctx.fillStyle = FUI.colour(+t[5]);
+          ctx.fillText(t[6] || '', +t[2] * zoom + px, +t[3] * zoom + py);
+        });
+      }
     },
     create: function (kind, key, flags) {
       // A chip one can select is a button; a badge is text.
@@ -706,6 +716,19 @@ addToLibrary({
     stringToUTF8(v, buf, cap);
     return Math.min(lengthBytesUTF8(v), cap - 1);
   },
+  fortui_web_clipboard_set__deps: ['$UTF8ToString'],
+  fortui_web_clipboard_set: function (ptr, n) {
+    var t = UTF8ToString(ptr, n);
+    function fallback() {
+      var a = document.createElement('textarea');
+      a.value = t; a.style.position = 'fixed'; a.style.opacity = '0';
+      document.body.appendChild(a); a.select();
+      try { document.execCommand('copy'); } catch (e) { }
+      a.remove();
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).catch(fallback);
+    else fallback();
+  },
   fortui_web_set_url_param__deps: ['$UTF8ToString'],
   fortui_web_set_url_param: function (name, n, value, nv, push) {
     var u = new URL(location.href), k = UTF8ToString(name, n), v = UTF8ToString(value, nv);
@@ -751,13 +774,14 @@ addToLibrary({
   fortui_web_present__deps: ['$FUI'],
   fortui_web_present: function (ptr, n) {
     var records = UTF8ToString(ptr, n).split('\x1e');
-    var boxes = [null], nodes = [], anon = {}, views = [], layers = [], nodeEls = [];
+    var boxes = [null], nodes = [], anon = {}, views = [], layers = [], texts = [], nodeEls = [];
     for (var i = 0; i < records.length; i++) {
       if (records[i] === '') continue;
       var f = records[i].split('\x1f');
       if (f[0] === 'B') boxes.push(f);
       else if (f[0] === 'V') views.push(f);
       else if (f[0] === 'L') layers.push(f);
+      else if (f[0] === 'T') texts.push(f);
       else nodes.push(f);
     }
     var seen = new Set(), children = boxes.map(function () { return []; });
@@ -801,7 +825,8 @@ addToLibrary({
     }
     for (var v = 0; v < views.length; v++) {
       var cel = nodeEls[+views[v][1]];
-      if (cel && cel.getContext) FUI.drawCanvas(cel, views[v], layers.filter(function (l) { return l[1] === views[v][1]; }));
+      if (cel && cel.getContext) FUI.drawCanvas(cel, views[v], layers.filter(function (l) { return l[1] === views[v][1]; }),
+        texts.filter(function (t) { return t[1] === views[v][1]; }));
     }
     var focus = FUI.toFocus, reveal = FUI.toReveal;
     FUI.toFocus = FUI.toReveal = null;

@@ -199,6 +199,15 @@ try {
   await until(`document.querySelector('[data-id="widget-state"]').textContent.includes('Green')`, 'undo');
   check((await state()).includes('List') && await evaluate(`localStorage.getItem('fortui:colour') === '2'`),
     'Undo steps back through the views and then the colour');
+  // A value kept from an earlier visit is there when the page opens again.
+  await evaluate(`(() => { const s = document.querySelector('select[data-id="colour"]'); s.value = '3';
+    s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await until(`localStorage.getItem('fortui:colour') === '3'`, 'colour kept');
+  await send('Page.navigate', { url: url + '?site=cn' });
+  await until(`!!document.querySelector('[data-id="count"]')`, 'page opened again');
+  await click('[data-id="tabs#4"]');
+  await until(`!!document.querySelector('[data-id="widget-state"]')`, 'widgets again');
+  check((await state()).includes('Blue'), 'a kept value is read when the page opens again');
   check(await evaluate(`document.querySelectorAll('[data-look="fui-avatar"]').length === 2 &&
     document.querySelector('[data-look="fui-avatar"]').textContent === 'CA'`), 'people show as initials in their colour');
   // Filled surfaces on the GPU: the nearer red square covers the blue one
