@@ -20,7 +20,7 @@ module fortui_web
     use fortui_canvas, only: canvas_store_t
     use fortui_text, only: text_use_fixed_metrics, ui_str
     use fortui_theme, only: theme, STYLE_PLAIN
-    use fortui_core, only: ui_run_step
+    use fortui_core, only: ui_run_step, ui_appearance_changed
     use fortui_net_transport, only: net_transport_t
     use fortui_web_net, only: web_transport_t
     implicit none
@@ -34,7 +34,7 @@ module fortui_web
     integer, parameter :: MAX_EVENTS = 256
     integer, parameter :: TEXT_CAP = 65536
     integer, parameter :: EV_POINTER = 1, EV_KEY = 2, EV_WHEEL = 3, EV_RESIZE = 4, &
-        EV_HOST = 5
+        EV_HOST = 5, EV_APPEARANCE = 6
     character(len=1), parameter :: RS = achar(30), US = achar(31)
 
     type, extends(ui_backend_t) :: web_backend_t
@@ -242,6 +242,8 @@ contains
                 ! also goes to the widgets; the browser's own controls handle
                 ! every other key themselves.
                 if (nint(ev(2, i)) == KEY_ESCAPE) call input_widget_key(input, KEY_ESCAPE)
+            case (EV_APPEARANCE)
+                call ui_appearance_changed()
             case (EV_WHEEL)
                 call input_scroll(input, nint(ev(2, i)), real(ev(3, i)))
             case (EV_RESIZE)

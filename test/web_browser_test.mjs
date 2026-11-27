@@ -91,7 +91,11 @@ async function until(expr, what) {
   throw new Error('timed out waiting for ' + what);
 }
 async function center(selector) {
-  return evaluate(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+  // A real pointer reaches only what is on screen.
+  return evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)});
+    const b = e.getBoundingClientRect();
+    if (b.bottom > innerHeight || b.top < 0) e.scrollIntoView({ block: 'center', behavior: 'instant' });
+    const r = e.getBoundingClientRect();
     return [r.left + r.width / 2, r.top + r.height / 2]; })()`);
 }
 async function click(selector) {

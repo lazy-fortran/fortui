@@ -57,7 +57,9 @@ addToLibrary({
     request: function () {
       if (FUI.scheduled || !FUI.started) return;
       FUI.scheduled = true;
-      requestAnimationFrame(FUI.step);
+      // A hidden page gets no animation frames; its state still advances
+      // (messages, theme), so it composes on a timer instead.
+      if (document.hidden) setTimeout(FUI.step, 0); else requestAnimationFrame(FUI.step);
     },
     step: function () {
       FUI.scheduled = false;
@@ -171,6 +173,8 @@ addToLibrary({
         if (el) FUI.host(H.submit, el);
       });
       window.addEventListener('resize', FUI.resize);
+      // The system's light or dark preference: a following theme switches at once.
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () { FUI.push([6]); });
     },
     tags: { 2: 'button', 3: 'input', 4: 'label', 5: 'button', 6: 'canvas', 8: 'input', 9: 'a',
       10: 'textarea', 11: 'select' },
