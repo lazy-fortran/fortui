@@ -602,10 +602,10 @@ contains
                 do r = 1, min(nr, 200)
                     w(j) = max(w(j), text_width(trim(cells(j, r)), size_l) + 2.0 * ui_control_padding())
                 end do
-                w(j) = min(w(j), 320.0)
+                w(j) = min(w(j), 240.0)
             end do
         end if
-        call column_begin(4.0, id=id)
+        call column_begin(4.0, id=id, look="fui-grid")
         call row_begin(8.0, height=ui_control_height())
         call icon('search', tone=UI_TONE_MUTED)
         if (text_input("filter", state%filter, placeholder="Filter", &
