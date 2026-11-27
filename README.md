@@ -308,3 +308,30 @@ Native Windows and macOS windows use CPU bitmap presentation through Win32 and
 AppKit. Linux retains X11/Vulkan. Build native platforms with fpm 0.13 or later,
 whose default platform features select the required preprocessing macros. The
 custom-drawn controls do not yet provide native IME or accessibility bridges.
+
+## Network
+
+HTTP requests and server-sent event streams are owned requests that the
+application keeps and looks at in its frames, the same on every host:
+
+```fortran
+type(net_request_t) :: req
+type(net_stream_t) :: events
+call net_fetch(req, "/api/op", body=line)          ! POST because of the body
+if (net_poll(req)) then                            ! true in the frame it finished
+    if (req%status == NET_DONE) call apply(req%code, req%body)
+end if
+if (events%status == NET_IDLE) call net_stream_open(events, "/api/events")
+do while (net_stream_next(events, data))           ! reconnects by itself
+    call refresh(data)
+end do
+```
+
+In the browser the requests go through `fetch` and `EventSource` and relative
+URLs resolve against the page. Native hosts speak plain HTTP over sockets that
+never block the frame (`net_set_base("http://host:port")` for relative URLs);
+the desktop wakes when a socket is ready, the terminal looks every 20 ms while
+requests are open. Name lookup still waits, and HTTPS is refused natively
+until there is TLS. `ui_locale()` gives the user's language as a BCP 47 tag
+and `ui_url_param(name)` a parameter of the page address, so applications need
+no JavaScript of their own.

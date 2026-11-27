@@ -21,6 +21,8 @@ module fortui_web
     use fortui_text, only: text_use_fixed_metrics, ui_str
     use fortui_theme, only: theme, STYLE_PLAIN
     use fortui_core, only: ui_run_step
+    use fortui_net_transport, only: net_transport_t
+    use fortui_web_net, only: web_transport_t
     implicit none
     private
 
@@ -52,6 +54,9 @@ module fortui_web
         procedure :: capabilities => web_caps
         procedure :: hand_over => web_hand_over
         procedure :: offer_file => web_offer_file
+        procedure :: network => web_network
+        procedure :: locale => web_locale
+        procedure :: url_param => web_url_param
     end type web_backend_t
 
     interface
@@ -80,6 +85,20 @@ module fortui_web
             character(kind=c_char), intent(out) :: text(*)
             integer(c_int), value :: text_cap
         end function js_events
+
+        integer(c_int) function js_locale(buf, cap) bind(C, name="fortui_web_locale")
+            import :: c_int, c_char
+            character(kind=c_char), intent(out) :: buf(*)
+            integer(c_int), value :: cap
+        end function js_locale
+
+        integer(c_int) function js_url_param(name, n, buf, cap) bind(C, name="fortui_web_url_param")
+            import :: c_int, c_char
+            character(kind=c_char), intent(in) :: name(*)
+            integer(c_int), value :: n
+            character(kind=c_char), intent(out) :: buf(*)
+            integer(c_int), value :: cap
+        end function js_url_param
 
         real(c_double) function js_now() bind(C, name="fortui_web_now")
             import :: c_double
@@ -120,6 +139,39 @@ contains
         fortui_web_key = int(input_claims(ctx%input, input_host_key(int(key), int(flags), &
             int(code)), real(js_now(), kind(1.0d0))), c_int)
     end function fortui_web_key
+
+    subroutine web_network(self, transport)
+        !! fetch and EventSource.
+        class(web_backend_t), intent(inout) :: self
+        class(net_transport_t), allocatable, intent(out) :: transport
+        allocate (web_transport_t :: transport)
+        if (.not. self%active) deallocate (transport)
+    end subroutine web_network
+
+    function web_locale(self) result(tag)
+        !! navigator.language.
+        class(web_backend_t), intent(in) :: self
+        character(len=:), allocatable :: tag
+        character(len=64) :: buf
+        integer :: n
+        tag = ""
+        if (.not. self%active) return
+        n = int(js_locale(buf, int(len(buf), c_int)))
+        tag = buf(1:n)
+    end function web_locale
+
+    function web_url_param(self, name) result(value)
+        !! A parameter of the page's query string.
+        class(web_backend_t), intent(in) :: self
+        character(*), intent(in) :: name
+        character(len=:), allocatable :: value
+        character(len=1024) :: buf
+        integer :: n
+        value = ""
+        if (.not. self%active) return
+        n = int(js_url_param(name, int(len(name), c_int), buf, int(len(buf), c_int)))
+        value = buf(1:n)
+    end function web_url_param
 
     function web_name(self) result(name)
         class(web_backend_t), intent(in) :: self

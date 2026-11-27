@@ -14,6 +14,12 @@ module web_demo_app
     double precision :: next_tick = 0d0
     character(len=:), allocatable :: name, notes, last_key
     type(canvas_view_t) :: view
+    ! Network service: an event stream followed from the first frame and a
+    ! request started by a button.
+    type(net_stream_t) :: events
+    type(net_request_t) :: fetch
+    integer :: received = 0
+    character(len=:), allocatable :: fetched
     character(len=16), parameter :: tab_labels(3) = [character(len=16) :: "Controls", &
         "Text", "About"]
 
@@ -57,6 +63,7 @@ contains
             if (ui_shortcut("Enter")) call pressed("Enter")
         end if
         call text("Keys " // ui_str(presses) // " " // last_key, id="keys")
+        call network()
         if (tabs("tabs", tab_labels, tab)) continue
         select case (tab)
         case (1)
@@ -111,6 +118,31 @@ contains
             to_end = .false.
         end select
     end subroutine compose
+
+    subroutine network()
+        !! Messages of /api/events, the answer of POST /api/echo, the user's
+        !! language and the page's "site" parameter, all present in every frame.
+        character(len=:), allocatable :: data
+        if (.not. allocated(fetched)) fetched = "-"
+        if (events%status == NET_IDLE) call net_stream_open(events, "/api/events")
+        do while (net_stream_next(events, data))
+            received = received + 1
+        end do
+        if (net_poll(fetch)) then
+            if (fetch%status == NET_DONE) then
+                fetched = ui_str(fetch%code) // " " // fetch%body
+            else
+                fetched = "failed"
+            end if
+        end if
+        call row_begin(8.0, anchor="network")
+        if (button("fetch", "Fetch")) call net_fetch(fetch, "/api/echo", body="ping")
+        call text("Fetched " // fetched, id="fetched")
+        call text("Events " // ui_str(received), id="events")
+        call text("Locale " // ui_locale(), id="locale")
+        call text("Site " // ui_url_param("site"), id="site")
+        call row_end()
+    end subroutine network
 
     subroutine swatch()
         !! A canvas with a fill, a two-pixel image stretched over a rectangle and

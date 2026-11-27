@@ -28,7 +28,22 @@ const server = createServer(async (req, res) => {
       res.end(page);
       return;
     }
-    const body = await readFile(join(dir, req.url === '/' ? 'index.html' : req.url));
+    // The network service of the demo: an echo and an event stream.
+    if (req.url === '/api/echo' && req.method === 'POST') {
+      let body = '';
+      for await (const chunk of req) body += chunk;
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('pong:' + body);
+      return;
+    }
+    if (req.url === '/api/events') {
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' });
+      res.write(': hello\n\ndata: tick\n\n');
+      setTimeout(() => res.write('data: tock\n\n'), 100);
+      return;
+    }
+    const path = req.url.split('?')[0];
+    const body = await readFile(join(dir, path === '/' ? 'index.html' : path));
     res.writeHead(200, { 'content-type': types[extname(req.url)] || 'text/html' });
     res.end(body);
   } catch { res.writeHead(404); res.end(); }
@@ -108,8 +123,18 @@ function check(ok, what) {
 try {
   await send('Runtime.enable');
   await send('Page.enable');
-  await send('Page.navigate', { url });
+  await send('Page.navigate', { url: url + '?site=cn' });
   await until(`!!document.querySelector('[data-id="count"]')`, 'first frame');
+  // Network service: an event stream, a request, the language and the query.
+  await until(`document.querySelector('[data-id="events"]')?.textContent === 'Events 2'`, 'event stream messages');
+  check(true, 'event stream messages arrive in frames');
+  await click('[data-id="fetch"]');
+  await until(`document.querySelector('[data-id="fetched"]')?.textContent === 'Fetched 200 pong:ping'`, 'fetch answer');
+  check(true, 'a POST request returns its status and body');
+  check((await text('[data-id="site"]')) === 'Site cn', 'a parameter of the page address');
+  check(await evaluate(`document.querySelector('[data-id="locale"]').textContent === 'Locale ' + navigator.language`),
+    'the user language is the browser\'s');
+
   check(await evaluate(`[...document.querySelectorAll('.fui-k1')].some((e) => e.textContent === 'FortUI in the browser')`),
     'static texts without id are realized separately');
   check((await text('[data-id="count"]')) === 'Clicked 0', 'buttons are DOM buttons with their labels');

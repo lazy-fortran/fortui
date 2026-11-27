@@ -29,6 +29,9 @@ module fortui_tui
     use fortui_text, only: utf8_decode, utf8_encode, utf8_length, text_use_cell_metrics
     use fortui_error, only: report_error
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t
+    use fortui_net_transport, only: net_transport_t
+    use fortui_net_posix, only: posix_transport
+    use iso_c_binding, only: c_null_funptr
     use fortui_canvas, only: canvas_store_t, canvas_layer_t
     use fortui_raster, only: raster_t, raster_map_t, raster_resize, raster_canvas, &
         raster_braille, rgb_of_rgba, rgb_to_xterm256
@@ -195,6 +198,7 @@ module fortui_tui
         procedure :: capabilities => tui_caps
         procedure :: clipboard_set => tui_clipboard_set
         procedure :: set_title => tui_set_title
+        procedure :: network => tui_network
     end type tui_backend_t
 
     public :: tui_is_available, tui_map_key, tui_ctrl_letter, tui_parse_replies, tui_cell_to_logical
@@ -1547,5 +1551,12 @@ contains
         tui_is_available = status == 0 .and. len_trim(value) > 0
 #endif
     end function tui_is_available
+
+    subroutine tui_network(self, transport)
+        !! Plain HTTP over sockets that never block the frame.
+        class(tui_backend_t), intent(inout) :: self
+        class(net_transport_t), allocatable, intent(out) :: transport
+        allocate (transport, source=posix_transport(c_null_funptr))
+    end subroutine tui_network
 
 end module fortui_tui

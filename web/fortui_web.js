@@ -457,6 +457,64 @@ addToLibrary({
   },
 
   fortui_web_now: function () { return performance.now() / 1000; },
+  // Network service (fortui_web_net.f90): fetch and EventSource; each outcome
+  // is copied into the Fortran queue and wakes a frame.
+  $FUINET__deps: ['$FUI'],
+  $FUINET: {
+    open: new Map(),
+    deliver: function (id, kind, failed, code, data) {
+      var bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+      var p = Module._fortui_web_net_deliver(id, kind, failed, code, bytes.length);
+      if (p && bytes.length) HEAPU8.set(bytes, p);
+      FUI.wakeUp();
+    },
+  },
+  fortui_web_net_start__deps: ['$FUINET', '$UTF8ToString'],
+  fortui_web_net_start: function (id, m, nm, u, nu, b, nb, c, nc, stream) {
+    var method = UTF8ToString(m, nm), url = UTF8ToString(u, nu);
+    if (stream) {
+      var es = new EventSource(url);
+      FUINET.open.set(id, es);
+      es.onopen = function () { FUINET.deliver(id, 3, 0, 0, ''); };
+      es.onmessage = function (e) { FUINET.deliver(id, 2, 0, 0, e.data); };
+      es.onerror = function () { FUINET.deliver(id, 4, es.readyState === 2 ? 1 : 0, 0, ''); };
+      return;
+    }
+    var ctl = new AbortController(), init = { method: method, signal: ctl.signal };
+    FUINET.open.set(id, ctl);
+    if (method !== 'GET' && method !== 'HEAD') {
+      init.body = HEAPU8.slice(b, b + nb);
+      init.headers = { 'Content-Type': UTF8ToString(c, nc) };
+    }
+    fetch(url, init)
+      .then(function (r) {
+        return r.arrayBuffer().then(function (a) {
+          if (FUINET.open.delete(id)) FUINET.deliver(id, 1, 0, r.status, new Uint8Array(a));
+        });
+      })
+      .catch(function (e) {
+        if (FUINET.open.delete(id)) FUINET.deliver(id, 1, 1, 0, String(e));
+      });
+  },
+  fortui_web_net_cancel__deps: ['$FUINET'],
+  fortui_web_net_cancel: function (id) {
+    var h = FUINET.open.get(id);
+    if (!h) return;
+    FUINET.open.delete(id);
+    if (h.close) h.close(); else h.abort();
+  },
+  fortui_web_locale__deps: ['$stringToUTF8', '$lengthBytesUTF8'],
+  fortui_web_locale: function (buf, cap) {
+    var tag = navigator.language || '';
+    stringToUTF8(tag, buf, cap);
+    return Math.min(lengthBytesUTF8(tag), cap - 1);
+  },
+  fortui_web_url_param__deps: ['$UTF8ToString', '$stringToUTF8', '$lengthBytesUTF8'],
+  fortui_web_url_param: function (name, n, buf, cap) {
+    var v = new URLSearchParams(location.search).get(UTF8ToString(name, n)) || '';
+    stringToUTF8(v, buf, cap);
+    return Math.min(lengthBytesUTF8(v), cap - 1);
+  },
   fortui_web_offer_file__deps: ['$FUI'],
   fortui_web_offer_file: function (ptr) {
     var path = UTF8ToString(ptr), data = FS.readFile(path);
