@@ -134,6 +134,17 @@ try {
   check((await text('[data-id="site"]')) === 'Site cn', 'a parameter of the page address');
   check(await evaluate(`document.querySelector('[data-id="locale"]').textContent === 'Locale ' + navigator.language`),
     'the user language is the browser\'s');
+  // Type-ahead: characters typed right after a shortcut that moves the focus
+  // into a field land in the field, before its frame has run.
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'k', code: 'KeyK', windowsVirtualKeyCode: 75, modifiers: 2 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'k', code: 'KeyK', windowsVirtualKeyCode: 75, modifiers: 2 });
+  await type('zq');
+  await until(`document.activeElement.dataset.id === 'name' && document.activeElement.value === 'zq'`, 'type-ahead');
+  check(true, 'keys typed before the focus lands reach the field');
+  check(await evaluate(`getComputedStyle(document.querySelector('[data-id="network"]') ?? document.getElementById('network')).alignItems === 'flex-start'`),
+    'rows align their items to the top');
+  await send('Page.navigate', { url: url + '?site=cn' });
+  await until(`!!document.querySelector('[data-id="count"]')`, 'first frame again');
 
   check(await evaluate(`[...document.querySelectorAll('.fui-k1')].some((e) => e.textContent === 'FortUI in the browser')`),
     'static texts without id are realized separately');

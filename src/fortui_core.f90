@@ -37,7 +37,10 @@ module fortui_core
     public :: ui_key_pressed, ui_text_width, ui_backend_capabilities, ui_backend_caps_t
     public :: ui_shortcut, ui_set_theme, ui_theme_name
     public :: ui_backend_description, ui_run, ui_run_step, ui_frame_proc
-    public :: ui_locale, ui_url_param
+    public :: ui_locale, ui_url_param, ui_width_class
+    !> Window width classes (as in Material 3): phones, tablets and folded
+    !! windows, laptops, wide desktops.
+    integer, parameter, public :: UI_COMPACT = 1, UI_MEDIUM = 2, UI_EXPANDED = 3, UI_LARGE = 4
 
     abstract interface
         subroutine ui_frame_proc()
@@ -380,24 +383,52 @@ contains
         integer :: i, k
 
         if (len_trim(ctx%focus_request) > 0) then
-            i = ctx%current_frame%find(trim(ctx%focus_request))
+            i = resolve(ctx, ctx%focus_request, ctx%focus_name)
             if (i > 0) then
                 if (ctx%current_frame%nodes(i)%focusable .and. &
                     .not. ctx%current_frame%nodes(i)%disabled) then
-                    ctx%input%focus_id = ctx%focus_request
+                    ctx%input%focus_id = ctx%current_frame%nodes(i)%id
                     do k = 1, ctx%current_frame%count
                         ctx%current_frame%nodes(k)%focused = k == i
                     end do
                 end if
             end if
             ctx%focus_request = ""
+            ctx%focus_name = ""
         end if
         if (len_trim(ctx%reveal_request) > 0) then
-            i = ctx%current_frame%find(trim(ctx%reveal_request))
+            i = resolve(ctx, ctx%reveal_request, ctx%reveal_name)
             if (i > 0) ctx%current_frame%nodes(i)%reveal = .true.
             ctx%reveal_request = ""
+            ctx%reveal_name = ""
         end if
     end subroutine apply_requests
+
+    integer function resolve(ctx, scoped, name) result(found)
+        !! The node with the scoped identity, else the one node whose identity is
+        !! `name` or ends in "/" // name; 0 when there is none or several.
+        type(fortui_context_t), intent(in) :: ctx
+        character(*), intent(in) :: scoped, name
+        integer :: k, n
+        character(len=:), allocatable :: tail, nid
+        found = ctx%current_frame%find(trim(scoped))
+        if (found > 0 .or. len_trim(name) == 0) return
+        tail = "/" // trim(name)
+        n = 0
+        do k = 1, ctx%current_frame%count
+            nid = trim(ctx%current_frame%nodes(k)%id)
+            if (nid == trim(name)) then
+                n = n + 1
+                found = k
+            else if (len(nid) > len(tail)) then
+                if (nid(len(nid) - len(tail) + 1:) == tail) then
+                    n = n + 1
+                    found = k
+                end if
+            end if
+        end do
+        if (n /= 1) found = 0
+    end function resolve
 
     real function ui_text_width(value, size, style) result(width)
         !! Logical width of UTF-8 `value` at logical `size` with the active backend's
@@ -672,6 +703,23 @@ contains
         if (.not. associated(ctx)) return
         if (allocated(ctx%backend)) caps = ctx%backend%capabilities()
     end function ui_backend_capabilities
+
+    integer function ui_width_class() result(class)
+        !! UI_COMPACT below 600 logical units of window width, UI_MEDIUM below
+        !! 840, UI_EXPANDED below 1200, else UI_LARGE: the breakpoints for
+        !! layouts that adapt from phone to desktop.
+        real :: w, h
+        call ui_window_size(w, h)
+        if (w < 600.0) then
+            class = UI_COMPACT
+        else if (w < 840.0) then
+            class = UI_MEDIUM
+        else if (w < 1200.0) then
+            class = UI_EXPANDED
+        else
+            class = UI_LARGE
+        end if
+    end function ui_width_class
 
     function ui_locale() result(tag)
         !! The user's language as a BCP 47 tag ("zh-CN", "en-US"), "" when unknown.

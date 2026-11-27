@@ -32,6 +32,11 @@ module fortui_layout
         real :: max_cross = 0.0
         ! Rows with a fixed cross size centre shorter items in it (0: top-aligned).
         real :: cross_size = 0.0
+        ! Wrapping rows: items that do not fit start a new line; the current
+        ! line's top and height, and the widest line so far.
+        logical :: wrap = .false.
+        real :: line_h = 0.0
+        real :: widest = 0.0
         integer :: item_count = 0
         ! Region available to this container (bounds for fill-remaining sizing).
         real :: region_x = 0.0
@@ -57,6 +62,8 @@ module fortui_layout
         real :: gap = 0.0
         !! Fixed cross size of a row that centres its items (0: none).
         real :: cross = 0.0
+        !! A row whose items continue on further lines when they do not fit.
+        logical :: wrap = .false.
         !! Fixed width of a pane (negative: none).
         real :: width = -1.0
         !! The id the container was opened with (for page styles), or empty.
@@ -339,17 +346,24 @@ contains
         call mark_box(look, anchor)
     end subroutine column_begin
 
-    subroutine row_begin(gap, id, height, look, anchor)
-        !! Horizontal container; `id` (optional) scopes the identities inside. With
-        !! `height`, the row is at least that tall and centres shorter items in it.
+    subroutine row_begin(gap, id, height, look, anchor, wrap)
+        !! Horizontal container; `id` (optional) scopes the identities inside.
+        !! Items align to the top; with `height`, the row is at least that tall
+        !! and centres shorter items in it. With `wrap`, items that do not fit
+        !! the available width continue on a further line (toolbars, chips).
         !! `look` names the container for the page's styles and `anchor` is its
         !! address in the page (see `text`).
         real, intent(in), optional :: gap, height
         character(*), intent(in), optional :: id, look, anchor
+        logical, intent(in), optional :: wrap
         call push_layout(KIND_ROW, DIR_ROW, gap, id)
         call mark_box(look, anchor)
         if (present(height)) layout_stack(stack_depth)%cross_size = max(0.0, height)
         if (present(height)) boxes(layout_stack(stack_depth)%box)%cross = max(0.0, height)
+        if (present(wrap)) then
+            layout_stack(stack_depth)%wrap = wrap
+            boxes(layout_stack(stack_depth)%box)%wrap = wrap
+        end if
     end subroutine row_begin
 
     subroutine mark_box(look, anchor)
@@ -476,7 +490,8 @@ contains
             width = layout_stack(stack_depth)%max_cross
             height = layout_stack(stack_depth)%cursor_y - layout_stack(stack_depth)%origin_y
         else
-            width = layout_stack(stack_depth)%cursor_x - layout_stack(stack_depth)%origin_x
+            width = max(layout_stack(stack_depth)%widest, &
+                layout_stack(stack_depth)%cursor_x - layout_stack(stack_depth)%origin_x)
             height = layout_stack(stack_depth)%max_cross
         end if
 
@@ -500,14 +515,27 @@ contains
         end if
     end subroutine layout_get_cursor
 
-    subroutine layout_place(height, x, y)
+    subroutine layout_place(height, x, y, width)
         !! Position of the next item of this height: the cursor, centred across a
-        !! row of fixed height.
+        !! row of fixed height. In a wrapping row an item of `width` that does not
+        !! fit starts the next line.
         real, intent(in) :: height
         real, intent(out) :: x, y
+        real, intent(in), optional :: width
 
         call layout_get_cursor(x, y)
         associate(e => layout_stack(stack_depth))
+            if (e%direction == DIR_ROW .and. e%wrap .and. e%item_count > 0 .and. present(width)) then
+                if (x + width > e%region_x + e%region_w + 0.5) then
+                    e%widest = max(e%widest, e%cursor_x - e%origin_x)
+                    e%cursor_x = e%origin_x
+                    e%cursor_y = e%cursor_y + e%line_h + e%gap
+                    e%line_h = 0.0
+                    e%item_count = 0
+                    x = e%cursor_x
+                    y = e%cursor_y
+                end if
+            end if
             if (e%direction == DIR_ROW .and. e%cross_size > height) &
                 y = y + 0.5 * (e%cross_size - height)
         end associate
@@ -528,7 +556,8 @@ contains
                 e%max_cross = max(e%max_cross, max(0.0, width))
             else
                 e%cursor_x = e%cursor_x + gap_offset + max(0.0, width)
-                e%max_cross = max(e%max_cross, max(0.0, height), e%cross_size)
+                e%line_h = max(e%line_h, max(0.0, height))
+                e%max_cross = max(e%max_cross, e%cursor_y - e%origin_y + e%line_h, e%cross_size)
             end if
         end associate
     end subroutine layout_advance

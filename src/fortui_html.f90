@@ -112,6 +112,8 @@ contains
             associate (x => frame%boxes(b))
                 cls = 'fui-box fui-col'
                 if (x%kind == KIND_ROW .or. x%kind == KIND_SPLIT) cls = 'fui-box fui-row'
+                if (x%cross > 0.0) cls = cls//' fui-centred'
+                if (x%wrap) cls = cls//' fui-wrap'
                 style = 'gap: '//ui_str(nint(x%gap))//'px;'
                 if (x%cross > 0.0) style = style//' min-height: '//ui_str(nint(x%cross))//'px;'
                 if (x%kind == KIND_PANE .and. x%width >= 0.0) style = style//' width: '// &

@@ -4,7 +4,12 @@
    application asks for (below). */
 .fui-box { display: flex; box-sizing: border-box; min-width: 0; }
 .fui-col { flex-direction: column; align-items: flex-start; }
-.fui-row { flex-direction: row; align-items: center; }
+.fui-row { flex-direction: row; align-items: flex-start; }
+.fui-row.fui-centred { align-items: center; }
+.fui-wrap { flex-wrap: wrap; }
+/* A tab bar whose labels do not fit scrolls sideways instead of cutting them. */
+.fui-box[data-look="fui-tabs"] { overflow-x: auto; max-width: 100%; scrollbar-width: thin; }
+.fui-box[data-look="fui-tabs"] > * { flex-shrink: 0; }
 /* Containers span the width available to them, as in fortui's own layout. */
 .fui-col > .fui-box { align-self: stretch; }
 .fui-root { width: 100%; }

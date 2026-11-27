@@ -57,6 +57,9 @@ module fortui_widgets
     public :: canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_lines
     public :: canvas_label, canvas_image, canvas_cells, canvas_keys, ui_cell_metrics, ui_set_cell_font, scroll_text, text_input, ui_focus, ui_reveal
 
+    ! Space on each side of a tab's label.
+    real, parameter :: TAB_PADDING = 14.0
+
 contains
 
     integer function style_weight_label() result(weight)
@@ -592,9 +595,11 @@ contains
     end function slider_core
 
     logical function tabs(id, labels, selected, width, size) result(changed)
-        !! Tab bar over `width`, or the remaining row/column width: one equal-width
-        !! tab per label; `selected` (1-based) changes by click, Enter/Space or the arrow
-        !! keys on a focused tab. Returns whether `selected` changed.
+        !! Tab bar over `width`, or the remaining row/column width: equal-width
+        !! tabs, each at least as wide as its label. When the labels do not fit,
+        !! every tab takes its label's width and hosts that can scroll the bar
+        !! (the browser) do. `selected` (1-based) changes by click, Enter/Space
+        !! or the arrow keys on a focused tab. Returns whether `selected` changed.
         character(*), intent(in) :: id
         character(*), intent(in) :: labels(:)
         integer, intent(inout) :: selected
@@ -602,7 +607,9 @@ contains
 
         type(fortui_context_t), pointer :: ctx
         type(ui_node_t) :: node
-        real :: total, w
+        real :: total, w, tsize
+        real, allocatable :: natural(:)
+        logical :: overflow
         integer :: k, n, old, j
 
         changed = .false.
@@ -614,23 +621,30 @@ contains
         selected = max(1, min(n, selected))
         total = layout_fill_width()
         if (present(width)) total = max(0.0, width)
-        w = total / real(n)
+        tsize = label_size()
+        if (present(size)) tsize = max(1.0, size)
+        allocate (natural(n))
+        do k = 1, n
+            natural(k) = text_width(trim(labels(k)), tsize) + 2.0 * TAB_PADDING
+        end do
+        overflow = sum(max(natural, total / real(n))) > total + 0.5
 
         ! A row of its own, so hosts that lay out themselves keep the tabs together.
-        call row_begin(0.0)
+        call row_begin(0.0, look="fui-tabs")
         do k = 1, n
             node = ui_node_t()
             node%kind = UI_TAB
             node%id = scoped_id(id, k)
             if (.not. claim(ctx, trim(node%id), "tabs")) cycle
             node%text = trim(labels(k))
-            node%text_size = label_size()
-            if (present(size)) node%text_size = max(1.0, size)
+            node%text_size = tsize
+            w = max(natural(k), total / real(n))
+            if (overflow) w = natural(k)
             call layout_place(ui_tab_height(), node%x, node%y)
             node%width = w
             ! Without a width the tabs share their container (the host may resize it).
             node%width_mode = WIDTH_FILL
-            if (present(width)) node%width_mode = WIDTH_FIXED
+            if (present(width) .or. overflow) node%width_mode = WIDTH_FIXED
             node%height = ui_tab_height()
             node%focusable = .true.
             node%hovered = input_hovered(ctx%input, node%x, node%y, node%width, node%height)
@@ -1362,9 +1376,10 @@ contains
     ! --- focus ----------------------------------------------------------------------------
 
     subroutine ui_focus(id, key)
-        !! Moves the keyboard focus to the control `id` of this frame, named as
-        !! the control was: by its id, with `key` in a loop, from the container
-        !! it is composed in (before or after it). Ignored when no enabled
+        !! Moves the keyboard focus to the control `id` of this frame, with `key`
+        !! in a loop. Called from the container the control is composed in, `id`
+        !! is its own id; from anywhere else it is its id, or the end of its
+        !! scoped id ("panel/name"), as long as one control of the frame has it. Ignored when no enabled
         !! control of this frame has that identity. The browser focuses the
         !! element without scrolling; a page rendered by fortui_html marks it
         !! `autofocus`.
@@ -1375,6 +1390,7 @@ contains
         ctx => get_default_context()
         if (.not. composing(ctx)) return
         ctx%focus_request = scoped_id(id, key)
+        ctx%focus_name = plain_id(id, key)
     end subroutine ui_focus
 
     subroutine ui_reveal(id, key)
@@ -1390,7 +1406,17 @@ contains
         ctx => get_default_context()
         if (.not. composing(ctx)) return
         ctx%reveal_request = scoped_id(id, key)
+        ctx%reveal_name = plain_id(id, key)
     end subroutine ui_reveal
+
+    function plain_id(id, key) result(full)
+        !! `id` with `key` as a loop key, without the container scope.
+        character(*), intent(in) :: id
+        integer, intent(in), optional :: key
+        character(len=:), allocatable :: full
+        full = trim(id)
+        if (present(key)) full = full // "#" // ui_str(key)
+    end function plain_id
 
     ! --- helpers --------------------------------------------------------------------------
 
@@ -1406,7 +1432,7 @@ contains
         type(fortui_context_t), intent(in) :: ctx
         type(ui_node_t), intent(inout) :: node
 
-        call layout_place(node%height, node%x, node%y)
+        call layout_place(node%height, node%x, node%y, node%width)
         node%hovered = input_hovered(ctx%input, node%x, node%y, node%width, node%height)
         if (len_trim(node%id) == 0 .or. node%disabled) return
         node%focused = input_focused(ctx%input, trim(node%id))
@@ -1417,7 +1443,7 @@ contains
         type(fortui_context_t), intent(inout) :: ctx
         type(ui_node_t), intent(inout) :: node
 
-        call layout_place(node%height, node%x, node%y)
+        call layout_place(node%height, node%x, node%y, node%width)
         if (node%focusable) call decorate_from_input(ctx, node)
         call emit_at_current_position(ctx, node)
     end subroutine place_and_emit
