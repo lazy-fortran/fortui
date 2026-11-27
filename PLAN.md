@@ -12,7 +12,7 @@ headless tests, termbox2 TUI, and optional raylib GUI. The documentation redesig
 adds contracts and a delivery sequence; it does not implement native/DOM/mobile,
 commands, transaction scheduling, text services, or incremental invalidation.
 
-Next implementation task: B4 below. M1 stays open and is taken up by B7.
+Next implementation task: B4 below (B5 done first). M1 stays open and is taken up by B7.
 
 ## B: best-of-breed through a demanding application (Chris, 2026-11-27)
 
@@ -55,8 +55,16 @@ ours and move with the change.
 - [ ] B4 Widgets: data grid with sorting and filtering, menu and drop-down,
       segmented control, chips and badges, toasts, dialogs, icons, scroll
       containers and virtual lists that can stick to their end (chat).
-- [ ] B5 Themes in the library: light and dark following the system on every
-      host; applications ship no styling of their own.
+- [x] B5 Themes in the library: light and dark following the system on every
+      host; applications ship no styling of their own. The browser switches
+      at once on the system's change event and keeps composing in hidden
+      pages; Fluent in the browser has the semantic tones (positive, negative,
+      muted, accent, diff and code colours, attention) for light and dark and
+      colours the whole page. Evidence: Chromium run of the demo switching
+      from light to dark without delay. Open: `web_browser_test.mjs` still
+      fails its automatic dark theme step after the file picker steps, while
+      the same sequence passes when driven through Playwright; the click
+      there does not activate the button.
 - [ ] B6 GPU canvas in the browser and filled 3D surfaces with depth on desktop
       and browser.
 - [ ] B7 Commands with undo and redo (M1), presence of other users, deep links

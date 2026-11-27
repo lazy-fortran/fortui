@@ -37,7 +37,7 @@ module fortui_core
     public :: ui_key_pressed, ui_text_width, ui_backend_capabilities, ui_backend_caps_t
     public :: ui_shortcut, ui_set_theme, ui_theme_name
     public :: ui_backend_description, ui_run, ui_run_step, ui_frame_proc
-    public :: ui_locale, ui_url_param, ui_width_class
+    public :: ui_locale, ui_url_param, ui_width_class, ui_appearance_changed
     !> Window width classes (as in Material 3): phones, tablets and folded
     !! windows, laptops, wide desktops.
     integer, parameter, public :: UI_COMPACT = 1, UI_MEDIUM = 2, UI_EXPANDED = 3, UI_LARGE = 4
@@ -710,6 +710,13 @@ contains
         if (.not. associated(ctx)) return
         if (allocated(ctx%backend)) caps = ctx%backend%capabilities()
     end function ui_backend_capabilities
+
+    subroutine ui_appearance_changed()
+        !! The host reports that the desktop's light or dark preference changed:
+        !! a theme that follows it is looked at again in the next frame.
+        appearance_checked = -1d9
+        call ui_request_frame()
+    end subroutine ui_appearance_changed
 
     integer function ui_width_class() result(class)
         !! UI_COMPACT below 600 logical units of window width, UI_MEDIUM below

@@ -161,6 +161,37 @@ canvas[data-id] { touch-action: none; }
 .fui-root[data-theme^="fluent"] .fui[data-style="5"] {
   font-family: "Cascadia Mono", Consolas, ui-monospace, Menlo, monospace;
 }
+/* Semantic tones (UI_TONE_*) in Fluent's status colours, for light and dark. */
+.fui-root[data-theme="fluent"] {
+  --fui-positive: #107c10; --fui-negative: #c50f1f; --fui-attention: #9a6700;
+  --fui-accent: #0f6cbd; --fui-added: #0e700e; --fui-removed: #b10e1c; --fui-hunk: #5c2e91;
+  --fui-keyword: #0f6cbd; --fui-string: #a4262c; --fui-comment: #616161; --fui-number: #8a3707;
+  --fui-type: #0e7a8b; --fui-preproc: #5c2e91;
+}
+.fui-root[data-theme="fluent-dark"] {
+  --fui-positive: #54b054; --fui-negative: #ee6c76; --fui-attention: #f1c40f;
+  --fui-accent: #479ef5; --fui-added: #54b054; --fui-removed: #ee6c76; --fui-hunk: #c5a2f1;
+  --fui-keyword: #479ef5; --fui-string: #f1a4a4; --fui-comment: #adadad; --fui-number: #f4b183;
+  --fui-type: #5fd3e3; --fui-preproc: #c5a2f1;
+}
+.fui-root[data-theme^="fluent"] .fui[data-tone="1"], .fui-root[data-theme^="fluent"] .fui [data-t="1"] { color: var(--fui-positive); }
+.fui-root[data-theme^="fluent"] .fui[data-tone="2"], .fui-root[data-theme^="fluent"] .fui [data-t="2"] { color: var(--fui-negative); }
+.fui-root[data-theme^="fluent"] .fui[data-tone="3"], .fui-root[data-theme^="fluent"] .fui [data-t="3"] { color: var(--fui-fg3); }
+.fui-root[data-theme^="fluent"] .fui[data-tone="4"], .fui-root[data-theme^="fluent"] .fui [data-t="4"] { color: var(--fui-accent); }
+.fui-root[data-theme^="fluent"] .fui [data-t="5"] { color: var(--fui-keyword); }
+.fui-root[data-theme^="fluent"] .fui [data-t="6"] { color: var(--fui-string); }
+.fui-root[data-theme^="fluent"] .fui [data-t="7"] { color: var(--fui-comment); }
+.fui-root[data-theme^="fluent"] .fui [data-t="8"] { color: var(--fui-number); }
+.fui-root[data-theme^="fluent"] .fui [data-t="9"] { color: var(--fui-type); }
+.fui-root[data-theme^="fluent"] .fui [data-t="10"] { color: var(--fui-preproc); }
+.fui-root[data-theme^="fluent"] .fui[data-tone="11"], .fui-root[data-theme^="fluent"] .fui [data-t="11"] { color: var(--fui-added); }
+.fui-root[data-theme^="fluent"] .fui[data-tone="12"], .fui-root[data-theme^="fluent"] .fui [data-t="12"] { color: var(--fui-removed); }
+.fui-root[data-theme^="fluent"] .fui[data-tone="13"], .fui-root[data-theme^="fluent"] .fui [data-t="13"] { color: var(--fui-hunk); }
+.fui-root[data-theme^="fluent"] .fui[data-tone="17"], .fui-root[data-theme^="fluent"] .fui [data-t="17"] { color: var(--fui-attention); }
+/* The whole page takes the theme's background, also around and below the root. */
+html:has(.fui-root[data-theme="fluent"]) { background: #f5f5f5; color-scheme: light; }
+html:has(.fui-root[data-theme="fluent-dark"]) { background: #1f1f1f; color-scheme: dark; }
+.fui-root[data-theme^="fluent"] canvas[data-id] { border-radius: 4px; }
 
 .fui-k11 { min-height: 96px; overflow: auto; background: var(--fui-field, Canvas); color: var(--fui-text, CanvasText); border: 1px solid GrayText; padding: 4px; }
 .fui-k11 option { padding: 4px 8px; }
