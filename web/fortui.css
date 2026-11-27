@@ -7,6 +7,8 @@
 .fui-row { flex-direction: row; align-items: flex-start; }
 .fui-row.fui-centred { align-items: center; }
 .fui-wrap { flex-wrap: wrap; }
+/* Canvases get every finger and pen stroke; the page does not scroll or zoom there. */
+canvas[data-id] { touch-action: none; }
 /* A tab bar whose labels do not fit scrolls sideways instead of cutting them. */
 .fui-box[data-look="fui-tabs"] { overflow-x: auto; max-width: 100%; scrollbar-width: thin; }
 .fui-box[data-look="fui-tabs"] > * { flex-shrink: 0; }

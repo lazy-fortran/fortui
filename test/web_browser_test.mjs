@@ -134,6 +134,21 @@ try {
   check((await text('[data-id="site"]')) === 'Site cn', 'a parameter of the page address');
   check(await evaluate(`document.querySelector('[data-id="locale"]').textContent === 'Locale ' + navigator.language`),
     'the user language is the browser\'s');
+  // Pointer input: a pen with pressure, then two fingers spreading apart.
+  const [sx, sy] = await center('canvas[data-id="swatch"]');
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: sx, y: sy, pointerType: 'pen' });
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: sx, y: sy, button: 'left', clickCount: 1, pointerType: 'pen', force: 0.7, tiltX: 20 });
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: sx + 5, y: sy, button: 'left', buttons: 1, pointerType: 'pen', force: 0.7, tiltX: 20 });
+  await until(`/^Pointer 1 70 /.test(document.querySelector('[data-id="felt"]')?.textContent || '')`, 'pen pressure');
+  check(true, 'a pen reaches the canvas with its kind and pressure');
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: sx + 5, y: sy, button: 'left', clickCount: 1, pointerType: 'pen' });
+  const touch = (type, pts) => send('Input.dispatchTouchEvent', { type, touchPoints: pts });
+  await touch('touchStart', [{ x: sx - 10, y: sy, id: 1 }]);
+  await touch('touchStart', [{ x: sx - 10, y: sy, id: 1 }, { x: sx + 10, y: sy, id: 2 }]);
+  await touch('touchMove', [{ x: sx - 20, y: sy, id: 1 }, { x: sx + 20, y: sy, id: 2 }]);
+  await touch('touchEnd', []);
+  await until(`/ 200$/.test(document.querySelector('[data-id="felt"]')?.textContent || '')`, 'pinch');
+  check(true, 'two fingers spreading apart pinch the canvas');
   // Type-ahead: characters typed right after a shortcut that moves the focus
   // into a field land in the field, before its frame has run.
   await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'k', code: 'KeyK', windowsVirtualKeyCode: 75, modifiers: 2 });

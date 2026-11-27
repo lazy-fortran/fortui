@@ -46,6 +46,24 @@ module fortui_canvas
         real :: height = 0.0
         !! Pointer position uncertainty (logical units, e.g. half a terminal cell).
         real :: pointer_slop = 0.0
+        !! What moves the pointer (POINTER_MOUSE, POINTER_PEN, POINTER_TOUCH),
+        !! its pressure (0 to 1) and a pen's tilt in degrees.
+        integer :: kind = 0
+        real :: pressure = 0.0
+        real :: tilt_x = 0.0
+        real :: tilt_y = 0.0
+        !! Every pointer position since the last frame over or captured by the
+        !! canvas: samples(:, k) = local x, local y, pressure, seconds. Ink
+        !! draws through all of them, not only the last.
+        real, allocatable :: samples(:, :)
+        !! Fingers on the screen, and the two-finger gesture of this frame over
+        !! the canvas: scale factor, movement and centre (local).
+        integer :: touches = 0
+        real :: pinch = 1.0
+        real :: pan_dx = 0.0
+        real :: pan_dy = 0.0
+        real :: gesture_x = 0.0
+        real :: gesture_y = 0.0
     end type canvas_events_t
 
     type, public :: canvas_layer_t

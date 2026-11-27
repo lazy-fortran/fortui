@@ -757,6 +757,30 @@ contains
             ev%middle_pressed = inp%middle_pressed .and. node%hovered
             ev%middle_released = inp%middle_released .and. node%hovered
             ev%focused = node%focused
+            ev%kind = inp%pointer_kind
+            ev%pressure = inp%pressure
+            ev%tilt_x = inp%tilt_x
+            ev%tilt_y = inp%tilt_y
+            ! The primary pointer's positions since the last frame, in canvas
+            ! coordinates, while it is over or captured by this canvas.
+            if ((ev%captured .or. ev%pressed .or. ev%released .or. node%hovered) .and. &
+                inp%sample_count > 0) then
+                allocate (ev%samples(4, inp%sample_count))
+                ev%samples = inp%samples(:, 1:inp%sample_count)
+                ev%samples(1, :) = ev%samples(1, :) - node%x
+                ev%samples(2, :) = ev%samples(2, :) - node%y
+            else
+                allocate (ev%samples(4, 0))
+            end if
+            ev%touches = inp%touch_count
+            if (inp%gesture .and. inp%gesture_x >= node%x .and. inp%gesture_x <= node%x + node%width .and. &
+                inp%gesture_y >= node%y .and. inp%gesture_y <= node%y + node%height) then
+                ev%pinch = inp%pinch
+                ev%pan_dx = inp%pan_dx
+                ev%pan_dy = inp%pan_dy
+                ev%gesture_x = inp%gesture_x - node%x
+                ev%gesture_y = inp%gesture_y - node%y
+            end if
             s%dragging = ev%dragging
             s%captured = ev%captured
         end associate

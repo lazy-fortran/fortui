@@ -141,13 +141,23 @@ addToLibrary({
       });
       // Canvases are drawn by the application: they get pointer coordinates
       // in the runtime's own layout units.
-      ['pointerdown', 'pointermove', 'pointerup'].forEach(function (type) {
+      // Mouse, pen and fingers with pressure, tilt and identity; a move brings
+      // all its coalesced samples, so ink sees every position.
+      ['pointerdown', 'pointermove', 'pointerup', 'pointercancel'].forEach(function (type) {
         root.addEventListener(type, function (e) {
           var c = e.target.closest('canvas[data-id]');
           if (!c) return;
-          var r = c.getBoundingClientRect();
-          FUI.push([1, c._x + e.clientX - r.left, c._y + e.clientY - r.top,
-            (type === 'pointerup' ? 0 : (e.buttons & 1))]);
+          if (type === 'pointerdown' && c.setPointerCapture) c.setPointerCapture(e.pointerId);
+          var r = c.getBoundingClientRect(), up = type === 'pointerup' || type === 'pointercancel';
+          var kind = e.pointerType === 'pen' ? 1 : e.pointerType === 'touch' ? 2 : 0;
+          var list = type === 'pointermove' && e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+          if (!list.length) list = [e];
+          list.forEach(function (p) {
+            var down = up ? 0 : (kind === 2 ? 1 : (p.buttons & 1));
+            var pressure = kind === 0 ? (down ? 0.5 : 0) : (p.pressure || 0);
+            FUI.push([1, c._x + p.clientX - r.left, c._y + p.clientY - r.top, down, kind, pressure,
+              p.tiltX || 0, p.tiltY || 0, e.pointerId]);
+          });
         });
       });
       root.addEventListener('wheel', function (e) {
@@ -462,7 +472,7 @@ addToLibrary({
         used += bytes.length;
       }
       FUI.events.shift();
-      for (var j = 0; j < 4; j++) HEAPF32[base + 4 * n + j] = e[j];
+      for (var j = 0; j < 9; j++) HEAPF32[base + 9 * n + j] = e[j] || 0;
       n++;
     }
     return n;

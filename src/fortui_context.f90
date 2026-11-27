@@ -74,6 +74,10 @@ module fortui_context
         integer :: reported_count = 0
         ! Headless event injection applied by the next ui_frame_begin.
         logical :: inject_pointer = .false.
+        ! Pointer events with kind, pressure, tilt and identity, in order:
+        ! x, y, down, kind, pressure, tilt x, tilt y, id.
+        integer :: inject_events = 0
+        real :: inject_event(8, 64) = 0.0
         real :: inject_x = 0.0
         real :: inject_y = 0.0
         logical :: inject_down = .false.

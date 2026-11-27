@@ -12,7 +12,7 @@ headless tests, termbox2 TUI, and optional raylib GUI. The documentation redesig
 adds contracts and a delivery sequence; it does not implement native/DOM/mobile,
 commands, transaction scheduling, text services, or incremental invalidation.
 
-Next implementation task: B3 below. M1 stays open and is taken up by B7.
+Next implementation task: B4 below. M1 stays open and is taken up by B7.
 
 ## B: best-of-breed through a demanding application (Chris, 2026-11-27)
 
@@ -45,8 +45,13 @@ ours and move with the change.
       whole and scroll in the browser. Evidence: `test_layout_focus`
       (headless), `test_html`, `web_browser_test.mjs` (type-ahead, row
       alignment). Scroll containers moved to B4 together with virtual lists.
-- [ ] B3 Pointer input: pointer kind (mouse, pen, touch), pressure, tilt,
-      several touches with pinch and two-finger pan on canvases.
+- [x] B3 Pointer input: canvas events carry the pointer kind (mouse, pen,
+      touch), pressure, tilt and every coalesced sample since the last frame
+      (for ink); two fingers form a gesture with pinch factor and pan that
+      never presses or clicks. Evidence: `test_pointer` (headless) and
+      `web_browser_test.mjs` (Chromium: pen pressure, two-finger pinch). Open:
+      pen and touch on the Linux desktop need XInput2 in fortwin; the desktop
+      reports the mouse only.
 - [ ] B4 Widgets: data grid with sorting and filtering, menu and drop-down,
       segmented control, chips and badges, toasts, dialogs, icons, scroll
       containers and virtual lists that can stick to their end (chat).

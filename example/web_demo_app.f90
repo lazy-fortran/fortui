@@ -19,6 +19,10 @@ module web_demo_app
     type(net_stream_t) :: events
     type(net_request_t) :: fetch
     integer :: received = 0
+    ! What the swatch canvas last felt: pointer kind, pressure in percent,
+    ! samples of the last frame, and the product of all pinches in percent.
+    integer :: felt_kind = -1, felt_pressure = 0, felt_samples = 0
+    real :: zoom_total = 1.0
     character(len=:), allocatable :: fetched
     character(len=16), parameter :: tab_labels(3) = [character(len=16) :: "Controls", &
         "Text", "About"]
@@ -149,14 +153,23 @@ contains
         !! a line, in world units twice the logical size.
         integer(int32) :: pixels(2, 1)
         real :: xy(2, 2)
+        type(canvas_events_t) :: ev
         pixels(1, 1) = ui_rgba(255, 0, 0)
         pixels(2, 1) = ui_rgba(0, 0, 255)
         xy = reshape([20.0, 90.0, 220.0, 90.0], [2, 2])
         view%zoom = 0.5
-        call canvas_begin("swatch", view, width=120.0, height=60.0, fill=ui_rgba(30, 30, 30))
+        call canvas_begin("swatch", view, ev, width=120.0, height=60.0, fill=ui_rgba(30, 30, 30))
+        if (ev%captured .or. ev%pressed) then
+            felt_kind = ev%kind
+            felt_pressure = nint(100 * ev%pressure)
+            felt_samples = size(ev%samples, 2)
+        end if
+        zoom_total = zoom_total * ev%pinch
         call canvas_image("pixels", 1, pixels, 20.0, 20.0, 80.0, 40.0)
         call canvas_lines("line", 1, xy, [ui_rgba(0, 255, 0)], reshape([1, 2], [2, 1]), width=4.0)
         call canvas_end(view)
+        call text("Pointer " // ui_str(felt_kind) // " " // ui_str(felt_pressure) // " " // &
+            ui_str(felt_samples) // " " // ui_str(nint(100 * zoom_total)), id="felt")
     end subroutine swatch
 
     subroutine pressed(chord)

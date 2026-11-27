@@ -35,6 +35,7 @@ module fortui
         UI_TONE_STRONG, UI_TONE_EMPHASIS, UI_TONE_ATTENTION, UI_EMPHASIS_NORMAL, &
         UI_EMPHASIS_PRIMARY, UI_EMPHASIS_QUIET
     use fortui_text, only: ui_str
+    use fortui_input, only: POINTER_MOUSE, POINTER_PEN, POINTER_TOUCH
     use fortui_input, only: KEY_ENTER, KEY_ESCAPE, KEY_TAB, KEY_BACKSPACE, KEY_DELETE, &
         KEY_HOME, KEY_END, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_ARROW_UP, KEY_ARROW_DOWN, &
         KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_SPACE, KEY_INSERT, KEY_F1, KEY_F12, key_press_t, &
@@ -48,6 +49,7 @@ module fortui
     public :: FILE_IDLE, FILE_PENDING, FILE_ACCEPTED, FILE_CANCELLED
     public :: ui_init, ui_shutdown, ui_frame_begin, ui_present, ui_should_close
     public :: ui_locale, ui_url_param, ui_width_class, UI_COMPACT, UI_MEDIUM, UI_EXPANDED, UI_LARGE
+    public :: POINTER_MOUSE, POINTER_PEN, POINTER_TOUCH
     public :: net_request_t, net_stream_t, net_fetch, net_poll, net_cancel, net_stream_open, &
         net_stream_next, net_stream_close, net_set_base, NET_IDLE, NET_PENDING, NET_DONE, &
         NET_FAILED, NET_UNSUPPORTED, NET_CANCELLED, NET_OPEN
