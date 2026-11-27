@@ -4,7 +4,7 @@ module fortui_core
     use iso_fortran_env, only: int32, int64
     use fortui_context, only: fortui_context_t, create_context, destroy_context, &
         get_default_context, set_default_context
-    use fortui_input, only: input_begin_frame, input_route, input_update_pointer, &
+    use fortui_input, only: input_begin_frame, input_route, input_update_pointer, input_pointer_event, &
         input_scroll, input_set_key, input_type_text, input_set_time, input_key_arrived, &
         KEY_ESCAPE, input_apply_host, input_host_event, input_key_press, &
         input_sort_presses, input_shortcut, input_commit_chords, input_presses_wait, FOCUS_PLAIN, &
@@ -476,6 +476,13 @@ contains
         end if
         if (ctx%inject_pointer) call input_update_pointer(ctx%input, ctx%inject_x, &
             ctx%inject_y, ctx%inject_down)
+        do k = 1, ctx%inject_events
+            associate (e => ctx%inject_event(:, k))
+                call input_pointer_event(ctx%input, e(1), e(2), e(3) > 0.5, nint(e(4)), e(5), &
+                    e(6), e(7), nint(e(8)))
+            end associate
+        end do
+        ctx%inject_events = 0
         if (abs(ctx%inject_wheel) > 0.0) call input_scroll(ctx%input, &
             nint(sign(1.0, ctx%inject_wheel)), ctx%inject_wheel)
         do k = 1, ctx%inject_key_count

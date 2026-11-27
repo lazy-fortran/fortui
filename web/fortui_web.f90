@@ -13,7 +13,7 @@ module fortui_web
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t
     use fortui_frame, only: ui_frame_t, ui_node_t, ui_layer_ref_t, UI_CANVAS, LAYER_IMAGE, &
         LAYER_LINES, LAYER_POINTS
-    use fortui_input, only: input_state_t, input_update_pointer, input_scroll, &
+    use fortui_input, only: input_state_t, input_update_pointer, input_pointer_event, input_scroll, &
         input_set_time, input_host_event, input_widget_key, input_host_key, &
         input_claims, KEY_ESCAPE
     use fortui_context, only: fortui_context_t, get_default_context
@@ -80,7 +80,7 @@ module fortui_web
         integer(c_int) function js_events(ev, cap, text, text_cap) &
                 bind(C, name="fortui_web_events")
             import :: c_int, c_float, c_char
-            real(c_float), intent(out) :: ev(4, *)
+            real(c_float), intent(out) :: ev(9, *)
             integer(c_int), value :: cap
             character(kind=c_char), intent(out) :: text(*)
             integer(c_int), value :: text_cap
@@ -224,7 +224,7 @@ contains
         class(web_backend_t), intent(inout) :: self
         type(input_state_t), intent(inout) :: input
         logical, intent(in) :: wait
-        real(c_float) :: ev(4, MAX_EVENTS)
+        real(c_float) :: ev(9, MAX_EVENTS)
         character(kind=c_char), allocatable :: text(:)
         integer :: n, i, first, nbytes, sep
 
@@ -235,8 +235,8 @@ contains
         do i = 1, n
             select case (nint(ev(1, i)))
             case (EV_POINTER)
-                call input_update_pointer(input, real(ev(2, i)), real(ev(3, i)), &
-                    ev(4, i) > 0.5)
+                call input_pointer_event(input, real(ev(2, i)), real(ev(3, i)), ev(4, i) > 0.5, &
+                    nint(ev(5, i)), real(ev(6, i)), real(ev(7, i)), real(ev(8, i)), nint(ev(9, i)))
             case (EV_KEY)
                 ! The press is with the shortcuts since fortui_web_key. Escape
                 ! also goes to the widgets; the browser's own controls handle

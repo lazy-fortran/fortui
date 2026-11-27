@@ -26,13 +26,36 @@ module fortui_testing
         integer :: index_uploads = 0
     end type ui_stats_t
 
-    public :: ui_inject_pointer, ui_inject_wheel, ui_inject_key, ui_inject_text
+    public :: ui_inject_pointer, ui_inject_wheel, ui_inject_key, ui_inject_text, ui_inject_pointer_event
     public :: ui_inject_time, ui_inject_resize
     public :: ui_stats, ui_layer_uploads, ui_node_rect, ui_node_text, ui_node_count
     public :: ui_focused_id, ui_node_scroll, ui_inject_host, ui_frame_boxes
     public :: ui_inject_press, ui_host_key_claim, ui_node_revealed
 
 contains
+
+    subroutine ui_inject_pointer_event(x, y, down, kind, pressure, tilt_x, tilt_y, id)
+        !! A pointer event of a given kind (POINTER_*) for the next frame; events
+        !! queue in order, like a host's coalesced samples and several fingers.
+        real, intent(in) :: x, y
+        logical, intent(in) :: down
+        integer, intent(in) :: kind
+        real, intent(in), optional :: pressure, tilt_x, tilt_y
+        integer, intent(in), optional :: id
+        type(fortui_context_t), pointer :: ctx
+        real :: e(8)
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (ctx%inject_events >= size(ctx%inject_event, 2)) return
+        e = [x, y, 0.0, real(kind), 0.0, 0.0, 0.0, 0.0]
+        if (down) e(3) = 1.0
+        if (present(pressure)) e(5) = pressure
+        if (present(tilt_x)) e(6) = tilt_x
+        if (present(tilt_y)) e(7) = tilt_y
+        if (present(id)) e(8) = real(id)
+        ctx%inject_events = ctx%inject_events + 1
+        ctx%inject_event(:, ctx%inject_events) = e
+    end subroutine ui_inject_pointer_event
 
     subroutine ui_inject_pointer(x, y, down)
         !! Pointer state (logical units) seen by the next ui_frame_begin.

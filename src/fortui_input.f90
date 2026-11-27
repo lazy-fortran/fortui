@@ -26,6 +26,9 @@ module fortui_input
     integer, parameter, public :: KEY_F1 = 16, KEY_F12 = 27
     integer, parameter, public :: KEY_LAST = KEY_F12
     integer, parameter, public :: MAX_FRAME_KEYS = 32
+    !> Kinds of pointer: what moves the primary pointer.
+    integer, parameter, public :: POINTER_MOUSE = 0, POINTER_PEN = 1, POINTER_TOUCH = 2
+    integer, parameter, public :: MAX_SAMPLES = 512, MAX_TOUCHES = 10
     integer, parameter, public :: MAX_FRAME_TEXT = 256
     ! Semantic events from hosts whose controls handle input themselves (the
     ! browser): the element they concern is known, so no pointer routing is needed.
@@ -113,6 +116,24 @@ module fortui_input
         logical :: pointer_down = .false.
         logical :: pointer_pressed = .false.
         logical :: pointer_released = .false.
+        ! What moves the primary pointer, its pressure (0 to 1; 0.5 for a
+        ! pressed mouse button) and a pen's tilt in degrees.
+        integer :: pointer_kind = POINTER_MOUSE
+        real :: pressure = 0.0
+        real :: tilt_x = 0.0, tilt_y = 0.0
+        ! Every position of the primary pointer since the last frame (x, y,
+        ! pressure, seconds), as hosts coalesce them: what ink needs.
+        integer :: sample_count = 0
+        real :: samples(4, MAX_SAMPLES) = 0.0
+        ! Fingers on the screen. The first one is the primary pointer; with a
+        ! second one they form a gesture (pinch and pan) and no longer press.
+        integer :: touch_count = 0
+        integer :: touch_id(MAX_TOUCHES) = 0
+        real :: touch_x(MAX_TOUCHES) = 0.0, touch_y(MAX_TOUCHES) = 0.0
+        logical :: gesture = .false.
+        ! Gesture of this frame: scale factor and movement of the centre.
+        real :: pinch = 1.0, pan_dx = 0.0, pan_dy = 0.0
+        real :: gesture_x = 0.0, gesture_y = 0.0
         integer :: scroll_y = 0
         ! Modifier keys held now (MOD_*), for pointer gestures such as Ctrl+click.
         integer :: mods_down = 0
@@ -159,6 +180,7 @@ module fortui_input
     end type input_state_t
 
     public :: input_begin_frame, input_update_pointer, input_scroll, input_set_key
+    public :: input_pointer_event
     public :: input_route, input_activated, input_focused, input_active
     public :: input_hovered, input_key_arrived
     public :: input_type_text, input_set_time, input_wheel_for, input_has_events
@@ -174,6 +196,10 @@ contains
 
         input%pointer_dx = 0.0
         input%pointer_dy = 0.0
+        input%sample_count = 0
+        input%pinch = 1.0
+        input%pan_dx = 0.0
+        input%pan_dy = 0.0
         input%pointer_pressed = .false.
         input%middle_pressed = .false.
         input%middle_released = .false.
@@ -275,6 +301,95 @@ contains
                 abs(y - input%press_y) > DRAG_THRESHOLD) input%drag_exceeded = .true.
         end if
     end subroutine input_update_pointer
+
+    subroutine input_pointer_event(input, x, y, down, kind, pressure, tilt_x, tilt_y, id)
+        !! A pointer event with its kind, pressure, tilt and identity (fingers
+        !! have one each). Mouse and pen move the primary pointer. The first
+        !! finger does too, until a second one arrives: from then on the
+        !! fingers form a gesture that scales and pans, the primary pointer is
+        !! let go without a click, and nothing presses until all are lifted.
+        type(input_state_t), intent(inout) :: input
+        real, intent(in) :: x, y, pressure, tilt_x, tilt_y
+        logical, intent(in) :: down
+        integer, intent(in) :: kind, id
+        integer :: k
+        real :: cx0, cy0, d0, cx1, cy1, d1
+        logical :: had_two
+
+        if (kind /= POINTER_TOUCH) then
+            input%pointer_kind = kind
+            input%pressure = pressure
+            input%tilt_x = tilt_x
+            input%tilt_y = tilt_y
+            call input_update_pointer(input, x, y, down)
+            call add_sample(input, x, y, pressure)
+            return
+        end if
+        had_two = input%touch_count >= 2
+        if (had_two) call two_touches(input, cx0, cy0, d0)
+        k = findloc(input%touch_id(1:input%touch_count), id, 1)
+        if (down) then
+            if (k == 0 .and. input%touch_count < MAX_TOUCHES) then
+                input%touch_count = input%touch_count + 1
+                k = input%touch_count
+                input%touch_id(k) = id
+            end if
+            if (k > 0) then
+                input%touch_x(k) = x
+                input%touch_y(k) = y
+            end if
+        else if (k > 0) then
+            input%touch_id(k:input%touch_count - 1) = input%touch_id(k + 1:input%touch_count)
+            input%touch_x(k:input%touch_count - 1) = input%touch_x(k + 1:input%touch_count)
+            input%touch_y(k:input%touch_count - 1) = input%touch_y(k + 1:input%touch_count)
+            input%touch_count = input%touch_count - 1
+        end if
+        if (input%touch_count >= 2) then
+            if (.not. input%gesture) then
+                ! The first finger's press becomes part of the gesture.
+                input%gesture = .true.
+                input%pointer_down = .false.
+                input%pointer_pressed = .false.
+                input%pointer_released = .false.
+                input%active_id = ""
+            end if
+            call two_touches(input, cx1, cy1, d1)
+            if (had_two .and. d0 > 0.0) then
+                input%pinch = input%pinch * d1 / d0
+                input%pan_dx = input%pan_dx + cx1 - cx0
+                input%pan_dy = input%pan_dy + cy1 - cy0
+            end if
+            input%gesture_x = cx1
+            input%gesture_y = cy1
+            return
+        end if
+        if (input%gesture) then
+            if (input%touch_count == 0) input%gesture = .false.
+            return
+        end if
+        input%pointer_kind = POINTER_TOUCH
+        input%pressure = pressure
+        input%tilt_x = 0.0
+        input%tilt_y = 0.0
+        call input_update_pointer(input, x, y, down)
+        call add_sample(input, x, y, pressure)
+    end subroutine input_pointer_event
+
+    subroutine two_touches(input, cx, cy, d)
+        type(input_state_t), intent(in) :: input
+        real, intent(out) :: cx, cy, d
+        cx = 0.5 * (input%touch_x(1) + input%touch_x(2))
+        cy = 0.5 * (input%touch_y(1) + input%touch_y(2))
+        d = sqrt((input%touch_x(1) - input%touch_x(2))**2 + (input%touch_y(1) - input%touch_y(2))**2)
+    end subroutine two_touches
+
+    subroutine add_sample(input, x, y, pressure)
+        type(input_state_t), intent(inout) :: input
+        real, intent(in) :: x, y, pressure
+        if (input%sample_count >= MAX_SAMPLES) return
+        input%sample_count = input%sample_count + 1
+        input%samples(:, input%sample_count) = [x, y, pressure, real(input%time)]
+    end subroutine add_sample
 
     subroutine input_scroll(input, amount, wheel)
         !! Record wheel motion: integer notches and, optionally, precise wheel steps.
