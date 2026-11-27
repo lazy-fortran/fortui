@@ -14,12 +14,13 @@ module fortui_paint
     !! line segments, text runs (face, pixel size, colour; `h` is the line box),
     !! clip push/pop, and canvas nodes the backend realizes itself.
     use iso_fortran_env, only: int32
-    use fortui_layout, only: KIND_DIALOG
+    use fortui_layout, only: KIND_DIALOG, KIND_SCROLL, KIND_POPUP, KIND_TOASTS
+    use fortui_icons, only: icon_polylines
     use fortui_theme, only: theme, STYLE_CLASSIC, FACE_REGULAR, FACE_STRONG, FACE_MONO, &
         ROLE_LABEL
     use fortui_frame, only: ui_frame_t, ui_node_t, UI_TEXT, UI_BUTTON, UI_LINK, UI_SLIDER, &
         UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, UI_LIST_BOX, &
-        UI_CAPTION, UI_TONE_NORMAL, UI_TONE_POSITIVE, UI_TONE_NEGATIVE, UI_TONE_MUTED, &
+        UI_CHIP, UI_ICON, UI_SELECT, UI_EMPHASIS_NORMAL, UI_CAPTION, UI_TONE_NORMAL, UI_TONE_POSITIVE, UI_TONE_NEGATIVE, UI_TONE_MUTED, &
         UI_TONE_ACCENT, UI_TONE_KEYWORD, UI_TONE_HUNK, UI_TONE_LINK, UI_TONE_ATTENTION, &
         UI_EMPHASIS_PRIMARY, UI_EMPHASIS_QUIET, style_weight
     use fortui_text, only: text_width, text_fit, text_line_height, TEXT_STYLE_REGULAR, &
@@ -226,7 +227,7 @@ contains
         real, intent(in) :: scale, width, height
         type(paint_list_t), intent(inout) :: list
         integer(int32), intent(in), optional :: window
-        integer :: i
+        integer :: i, layer
         integer(int32) :: back
 
         call list%clear()
@@ -237,22 +238,53 @@ contains
         if (present(window)) back = window
         list%background = back
         call rect(list, 0.0, 0.0, width, height, back)
-        do i = 1, frame%box_count
-            if (frame%boxes(i)%kind /= KIND_DIALOG) cycle
-            associate(b => frame%boxes(i)%bounds)
-                call rect(list, 0.0, 0.0, width, height, with_alpha(theme%dark_shadow, 56))
-                call rect(list, px(b(1)) + 4 * s, px(b(2)) + 6 * s, px(b(3)), px(b(4)), &
-                    with_alpha(theme%dark_shadow, 56), radius=8 * s)
-                if (theme%kind == STYLE_CLASSIC) then
-                    call raised(list, px(b(1)), px(b(2)), px(b(3)), px(b(4)))
-                else
-                    call rect(list, px(b(1)), px(b(2)), px(b(3)), px(b(4)), theme%surface, &
-                        radius=8 * s, border=s, stroke=theme%outline_variant)
-                end if
-            end associate
-        end do
-        do i = 1, frame%count
-            call paint_node(list, frame, frame%nodes(i), i)
+        ! The page, then what floats above it, then a modal dialog: each layer
+        ! with the containers that give it a surface first.
+        do layer = 0, 2
+            do i = 1, frame%box_count
+                associate(b => frame%boxes(i)%bounds, kind => frame%boxes(i)%kind)
+                    if (layer == 1 .and. (kind == KIND_POPUP .or. kind == KIND_TOASTS)) then
+                        call rect(list, px(b(1)) + 2 * s, px(b(2)) + 4 * s, px(b(3)), &
+                            px(b(4)) + 8 * s, with_alpha(0_int32, 40), radius=8 * s)
+                        if (kind == KIND_POPUP) then
+                            call rect(list, px(b(1)), px(b(2)), px(b(3)), px(b(4)) + 8 * s, &
+                                theme%surface, radius=6 * s, border=s, stroke=theme%outline_variant)
+                        else
+                            call rect(list, px(b(1)) - 8 * s, px(b(2)), px(b(3)) + 16 * s, &
+                                px(b(4)) + 8 * s, theme%surface_high, radius=8 * s, border=s, &
+                                stroke=theme%outline_variant)
+                        end if
+                    end if
+                    if (layer == 2 .and. kind == KIND_DIALOG) then
+                        call rect(list, 0.0, 0.0, width, height, with_alpha(theme%dark_shadow, 56))
+                        call rect(list, px(b(1)) + 4 * s, px(b(2)) + 6 * s, px(b(3)), px(b(4)), &
+                            with_alpha(theme%dark_shadow, 56), radius=8 * s)
+                        if (theme%kind == STYLE_CLASSIC) then
+                            call raised(list, px(b(1)), px(b(2)), px(b(3)), px(b(4)))
+                        else
+                            call rect(list, px(b(1)), px(b(2)), px(b(3)), px(b(4)), theme%surface, &
+                                radius=8 * s, border=s, stroke=theme%outline_variant)
+                        end if
+                    end if
+                end associate
+            end do
+            do i = 1, frame%count
+                if (frame%nodes(i)%layer /= layer) cycle
+                associate(c => frame%nodes(i)%clip)
+                    if (c(3) >= 0.0) then
+                        ! Wholly outside what a scroll container shows: nothing to draw.
+                        if (frame%nodes(i)%y >= c(2) + c(4) .or. &
+                            frame%nodes(i)%y + frame%nodes(i)%height <= c(2)) cycle
+                        call clip(list, px(c(1)), px(c(2)), px(c(1) + c(3)) - px(c(1)), &
+                            px(c(2) + c(4)) - px(c(2)))
+                        call paint_node(list, frame, frame%nodes(i), i)
+                        call unclip(list)
+                    else
+                        call paint_node(list, frame, frame%nodes(i), i)
+                    end if
+                end associate
+            end do
+            if (layer == 0) call scroll_bars(list, frame)
         end do
     end subroutine paint_frame
 
@@ -317,11 +349,21 @@ contains
         case (UI_TEXT, UI_LINK)
             call paint_text_node(list, node)
         case (UI_BUTTON)
-            if (theme%kind == STYLE_CLASSIC) then
+            if (allocated(node%icon) .or. aligned_start(node)) then
+                call symbol_button(list, node)
+            else if (theme%kind == STYLE_CLASSIC) then
                 call classic_button(list, node)
             else
                 call fluent_button(list, node)
             end if
+        case (UI_SELECT)
+            call symbol_button(list, node)
+        case (UI_CHIP)
+            call paint_chip(list, node)
+        case (UI_ICON)
+            call node_box(node, cmd%x, cmd%y, cmd%w, cmd%h)
+            call paint_icon(list, node%icon, cmd%x, cmd%y, min(cmd%w, cmd%h), &
+                merge(theme%on_surface, tone_colour(node%tone), node%tone == UI_TONE_NORMAL))
         case (UI_CHECKBOX)
             if (theme%kind == STYLE_CLASSIC) then
                 call classic_checkbox(list, node)
@@ -366,6 +408,8 @@ contains
         character(len=:), allocatable :: str
 
         call node_box(node, x, y, w, h)
+        ! Cells of a data grid start where their heading's label does.
+        if (node%look == 'fui-grid-cell') x = x + real(nint(ui_pad() * s))
         weight = style_weight(node%style)
         c = tone_colour(node%tone)
         if (node%style == UI_CAPTION .and. node%tone == UI_TONE_NORMAL) &
@@ -1008,5 +1052,164 @@ contains
             end if
         end do
     end subroutine arrow
+
+
+    ! --- symbols, chips, buttons with symbols, scroll bars ----------------------------
+
+    logical function aligned_start(node)
+        !! Buttons whose label starts at their left edge (data grid headings and cells).
+        type(ui_node_t), intent(in) :: node
+        aligned_start = node%look == 'fui-grid-head' .or. node%look == 'fui-grid-cell'
+    end function aligned_start
+
+    subroutine paint_icon(list, path, x, y, size_px, c)
+        !! A symbol of fortui_icons in the square at (x, y) of `size_px` pixels.
+        type(paint_list_t), intent(inout) :: list
+        character(*), intent(in) :: path
+        real, intent(in) :: x, y, size_px
+        integer(int32), intent(in) :: c
+        real, allocatable :: xy(:, :)
+        integer, allocatable :: starts(:)
+        integer :: n, k, j
+        real :: q, t
+        call icon_polylines(path, xy, starts, n)
+        q = size_px / 24.0
+        t = max(1.0, 1.75 * q)
+        do k = 1, n
+            do j = starts(k), starts(k + 1) - 2
+                call line(list, x + xy(1, j) * q, y + xy(2, j) * q, x + xy(1, j + 1) * q, &
+                    y + xy(2, j + 1) * q, t, c)
+            end do
+            ! A dot: a segment of no length still shows a round cap.
+            if (starts(k + 1) - starts(k) == 1) then
+                j = starts(k)
+                call line(list, x + xy(1, j) * q, y + xy(2, j) * q, x + xy(1, j) * q + 0.01, &
+                    y + xy(2, j) * q, t, c)
+            end if
+        end do
+    end subroutine paint_icon
+
+    integer(int32) function button_ink(node) result(ink)
+        type(ui_node_t), intent(in) :: node
+        ink = theme%on_surface
+        if (node%emphasis == UI_EMPHASIS_PRIMARY .and. theme%kind /= STYLE_CLASSIC) ink = theme%on_primary
+        if (node%disabled) ink = theme%disabled
+    end function button_ink
+
+    subroutine symbol_button(list, node)
+        !! Buttons with a symbol before the label, drop-down fields (label, then
+        !! a chevron at the right) and buttons whose label starts at the left.
+        type(paint_list_t), intent(inout) :: list
+        type(ui_node_t), intent(in) :: node
+        type(ui_node_t) :: plain
+        real :: x, y, w, h, is, gap, tw, sx, pad
+        integer :: weight
+        integer(int32) :: ink
+        character(len=:), allocatable :: str
+        plain = node
+        plain%kind = UI_BUTTON
+        plain%text = ''
+        if (node%kind == UI_SELECT) plain%emphasis = UI_EMPHASIS_NORMAL
+        if (theme%kind == STYLE_CLASSIC) then
+            call classic_button(list, plain)
+        else
+            call fluent_button(list, plain)
+        end if
+        call node_box(node, x, y, w, h)
+        weight = style_weight(ROLE_LABEL)
+        ! Grid cells read as text, not as labels of buttons.
+        if (node%look == 'fui-grid-cell') weight = style_weight(1)
+        ink = button_ink(plain)
+        pad = real(nint(ui_pad() * s))
+        is = 0.0
+        if (allocated(node%icon)) is = real(nint(1.25 * node%text_size * s))
+        gap = real(nint(6.0 * s))
+        str = trim(node%text)
+        if (node%kind == UI_SELECT) then
+            str = text_fit(str, node%text_size, (w - 2.0 * pad - is - gap) / s, weight)
+            call label(list, str, x + pad, y, h, node%text_size, weight, ink)
+            call paint_icon(list, node%icon, x + w - pad - is, y + real(floor(0.5 * (h - is))), is, ink)
+            return
+        end if
+        if (node%ellipsis) str = text_fit(str, node%text_size, (w - 2.0 * pad - is - gap) / s, weight)
+        tw = 0.0
+        if (len(str) > 0) tw = text_width(str, node%text_size, weight) * s
+        if (aligned_start(node)) then
+            sx = x + pad
+            if (len(str) > 0) call label(list, str, sx, y, h, node%text_size, weight, ink)
+            if (is > 0.0) call paint_icon(list, node%icon, sx + tw + gap, &
+                y + real(floor(0.5 * (h - is))), is, ink)
+            return
+        end if
+        if (len(str) == 0) gap = 0.0
+        sx = x + real(floor(0.5 * (w - is - gap - tw)))
+        if (is > 0.0) call paint_icon(list, node%icon, sx, y + real(floor(0.5 * (h - is))), is, ink)
+        if (len(str) > 0) call label(list, str, sx + is + gap, y, h, node%text_size, weight, ink)
+    end subroutine symbol_button
+
+    subroutine paint_chip(list, node)
+        !! A rounded label: badges tinted by their tone, chips outlined, filled
+        !! when selected.
+        type(paint_list_t), intent(inout) :: list
+        type(ui_node_t), intent(in) :: node
+        real :: x, y, w, h, is, gap, tw, sx
+        integer :: weight
+        integer(int32) :: fill, stroke, ink
+        call node_box(node, x, y, w, h)
+        weight = style_weight(node%style)
+        if (node%toggle) weight = style_weight(ROLE_LABEL)
+        ink = tone_colour(node%tone)
+        if (.not. node%toggle) then
+            fill = with_alpha(ink, 36)
+            if (node%tone == UI_TONE_NORMAL) fill = theme%surface_high
+            stroke = 0
+        else if (node%checked) then
+            fill = with_alpha(theme%primary, 48)
+            stroke = theme%primary
+            ink = theme%on_surface
+        else
+            fill = 0
+            if (node%hovered) fill = theme%hilight
+            stroke = theme%outline_variant
+        end if
+        if (node%disabled) ink = theme%disabled
+        if (fill /= 0 .or. stroke /= 0) call rect(list, x, y, w, h, fill, radius=0.5 * h, &
+            border=merge(1.0 * s, 0.0, stroke /= 0), stroke=stroke)
+        is = 0.0
+        gap = 0.0
+        if (allocated(node%icon)) then
+            is = real(nint(1.25 * node%text_size * s))
+            gap = real(nint(6.0 * s))
+        end if
+        tw = text_width(trim(node%text), node%text_size, weight) * s
+        sx = x + real(floor(0.5 * (w - is - gap - tw)))
+        if (is > 0.0) call paint_icon(list, node%icon, sx, y + real(floor(0.5 * (h - is))), is, ink)
+        call label(list, trim(node%text), sx + is + gap, y, h, node%text_size, weight, ink)
+        if (node%focused .and. .not. node%disabled) call focus_rect(list, x, y, w, h)
+    end subroutine paint_chip
+
+    subroutine scroll_bars(list, frame)
+        !! A thin thumb at the right of every scroll container that holds more
+        !! than it shows.
+        type(paint_list_t), intent(inout) :: list
+        type(ui_frame_t), intent(in) :: frame
+        integer :: i
+        real :: frac, th, ty, x, y, w, h
+        do i = 1, frame%box_count
+            associate(b => frame%boxes(i))
+                if (b%kind /= KIND_SCROLL) cycle
+                if (b%content <= b%viewport + 0.5 .or. b%viewport <= 0.0) cycle
+                x = px(b%bounds(1))
+                y = px(b%bounds(2))
+                w = px(b%bounds(1) + b%bounds(3)) - x
+                h = px(b%bounds(2) + b%bounds(4)) - y
+                frac = b%viewport / b%content
+                th = max(16.0 * s, h * frac)
+                ty = y + (h - th) * min(1.0, b%offset / max(1.0, b%content - b%viewport))
+                call rect(list, x + w - 6.0 * s, ty, 4.0 * s, th, with_alpha(theme%on_surface_muted, 140), &
+                    radius=2.0 * s)
+            end associate
+        end do
+    end subroutine scroll_bars
 
 end module fortui_paint

@@ -138,6 +138,54 @@ try {
   check((await text('[data-id="site"]')) === 'Site cn', 'a parameter of the page address');
   check(await evaluate(`document.querySelector('[data-id="locale"]').textContent === 'Locale ' + navigator.language`),
     'the user language is the browser\'s');
+  // Widgets: segmented choice, native picker, menu, chip, notification,
+  // modal dialog, a chat that keeps its end in view, a virtual list, a grid.
+  await click('[data-id="tabs#4"]');
+  await until(`!!document.querySelector('[data-id="view/option#2"]')`, 'widgets tab');
+  const state = () => text('[data-id="widget-state"]');
+  check(await evaluate(`document.querySelectorAll('svg.fui-icon path').length > 5`), 'symbols are SVG strokes');
+  await click('[data-id="view/option#2"]');
+  await until(`document.querySelector('[data-id="widget-state"]').textContent.includes('Board')`, 'segment');
+  check(await evaluate(`document.querySelector('[data-id="view/option#2"]').getAttribute('aria-pressed') === 'true'`),
+    'a segment selects its option and shows it pressed');
+  await evaluate(`(() => { const s = document.querySelector('select[data-id="colour"]'); s.value = '3';
+    s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await until(`document.querySelector('[data-id="widget-state"]').textContent.includes('Blue')`, 'picker');
+  check(true, 'the platform picker of a drop-down chooses an option');
+  await click('[data-id="more"]');
+  await until(`!!document.querySelector('.fui-popup [data-id="more.list/item#4"]')`, 'menu');
+  await click('[data-id="more.list/item#4"]');
+  await until(`!document.querySelector('.fui-popup')`, 'menu closes');
+  check((await state()).includes('command 4'), 'a menu command is chosen and the menu closes');
+  await click('[data-id="more"]');
+  await until(`!!document.querySelector('.fui-popup')`, 'menu again');
+  await click('[data-id="widget-state"]');
+  await until(`!document.querySelector('.fui-popup')`, 'menu dismissed');
+  check(true, 'a press outside the menu closes it');
+  await click('[data-id="save"]');
+  await until(`!!document.querySelector('.fui-toasts[role="status"]')`, 'notification');
+  check(true, 'a notification shows as a status');
+  await click('[data-id="ask"]');
+  await until(`!!document.querySelector('[role="dialog"][aria-label="Discard the branch?"]')`, 'modal');
+  await click('[data-id="confirm/keep"]');
+  await until(`!document.querySelector('[role="dialog"][aria-label="Discard the branch?"]')`, 'modal closes');
+  check(true, 'a modal dialog has its name and closes by its button');
+  for (let i = 0; i < 6; i++) { await click('[data-id="post"]'); await sleep(40); }
+  await until(`!!document.querySelector('[data-id="chat/msg9"]')`, 'chat lines');
+  await sleep(100);
+  check(await evaluate(`(() => { const e = document.querySelector('.fui-scroll[data-box="chat"]');
+    return e.scrollHeight > e.clientHeight && e.scrollTop + e.clientHeight >= e.scrollHeight - 2; })()`),
+    'a sticking scroll container keeps the newest line in view');
+  check(await evaluate(`document.querySelectorAll('.fui-scroll[data-box="many"] .fui-k1').length < 20`),
+    'a virtual list of ten thousand rows composes a screenful');
+  await evaluate(`document.querySelector('.fui-scroll[data-box="many"]').scrollTop = 5000 * 28`);
+  await until(`!!document.querySelector('[data-id="many/row5001"]')`, 'virtual rows after scrolling');
+  check(true, 'scrolled far, the virtual list composes the rows there');
+  await click('[data-id="coils/head#1"]');
+  await until(`document.querySelector('[data-id="coils/head#1"] svg') !== null`, 'sorted heading');
+  check(true, 'a grid heading sorts and shows the direction');
+  await click('[data-id="tabs#1"]');
+  await until(`!!document.querySelector('[data-id="count"]')`, 'back to the first tab');
   // Pointer input: a pen with pressure, then two fingers spreading apart.
   const [sx, sy] = await center('canvas[data-id="swatch"]');
   await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: sx, y: sy, pointerType: 'pen' });

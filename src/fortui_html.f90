@@ -6,9 +6,12 @@ module fortui_html
     !! elements by key instead of rebuilding them.
     use fortui_frame, only: ui_frame_t, ui_node_t, UI_TEXT, UI_BUTTON, UI_LINK, UI_SLIDER, &
         UI_CHECKBOX, UI_TAB, UI_CANVAS, UI_SCROLL_TEXT, UI_TEXT_INPUT, UI_TEXT_AREA, UI_LIST_BOX, &
+        UI_CHIP, UI_ICON, UI_SELECT, &
         WIDTH_FIXED, &
         WIDTH_FILL
-    use fortui_layout, only: KIND_ROW, KIND_SPLIT, KIND_PANE, KIND_DIALOG
+    use fortui_layout, only: KIND_ROW, KIND_SPLIT, KIND_PANE, KIND_DIALOG, KIND_SCROLL, KIND_POPUP, &
+        KIND_TOASTS
+    use fortui_icons, only: icon_svg
     use fortui_text, only: ui_str
     use fortui_context, only: fortui_context_t, get_default_context
     implicit none
@@ -118,12 +121,28 @@ contains
                 if (x%cross > 0.0) style = style//' min-height: '//ui_str(nint(x%cross))//'px;'
                 if (x%kind == KIND_PANE .and. x%width >= 0.0) style = style//' width: '// &
                     ui_str(nint(x%width))//'px; flex: 0 0 auto;'
+                select case (x%kind)
+                case (KIND_SCROLL)
+                    cls = cls//' fui-scroll'
+                    style = style//' height: '//ui_str(nint(x%viewport))//'px; --fui-before: '// &
+                        ui_str(nint(x%pad_before))//'px; --fui-after: '//ui_str(nint(x%pad_after))//'px;'
+                case (KIND_POPUP)
+                    cls = cls//' fui-popup'
+                case (KIND_TOASTS)
+                    cls = cls//' fui-toasts'
+                end select
             end associate
             s = '<div data-key="b'//ui_str(b)//'" class="'//cls//'"'
             if (len_trim(frame%boxes(b)%id) > 0) s = s//' data-box="'// &
                 html_escape(trim(frame%boxes(b)%id))//'"'
-            if (frame%boxes(b)%kind == KIND_DIALOG) &
-                s = s//' role="dialog" aria-modal="true" aria-label="Open file"'
+            if (frame%boxes(b)%kind == KIND_DIALOG) then
+                if (allocated(frame%boxes(b)%label)) then
+                    s = s//' role="dialog" aria-modal="true" aria-label="'// &
+                        html_escape(frame%boxes(b)%label)//'"'
+                else
+                    s = s//' role="dialog" aria-modal="true" aria-label="Open file"'
+                end if
+            end if
             s = s//marks(frame%boxes(b)%look, frame%boxes(b)%anchor)
             call put(s//' style="'//style//'">')
             call children(b)
@@ -136,6 +155,23 @@ contains
             if (b > 0) in_row = frame%boxes(b)%kind == KIND_ROW .or. &
                 frame%boxes(b)%kind == KIND_SPLIT
         end function in_row
+
+        function symbol(n) result(svg)
+            !! The node's symbol as inline SVG, or nothing.
+            type(ui_node_t), intent(in) :: n
+            character(len=:), allocatable :: svg
+            svg = ''
+            if (.not. allocated(n%icon)) return
+            svg = '<svg viewBox="0 0 24 24" aria-hidden="true" class="fui-icon"><path d="'// &
+                icon_svg(n%icon)//'"></path></svg>'
+        end function symbol
+
+        function labelled(text) result(s)
+            character(*), intent(in) :: text
+            character(len=:), allocatable :: s
+            s = text
+            if (len(text) > 0) s = '<span>'//text//'</span>'
+        end function labelled
 
         function node_html(k, row) result(s)
             integer, intent(in) :: k
@@ -170,7 +206,34 @@ contains
                         '"'//a
                     if (allocated(n%tooltip)) a = ' title="'//html_escape(n%tooltip)// &
                         '" aria-label="'//html_escape(n%tooltip)//'"'//a
-                    s = '<button type="button"'//a//'>'//text//'</button>'
+                    s = '<button type="button"'//a//'>'//symbol(n)//labelled(text)//'</button>'
+                case (UI_CHIP)
+                    if (n%focusable) then
+                        s = '<button type="button" aria-pressed="'// &
+                            trim(merge('true ', 'false', n%checked))//'"'//a//'>'//symbol(n)// &
+                            labelled(text)//'</button>'
+                    else
+                        s = '<span'//a//'>'//text//'</span>'
+                    end if
+                case (UI_ICON)
+                    s = '<span'//a//'>'//symbol(n)//'</span>'
+                case (UI_SELECT)
+                    s = '<select'//a//'>'
+                    block
+                        integer :: at, e
+                        at = 1
+                        j = 0
+                        do while (at <= len(body))
+                            e = index(body(at:), achar(10))
+                            if (e == 0) exit
+                            j = j + 1
+                            s = s//'<option value="'//ui_str(j)//'"'
+                            if (j == nint(n%value)) s = s//' selected'
+                            s = s//'>'//body(at:at + e - 2)//'</option>'
+                            at = at + e
+                        end do
+                    end block
+                    s = s//'</select>'
                 case (UI_LINK)
                     s = '<a href="'//body//'"'//a//'>'//text//'</a>'
                 case (UI_TAB)

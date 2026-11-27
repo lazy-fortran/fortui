@@ -236,6 +236,7 @@ contains
             ctx%canvas_node = 0
         end if
         call layout_check_balance()
+        if (associated(ctx%overlays)) call ctx%overlays()
         call layout_boxes(ctx%current_frame%boxes, ctx%current_frame%box_count)
         call apply_requests(ctx)
         call input_commit_chords(ctx%input)

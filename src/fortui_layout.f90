@@ -16,8 +16,15 @@ module fortui_layout
     integer, parameter :: KIND_SPLIT = 3
     integer, parameter :: KIND_PANE = 4
     integer, parameter :: KIND_DIALOG = 5
-    character(len=*), parameter :: KIND_NAMES(0:5) = [character(len=6) :: "root", &
-        "column", "row", "split", "pane", "dialog"]
+    integer, parameter :: KIND_SCROLL = 6
+    integer, parameter :: KIND_POPUP = 7
+    integer, parameter :: KIND_TOASTS = 8
+    character(len=*), parameter :: KIND_NAMES(0:8) = [character(len=6) :: "root", &
+        "column", "row", "split", "pane", "dialog", "scroll", "popup", "toasts"]
+
+    ! Layers of nodes, painted and hit in this order from the top: modal
+    ! dialogs, floating popups and notifications, the page.
+    integer, parameter :: LAYER_PAGE = 0, LAYER_FLOAT = 1, LAYER_MODAL = 2
 
     type :: layout_entry_t
         integer :: kind = KIND_ROOT
@@ -49,6 +56,14 @@ module fortui_layout
         real :: pane_x(MAX_PANES) = 0.0
         real :: pane_w(MAX_PANES) = 0.0
         character(len=:), allocatable :: scope
+        ! What nodes inside may show of themselves (x, y, w, h; w < 0: all) and
+        ! their layer.
+        real :: clip(4) = [0.0, 0.0, -1.0, -1.0]
+        integer :: layer = LAYER_PAGE
+        ! The height the container takes in its parent (scroll viewports;
+        ! negative: its content), and whether it takes none (popups).
+        real :: fixed_h = -1.0
+        logical :: floating = .false.
     end type layout_entry_t
 
     type, public :: layout_box_t
@@ -72,6 +87,14 @@ module fortui_layout
         character(len=32) :: look = ""
         !! The address of the container in the page (the HTML id), or empty.
         character(len=64) :: anchor = ""
+        !! Scroll containers: viewport height, content height, offset, space
+        !! before and after the composed part (virtual lists), whether the view
+        !! follows the end and whether the host reports its offset.
+        real :: viewport = -1.0, content = 0.0, offset = 0.0
+        real :: pad_before = 0.0, pad_after = 0.0
+        logical :: stick = .false., reports = .false.
+        !! Dialogs: the accessible name.
+        character(len=:), allocatable :: label
     end type layout_box_t
 
     type(layout_entry_t), save :: layout_stack(MAX_LAYOUT_DEPTH)
@@ -92,7 +115,11 @@ module fortui_layout
     public :: layout_scope, layout_fill_width, layout_check_balance
     public :: layout_boxes, layout_note_node
     public :: layout_marks
-    public :: KIND_COLUMN, KIND_ROW, KIND_SPLIT, KIND_PANE, KIND_DIALOG
+    public :: KIND_COLUMN, KIND_ROW, KIND_SPLIT, KIND_PANE, KIND_DIALOG, KIND_SCROLL, &
+        KIND_POPUP, KIND_TOASTS
+    public :: LAYER_PAGE, LAYER_FLOAT, LAYER_MODAL
+    public :: scroll_region_begin, scroll_region_end, float_begin, float_end, layout_node_view
+    public :: layout_set_padding
 
 contains
 
@@ -312,12 +339,16 @@ contains
         stack_depth = stack_depth + 1
         layout_stack(stack_depth) = layout_entry_t(kind=kind, direction=direction, &
             gap=gap, origin_x=x, origin_y=y, cursor_x=x, cursor_y=y, region_x=x, &
-            region_y=y, region_w=w, region_h=h, scope=scope, box=box_count)
+            region_y=y, region_w=w, region_h=h, scope=scope, box=box_count, &
+            clip=layout_stack(stack_depth - 1)%clip, layer=layout_stack(stack_depth - 1)%layer)
     end subroutine push_region
 
-    subroutine dialog_begin(id, width, height, gap, padding)
+    subroutine dialog_begin(id, width, height, gap, padding, label)
+        !! A modal dialog centred in the remaining space; `label` is its
+        !! accessible name. While one is open, only it takes the pointer.
         character(*), intent(in) :: id
         real, intent(in) :: width, height, gap, padding
+        character(*), intent(in), optional :: label
         real :: x, y, aw, ah, w, h, pad
         call layout_get_cursor(x, y)
         call layout_available(aw, ah)
@@ -329,6 +360,10 @@ contains
         call push_region(KIND_DIALOG, DIR_COLUMN, gap, x + pad, y + pad, &
             w - 2 * pad, h - 2 * pad, id)
         boxes(box_count)%bounds = [x, y, w, h]
+        boxes(box_count)%width = w
+        layout_stack(stack_depth)%layer = LAYER_MODAL
+        layout_stack(stack_depth)%clip = [0.0, 0.0, -1.0, -1.0]
+        if (present(label)) boxes(box_count)%label = label
     end subroutine
 
     subroutine dialog_end()
@@ -485,6 +520,10 @@ contains
         real :: width, height
 
         if (stack_depth <= 1) return
+        if (layout_stack(stack_depth)%floating) then
+            stack_depth = stack_depth - 1
+            return
+        end if
 
         if (layout_stack(stack_depth)%direction == DIR_COLUMN) then
             width = layout_stack(stack_depth)%max_cross
@@ -494,10 +533,128 @@ contains
                 layout_stack(stack_depth)%cursor_x - layout_stack(stack_depth)%origin_x)
             height = layout_stack(stack_depth)%max_cross
         end if
+        if (layout_stack(stack_depth)%fixed_h >= 0.0) then
+            width = layout_stack(stack_depth)%region_w
+            height = layout_stack(stack_depth)%fixed_h
+        end if
 
         stack_depth = stack_depth - 1
         call layout_advance(width, height)
     end subroutine pop_layout
+
+    subroutine scroll_region_begin(id, height, offset, stick, reports, look)
+        !! A column of the remaining width that shows `height` of its content,
+        !! scrolled down by `offset`; nodes outside are clipped. `stick`: the
+        !! host keeps the view at the end while it is there; `reports`: the
+        !! host reports the offset it scrolled to (virtual lists).
+        character(*), intent(in) :: id
+        real, intent(in) :: height, offset
+        logical, intent(in) :: stick, reports
+        character(*), intent(in), optional :: look
+        real :: x, y, w, h
+
+        call layout_get_cursor(x, y)
+        call layout_available(w, h)
+        call push_region(KIND_SCROLL, DIR_COLUMN, 0.0, x, y - offset, w, 1.0e9, id)
+        ! The host reports the offset under the full identity.
+        boxes(box_count)%id = layout_stack(stack_depth)%scope
+        associate(e => layout_stack(stack_depth), b => boxes(box_count))
+            e%fixed_h = max(0.0, height)
+            e%clip = intersect(e%clip, [x, y, w, e%fixed_h])
+            b%bounds = [x, y, w, e%fixed_h]
+            b%viewport = e%fixed_h
+            b%offset = offset
+            b%stick = stick
+            b%reports = reports
+        end associate
+        call mark_box(look)
+    end subroutine scroll_region_begin
+
+    subroutine layout_set_padding(before, after)
+        !! Space before and after the composed part of the innermost scroll
+        !! container, standing for rows not composed (virtual lists).
+        real, intent(in) :: before, after
+        associate(e => layout_stack(stack_depth))
+            if (e%kind /= KIND_SCROLL) return
+            boxes(e%box)%pad_before = max(0.0, before)
+            boxes(e%box)%pad_after = max(0.0, after)
+            e%cursor_y = e%cursor_y + max(0.0, before)
+        end associate
+    end subroutine layout_set_padding
+
+    real function scroll_region_end() result(content)
+        !! Close the scroll container; the height of its content.
+        logical :: ok
+        content = 0.0
+        if (stack_depth <= 1) return
+        associate(e => layout_stack(stack_depth))
+            if (e%kind == KIND_SCROLL) then
+                content = e%cursor_y - e%origin_y + boxes(e%box)%pad_after
+                boxes(e%box)%content = content
+            end if
+        end associate
+        ok = close_kind(KIND_SCROLL, "scroll_region_end")
+    end function scroll_region_end
+
+    subroutine float_begin(id, x, y, width, kind, look)
+        !! A column above the page at (x, y) that takes no space in its parent:
+        !! menus, drop-down lists (KIND_POPUP) and notifications (KIND_TOASTS).
+        character(*), intent(in) :: id
+        real, intent(in) :: x, y, width
+        integer, intent(in) :: kind
+        character(*), intent(in), optional :: look
+        call push_region(kind, DIR_COLUMN, 0.0, x, y, width, 1.0e9, id)
+        ! The host reports a dismissal under the full identity.
+        boxes(box_count)%id = layout_stack(stack_depth)%scope
+        associate(e => layout_stack(stack_depth))
+            e%floating = .true.
+            e%layer = max(e%layer, LAYER_FLOAT)
+            e%clip = [0.0, 0.0, -1.0, -1.0]
+            boxes(box_count)%bounds = [x, y, width, 0.0]
+        end associate
+        call mark_box(look)
+    end subroutine float_begin
+
+    subroutine float_end(bounds)
+        !! Close the floating column; its bounds (x, y, w, h).
+        real, intent(out), optional :: bounds(4)
+        logical :: ok
+        integer :: kind
+        if (stack_depth <= 1) return
+        associate(e => layout_stack(stack_depth))
+            kind = e%kind
+            boxes(e%box)%bounds(4) = e%cursor_y - e%origin_y
+            if (present(bounds)) bounds = boxes(e%box)%bounds
+        end associate
+        if (kind == KIND_TOASTS) then
+            ok = close_kind(KIND_TOASTS, "float_end")
+        else
+            ok = close_kind(KIND_POPUP, "float_end")
+        end if
+    end subroutine float_end
+
+    subroutine layout_node_view(clip, layer)
+        !! What a node composed now may show (x, y, w, h; w < 0: all) and its layer.
+        real, intent(out) :: clip(4)
+        integer, intent(out) :: layer
+        if (stack_depth == 0) call layout_reset()
+        clip = layout_stack(stack_depth)%clip
+        layer = layout_stack(stack_depth)%layer
+    end subroutine layout_node_view
+
+    pure function intersect(a, b) result(c)
+        real, intent(in) :: a(4), b(4)
+        real :: c(4), x0, y0, x1, y1
+        if (a(3) < 0.0) then
+            c = b
+            return
+        end if
+        x0 = max(a(1), b(1))
+        y0 = max(a(2), b(2))
+        x1 = min(a(1) + a(3), b(1) + b(3))
+        y1 = min(a(2) + a(4), b(2) + b(4))
+        c = [x0, y0, max(0.0, x1 - x0), max(0.0, y1 - y0)]
+    end function intersect
 
     subroutine layout_get_cursor(x, y)
         real, intent(out) :: x, y

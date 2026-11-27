@@ -19,7 +19,7 @@ module fortui_widgets
         WIDTH_FIXED, WIDTH_FILL, UI_TONE_LINK
     use fortui_layout, only: layout_get_cursor, layout_advance, layout_available, &
         layout_scope, layout_fill_width, layout_place, layout_note_node, row_begin, row_end, &
-        layout_marks
+        layout_marks, layout_node_view
     use fortui_input, only: input_activated, input_focused, input_active, input_hovered, &
         input_wheel_for, KEY_ARROW_LEFT, KEY_ARROW_RIGHT, KEY_ARROW_UP, KEY_ARROW_DOWN, &
         KEY_BACKSPACE, KEY_DELETE, KEY_HOME, KEY_END, KEY_ENTER, KEY_PAGE_UP, KEY_PAGE_DOWN, &
@@ -29,6 +29,7 @@ module fortui_widgets
         utf8_boundary, utf8_prev, utf8_next, ui_str, TEXT_DEFAULT_SIZE, text_cell_size
     use fortui_error, only: report_error
     use fortui_theme, only: cell_font_family
+    use fortui_icons, only: icon_path, icon_glyph
     implicit none
     private
 
@@ -59,6 +60,13 @@ module fortui_widgets
 
     ! Space on each side of a tab's label.
     real, parameter :: TAB_PADDING = 14.0
+    ! Space between a symbol and its label.
+    real, parameter, public :: ICON_GAP = 6.0
+
+    ! For the modules of further controls (fortui_controls).
+    public :: scoped_id, claim, composing, resolve_width, width_mode, set_enabled
+    public :: decorate_from_input, place_and_emit, emit_at_current_position, icon_size
+    public :: parse_number
 
 contains
 
@@ -353,7 +361,7 @@ contains
     end function list_box
 
     logical function button(id, label, key, width, height, enabled, ellipsis, size, &
-            look, anchor, emphasis, pressed, tooltip) result(clicked)
+            look, anchor, emphasis, pressed, tooltip, icon) result(clicked)
         !! Push button; true once when activated (pointer release or Enter/Space).
         !! `size` is the logical text size of the label; `look` and `anchor` as
         !! for `text`; `emphasis` UI_EMPHASIS_NORMAL (default), _PRIMARY or _QUIET.
@@ -361,15 +369,18 @@ contains
         !! tool); the application changes the state when it is clicked.
         !! `tooltip` names a button whose label is a symbol: hosts show it on
         !! hover and give it to assistive technology as the button's name.
+        !! `icon` names a symbol of fortui_icons shown before the label; with an
+        !! empty label the button is square and `tooltip` should name it.
         character(*), intent(in) :: id
         character(*), intent(in), optional :: label
         integer, intent(in), optional :: key, emphasis
         real, intent(in), optional :: width, height, size
         logical, intent(in), optional :: enabled, ellipsis, pressed
-        character(*), intent(in), optional :: look, anchor, tooltip
+        character(*), intent(in), optional :: look, anchor, tooltip, icon
 
         type(fortui_context_t), pointer :: ctx
         type(ui_node_t) :: node
+        real :: natural
 
         clicked = .false.
         ctx => get_default_context()
@@ -385,9 +396,22 @@ contains
         if (present(label)) node%text = label
         node%text_size = label_size()
         if (present(size)) node%text_size = max(1.0, size)
-        node%width = resolve_width(width, max(ui_control_min_width(), text_width( &
-            trim(node%text), node%text_size, style_weight_label()) + &
-            2.0 * ui_control_padding()))
+        natural = max(ui_control_min_width(), text_width(trim(node%text), node%text_size, &
+            style_weight_label()) + 2.0 * ui_control_padding())
+        if (present(icon)) then
+            node%icon = icon_path(icon)
+            node%glyph = icon_glyph(icon)
+            if (len(node%icon) == 0) deallocate (node%icon, node%glyph)
+        end if
+        if (allocated(node%icon)) then
+            if (len_trim(node%text) == 0) then
+                natural = ui_control_height()
+            else
+                natural = text_width(trim(node%text), node%text_size, style_weight_label()) + &
+                    2.0 * ui_control_padding() + icon_size(node%text_size) + ICON_GAP
+            end if
+        end if
+        node%width = resolve_width(width, natural)
         node%width_mode = width_mode(width)
         node%height = ui_control_height()
         if (present(height)) node%height = max(0.0, height)
@@ -659,6 +683,7 @@ contains
                     end select
                 end do
             end if
+            call layout_node_view(node%clip, node%layer)
             node%box = layout_note_node()
             j = ctx%current_frame%append(node)
             call layout_advance(w, ui_tab_height())
@@ -788,6 +813,7 @@ contains
 
         node%layer_first = ctx%current_frame%layer_count + 1
         node%label_first = ctx%current_frame%label_count + 1
+        call layout_node_view(node%clip, node%layer)
         node%box = layout_note_node()
         ctx%canvas_node = ctx%current_frame%append(node)
         call layout_advance(node%width, node%height)
@@ -1444,6 +1470,12 @@ contains
 
     ! --- helpers --------------------------------------------------------------------------
 
+    pure real function icon_size(text_size)
+        !! A symbol beside text of `text_size`: a little taller than its capitals.
+        real, intent(in) :: text_size
+        icon_size = real(nint(text_size * 1.25))
+    end function icon_size
+
     subroutine set_enabled(node, enabled)
         type(ui_node_t), intent(inout) :: node
         logical, intent(in), optional :: enabled
@@ -1479,6 +1511,7 @@ contains
         integer :: ignored
 
         stamped = node
+        call layout_node_view(stamped%clip, stamped%layer)
         stamped%box = layout_note_node()
         ignored = ctx%current_frame%append(stamped)
         call layout_advance(node%width, node%height)

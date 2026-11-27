@@ -24,6 +24,10 @@ module fortui
         canvas_lines, canvas_label, canvas_image, canvas_cells, canvas_keys, ui_cell_metrics, &
         ui_set_cell_font, ui_focus, &
         ui_reveal
+    use fortui_controls, only: icon, badge, chip, segmented, dropdown, menu, toast, &
+        modal_begin, modal_end, scroll_begin, scroll_end, virtual_list_begin, virtual_list_end, &
+        grid_state_t, data_grid
+    use fortui_icons, only: icon_names
     use fortui_file_dialog, only: file_dialog_t, file_dialog_open, file_dialog_show, &
         file_open_button, file_dialog_poll, file_dialog_cancel, FILE_IDLE, FILE_PENDING, FILE_ACCEPTED, FILE_CANCELLED
     use fortui_canvas, only: canvas_view_t, canvas_events_t, ui_rgba, canvas_to_world, &
@@ -64,6 +68,9 @@ module fortui
     public :: ui_key_pressed, ui_text_width, ui_str
     public :: ui_shortcut, ui_focus, ui_reveal
     public :: column_begin, column_end, row_begin, row_end
+    public :: icon, badge, chip, segmented, dropdown, menu, toast, modal_begin, modal_end
+    public :: scroll_begin, scroll_end, virtual_list_begin, virtual_list_end
+    public :: grid_state_t, data_grid, icon_names
     public :: split_begin, split_next, split_end
     public :: text, button, link, slider, checkbox, tabs, list_box, scroll_text, text_input
     public :: canvas_begin, canvas_end, canvas_vertices, canvas_points, canvas_lines
