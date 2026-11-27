@@ -247,6 +247,8 @@ button.fui-k12[aria-pressed="true"] { background: color-mix(in srgb, var(--fui-b
   background: var(--fui-fg1, CanvasText); color: var(--fui-bg1, Canvas); box-shadow: 0 8px 24px #0004; }
 .fui-root .fui-box[data-look="fui-toast"] > .fui-k2 { color: inherit; background: transparent; border-color: transparent; }
 /* The data grid: headings and cells start at the same edge; the selected row is tinted. */
+.fui-box[data-look="fui-grid"] { overflow-x: auto; max-width: 100%; scrollbar-width: thin; }
+.fui-box[data-look="fui-grid"] > * { min-width: max-content; }
 .fui-box[data-look="fui-grid-head"] { border-bottom: 1px solid var(--fui-stroke1, GrayText); }
 .fui-root .fui-k2[data-look="fui-grid-head"], .fui-root .fui-k2[data-look="fui-grid-cell"] { justify-content: flex-start;
   text-align: left; min-width: 0; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; }
