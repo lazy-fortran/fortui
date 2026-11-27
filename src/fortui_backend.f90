@@ -17,6 +17,7 @@ module fortui_backend
     use fortui_frame, only: ui_frame_t
     use fortui_input, only: input_state_t
     use fortui_canvas, only: canvas_store_t, canvas_realizer_t
+    use fortui_net_transport, only: net_transport_t
     implicit none
     private
 
@@ -93,6 +94,9 @@ module fortui_backend
         procedure :: file_open => backend_file_open
         procedure :: file_poll => backend_file_poll
         procedure :: file_cancel => backend_file_cancel
+        procedure :: network => backend_network
+        procedure :: locale => backend_locale
+        procedure :: url_param => backend_url_param
     end type ui_backend_t
 
     abstract interface
@@ -173,6 +177,47 @@ contains
         class(ui_backend_t), intent(inout) :: self
         integer(int64), intent(in) :: request
     end subroutine
+
+    subroutine backend_network(self, transport)
+        !! The host's network transport, called once the backend runs; none
+        !! (unallocated) leaves requests unsupported.
+        class(ui_backend_t), intent(inout) :: self
+        class(net_transport_t), allocatable, intent(out) :: transport
+        if (self%presents < 0) continue
+    end subroutine backend_network
+
+    function backend_locale(self) result(tag)
+        !! The user's language as a BCP 47 tag ("zh-CN", "de-AT"), from LC_ALL,
+        !! LC_MESSAGES or LANG ("de_AT.UTF-8"); "" when unknown.
+        class(ui_backend_t), intent(in) :: self
+        character(len=:), allocatable :: tag
+        character(len=64) :: v
+        integer :: n, st, k
+        character(len=11), parameter :: names(3) = [character(len=11) :: 'LC_ALL', 'LC_MESSAGES', 'LANG']
+        tag = ""
+        if (self%presents < 0) return
+        do k = 1, 3
+            call get_environment_variable(trim(names(k)), v, n, st)
+            if (st /= 0 .or. n == 0) cycle
+            if (v(1:n) == 'C' .or. v(1:n) == 'POSIX') cycle
+            tag = v(1:n)
+            exit
+        end do
+        k = scan(tag, '.@')
+        if (k > 0) tag = tag(1:k - 1)
+        k = index(tag, '_')
+        if (k > 0) tag(k:k) = '-'
+    end function backend_locale
+
+    function backend_url_param(self, name) result(value)
+        !! A parameter of the address the application was opened with (the
+        !! page's query in a browser); "" where there is none.
+        class(ui_backend_t), intent(in) :: self
+        character(*), intent(in) :: name
+        character(len=:), allocatable :: value
+        value = ""
+        if (len(name) < 0 .or. self%presents < 0) continue
+    end function backend_url_param
 
     subroutine backend_hand_over(self)
         !! Called by ui_run when the host drives the frames, after the application

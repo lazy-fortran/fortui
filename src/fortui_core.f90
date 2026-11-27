@@ -37,6 +37,7 @@ module fortui_core
     public :: ui_key_pressed, ui_text_width, ui_backend_capabilities, ui_backend_caps_t
     public :: ui_shortcut, ui_set_theme, ui_theme_name
     public :: ui_backend_description, ui_run, ui_run_step, ui_frame_proc
+    public :: ui_locale, ui_url_param
 
     abstract interface
         subroutine ui_frame_proc()
@@ -125,6 +126,7 @@ contains
         appearance_checked = -1d9
         ctx%initialized = .true.
         call set_default_context(ctx)
+        call ctx%backend%network(ctx%net)
     end subroutine ui_init_backend
 
     subroutine ui_set_theme(name, stat)
@@ -670,6 +672,28 @@ contains
         if (.not. associated(ctx)) return
         if (allocated(ctx%backend)) caps = ctx%backend%capabilities()
     end function ui_backend_capabilities
+
+    function ui_locale() result(tag)
+        !! The user's language as a BCP 47 tag ("zh-CN", "en-US"), "" when unknown.
+        character(len=:), allocatable :: tag
+        type(fortui_context_t), pointer :: ctx
+        tag = ""
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (ctx%initialized) tag = ctx%backend%locale()
+    end function ui_locale
+
+    function ui_url_param(name) result(value)
+        !! A parameter of the address the application was opened with ("?site=cn"
+        !! gives "cn" for "site"); "" when absent or on hosts without one.
+        character(*), intent(in) :: name
+        character(len=:), allocatable :: value
+        type(fortui_context_t), pointer :: ctx
+        value = ""
+        ctx => get_default_context()
+        if (.not. associated(ctx)) return
+        if (ctx%initialized) value = ctx%backend%url_param(name)
+    end function ui_url_param
 
     function ui_backend_description() result(text)
         !! How the active backend realizes the UI (e.g. terminal graphics and

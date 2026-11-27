@@ -6,6 +6,7 @@ module fortui_context
     use fortui_text, only: text_line_t
     use fortui_backend, only: ui_backend_t
     use fortui_error, only: report_error
+    use fortui_net_transport, only: net_transport_t
     implicit none
     private
 
@@ -41,6 +42,8 @@ module fortui_context
         character(len=96) :: reveal_request = ""
         integer :: frame_count = 0
         class(ui_backend_t), allocatable :: backend
+        ! The host's network transport (fortui_net); none: requests are unsupported.
+        class(net_transport_t), allocatable :: net
         character(len=32) :: backend_name = ""
         type(input_state_t) :: input
         ! Composed and last presented frame; presenting swaps the two pointers.

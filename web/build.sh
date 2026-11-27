@@ -9,6 +9,7 @@
 # order, compiled before PROGRAM. FORTUI_WEB_JS: further emscripten JavaScript
 # libraries. FORTUI_WEB_LDFLAGS: further emcc link flags (e.g. --profiling-funcs).
 # FORTUI_WEB_FFLAGS: additional LFortran flags for measured build profiles.
+# FORTUI_WEB_EXPORTS: further exported functions, comma-separated (_name,...).
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 top=$(dirname "$here")
@@ -30,11 +31,13 @@ cd "$out/obj"
 # Dependency order; the terminal and raylib backends and the backend registry
 # are native only.
 for m in fortui_error fortui_theme fortui_text fortui_layout fortui_frame fortui_canvas \
-    fortui_raster fortui_input fortui_files fortui_backend fortui_backend_headless \
-    fortui_context fortui_core fortui_widgets fortui_file_dialog fortui_testing fortui; do
+    fortui_raster fortui_input fortui_files fortui_net_transport fortui_backend \
+    fortui_backend_headless fortui_context fortui_core fortui_net fortui_widgets \
+    fortui_file_dialog fortui_testing fortui; do
     "$lf" -c $flags "$top/src/$m.f90" -o "$m.o"
 done
 "$emcc" -c "$top/src/c/fortui_files.c" -o fortui_files_c.o
+"$lf" -c $flags "$here/fortui_web_net.f90" -o fortui_web_net.o
 "$lf" -c $flags "$here/fortui_web.f90" -o fortui_web.o
 for src in ${FORTUI_WEB_SOURCES:-}; do
     case $src in /*) ;; *) src=$caller/$src ;; esac
@@ -48,7 +51,9 @@ done
 name=$(basename "$prog" .f90)
 "$lf" -c $flags "$prog" -o "$name.o"
 "$emcc" --target=wasm32-unknown-emscripten -O2 -sALLOW_MEMORY_GROWTH \
-    -sSTACK_SIZE=8mb -sEXPORTED_FUNCTIONS=_main,_fortui_web_step,_fortui_web_key,_fortui_web_layer_ptr $js ${FORTUI_WEB_LDFLAGS:-} \
+    -sSTACK_SIZE=8mb \
+    -sEXPORTED_FUNCTIONS=_main,_fortui_web_step,_fortui_web_key,_fortui_web_layer_ptr,_fortui_web_net_deliver${FORTUI_WEB_EXPORTS:+,$FORTUI_WEB_EXPORTS} \
+    $js ${FORTUI_WEB_LDFLAGS:-} \
     -o "$out/$name.js" ./*.o "$runtime"
 html=$(dirname "$prog")/index.html
 if [ -f "$html" ]; then cp "$html" "$out/index.html"; fi

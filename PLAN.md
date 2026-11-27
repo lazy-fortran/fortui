@@ -12,8 +12,7 @@ headless tests, termbox2 TUI, and optional raylib GUI. The documentation redesig
 adds contracts and a delivery sequence; it does not implement native/DOM/mobile,
 commands, transaction scheduling, text services, or incremental invalidation.
 
-Next implementation task: B1 below, the network service, which removes the first
-workaround of the stellim prototype. M1 stays open and is taken up by B7.
+Next implementation task: B2 below. M1 stays open and is taken up by B7.
 
 ## B: best-of-breed through a demanding application (Chris, 2026-11-27)
 
@@ -25,10 +24,17 @@ a desktop check and a browser check, and replaces a workaround in stellim.
 Redesigning existing APIs is allowed where an item needs it; all downstreams are
 ours and move with the change.
 
-- [ ] B1 Network service: HTTP requests and server-sent event streams as owned
+- [x] B1 Network service: HTTP requests and server-sent event streams as owned
       asynchronous requests on every host (browser `fetch`/`EventSource`,
-      native sockets), plus locale, URL query and wall clock as platform
-      information, so applications need no JavaScript of their own.
+      native sockets), plus locale and URL query as platform information, so
+      applications need no JavaScript of their own. Evidence: `test_http`
+      (framing in pieces of every size), `test_net` (runtime semantics with a
+      controlled transport; sockets against a forked server: Content-Length,
+      chunked POST, error status, event stream, refused connection, HTTPS
+      refused, wake-ups from the helper thread) and `web_browser_test.mjs`
+      (Chromium: event stream, POST, page parameter, language). Open: name
+      lookup waits; native TLS; the browser test stops earlier at the automatic
+      dark theme check, which fails on main as well (B5).
 - [ ] B2 Focus and keys: `ui_focus` reaches a control from anywhere in the
       frame; keys typed before a requested focus lands reach the field.
       Layout defaults: rows align to the top, wrapping rows, breakpoints from the

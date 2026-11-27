@@ -15,6 +15,8 @@ module fortui_gui
     use iso_fortran_env, only: int8, int32, int64
     use fortui_files, only: FILE_PENDING, FILE_ACCEPTED, FILE_CANCELLED, FILE_FAILED
     use fortui_backend, only: ui_backend_t, ui_backend_caps_t
+    use fortui_net_transport, only: net_transport_t
+    use fortui_net_posix, only: posix_transport
     use fortui_frame, only: ui_frame_t, ui_layer_ref_t, LAYER_POINTS, LAYER_IMAGE, LAYER_CELLS, &
         CELL_UNDERLINE, CELL_STRIKE, CELL_CONT, CELL_WIDE, CELL_CURSOR, CELL_BAR
     use fortui_canvas, only: canvas_layer_t, canvas_store_t
@@ -143,6 +145,7 @@ module fortui_gui
         procedure :: clipboard_get => gb_clipboard_get
         procedure :: set_title => gb_set_title
         procedure :: waker => gb_waker
+        procedure :: network => gb_network
         procedure :: set_window_size => gb_set_window_size
         procedure :: set_window_visible => gb_set_window_visible
         procedure :: maximize_window => gb_maximize_window
@@ -1554,5 +1557,12 @@ contains
             if (self%active) call enqueue(self, ev)
         end select
     end subroutine gui_inject
+
+    subroutine gb_network(self, transport)
+        !! Plain HTTP over sockets that never block the frame.
+        class(gui_backend_t), intent(inout) :: self
+        class(net_transport_t), allocatable, intent(out) :: transport
+        allocate (transport, source=posix_transport(self%waker()))
+    end subroutine gb_network
 
 end module fortui_gui
